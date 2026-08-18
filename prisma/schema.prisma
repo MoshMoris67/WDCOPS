@@ -1,0 +1,169 @@
+// WellcashOps data model — mirrors §6 of the Wellcash Uganda requirements doc.
+// Dev datasource is SQLite for zero-install local setup; point DATABASE_URL at a
+// self-hosted Postgres instance for production (see .env and the gap-analysis doc
+// for why "self-hosted" specifically — no third-party service may hold client data).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id                 String   @id @default(cuid())
+  name               String
+  reconciliationType String // "full" | "partial"
+  reportingFrequency String // "daily" | "weekly" | "monthly"
+  branch             String   @default("uganda")
+  createdAt          DateTime @default(now())
+
+  files           File[]
+  reconciliations Reconciliation[]
+}
+
+model File {
+  id              String   @id @default(cuid())
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id])
+  batchLabel      String
+  receivedDate    DateTime
+  isMidMonthTopup Boolean  @default(false)
+  isRecalled      Boolean  @default(false)
+  branch          String   @default("uganda")
+  createdAt       DateTime @default(now())
+
+  debtors         Debtor[]
+  reconciliations Reconciliation[]
+
+  @@index([clientId])
+}
+
+model Debtor {
+  id              String    @id @default(cuid())
+  fileId          String
+  file            File      @relation(fields: [fileId], references: [id])
+  name            String
+  phone1          String
+  phone2          String?
+  loanRef         String
+  amountOwed      Float
+  cumulativePaid  Float     @default(0)
+  balance         Float
+  assignedAgentId String?
+  assignedAgent   User?     @relation("AgentDebtors", fields: [assignedAgentId], references: [id])
+  branch          String    @default("uganda")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  callLogs             CallLog[]
+  assignments          Assignment[]
+  reconciliationEntries ReconciliationEntry[]
+
+  @@index([fileId])
+  @@index([assignedAgentId])
+  @@index([loanRef])
+  @@index([phone1])
+}
+
+model CallLog {
+  id              String    @id @default(cuid())
+  debtorId        String
+  debtor          Debtor    @relation(fields: [debtorId], references: [id])
+  agentId         String
+  agent           User      @relation("AgentCallLogs", fields: [agentId], references: [id])
+  dispositionCode String
+  note            String?
+  promisedAmount  Float?
+  promisedDate    DateTime?
+  createdAt       DateTime  @default(now())
+  syncedAt        DateTime?
+
+  @@index([debtorId])
+  @@index([agentId])
+  @@index([debtorId, createdAt])
+  @@index([createdAt])
+}
+
+model Reconciliation {
+  id           String    @id @default(cuid())
+  clientId     String
+  client       Client    @relation(fields: [clientId], references: [id])
+  fileId       String?
+  file         File?     @relation(fields: [fileId], references: [id])
+  type         String // "full" | "partial"
+  receivedAt   DateTime
+  processedAt  DateTime?
+  recordCount      Int
+  updatedCount     Int       @default(0)
+  newAccountsCount Int       @default(0)
+  totalUpdated     Float     @default(0)
+  notes        String?
+  errorSummary String?
+  rawRows      String? // JSON-encoded parsed rows, kept so "process now" can retry without a re-upload
+  status       String    @default("pending") // pending | processed | failed
+  branch       String    @default("uganda")
+  createdAt    DateTime  @default(now())
+
+  entries ReconciliationEntry[]
+
+  @@index([clientId])
+}
+
+// One row per debtor actually touched by a reconciliation — the audit trail for
+// §7's "team leaders see a running log ... nothing silently lost" and the source
+// of a debtor's "recently paid" flag.
+model ReconciliationEntry {
+  id               String         @id @default(cuid())
+  reconciliationId String
+  reconciliation   Reconciliation @relation(fields: [reconciliationId], references: [id])
+  debtorId         String
+  debtor           Debtor         @relation(fields: [debtorId], references: [id])
+  oldBalance       Float
+  newBalance       Float
+  paidAmount       Float
+  createdAt        DateTime       @default(now())
+
+  @@index([reconciliationId])
+  @@index([debtorId])
+}
+
+model User {
+  id             String   @id @default(cuid())
+  name           String
+  email          String   @unique
+  passwordHash   String
+  role           String // admin | agent
+  status         String   @default("active")
+  branch         String   @default("uganda")
+  createdAt      DateTime @default(now())
+
+  assignedDebtors Debtor[]     @relation("AgentDebtors")
+  callLogs        CallLog[]    @relation("AgentCallLogs")
+  assignmentsTo   Assignment[] @relation("AssignedTo")
+}
+
+model Assignment {
+  id               String   @id @default(cuid())
+  debtorId         String
+  debtor           Debtor   @relation(fields: [debtorId], references: [id])
+  agentId          String
+  agent            User     @relation("AssignedTo", fields: [agentId], references: [id])
+  assignedAt       DateTime @default(now())
+  reassignedFromId String?
+
+  @@index([debtorId])
+}
+
+// Admin-managed — the whole point is that new codes an admin adds show up
+// everywhere (call-logging form, badges, charts) without a code change.
+model DispositionCode {
+  code             String  @id
+  label            String
+  description      String?
+  color            String  @default("#64748B") // hex, drives badge + chart colors
+  requiresCallback Boolean @default(false)
+  requiresPtp      Boolean @default(false)
+}
