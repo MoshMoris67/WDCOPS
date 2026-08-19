@@ -7,6 +7,7 @@ import { Phone, ChevronLeft, ChevronRight, Clock, CheckCircle, MessageSquare, Cr
 import Link from 'next/link';
 import Badge from '@/components/ui/Badge';
 import DispositionBadge from '@/components/ui/DispositionBadge';
+import Toggle from '@/components/ui/Toggle';
 import { toast } from 'sonner';
 import { useOnlineStatus } from '@/lib/use-offline';
 import { queueCallLog, QUEUE_CHANGED_EVENT } from '@/lib/offline-sync';
@@ -130,6 +131,17 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [effectivePrev, effectiveNext]);
 
+  // Off by default — an agent has to turn this on. Persisted per browser so the
+  // choice sticks across debtors and page loads, not just the current session.
+  const [autoAdvance, setAutoAdvance] = useState(false);
+  useEffect(() => {
+    setAutoAdvance(localStorage.getItem('autoAdvance:calls') === 'true');
+  }, []);
+  function toggleAutoAdvance(next: boolean) {
+    setAutoAdvance(next);
+    localStorage.setItem('autoAdvance:calls', String(next));
+  }
+
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isOnline = useOnlineStatus();
@@ -192,6 +204,17 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
     return () => window.removeEventListener(QUEUE_CHANGED_EVENT, onQueueChanged);
   }, [loadDebtor]);
 
+  // Brief delay so the agent actually sees the "logged" toast before the view jumps —
+  // an instant swap reads as the click doing nothing, not as a successful submit.
+  function advanceIfEnabled() {
+    if (!autoAdvance) return;
+    if (!effectiveNext) {
+      toast.info("That's the last debtor in your queue");
+      return;
+    }
+    setTimeout(() => effectiveNext(), 900);
+  }
+
   async function onSubmit(data: CallLogFormData) {
     if (!data.dispositionCode || !debtorId) {
       toast.error('Select a disposition code before submitting');
@@ -232,6 +255,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
       setActiveTab('history');
       setIsSubmitting(false);
       toast.warning('Logged offline — will sync when connected');
+      advanceIfEnabled();
       return;
     }
 
@@ -257,6 +281,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
       setActiveTab('history');
       await loadDebtor();
       toast.success(`Disposition ${data.dispositionCode} logged and synced`);
+      advanceIfEnabled();
     } catch {
       toast.error('Could not reach the server — try again');
     } finally {
@@ -574,6 +599,13 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                 {isOnline ? 'Online' : 'Offline'}
               </div>
             </div>
+
+            {(effectivePrev || effectiveNext) && (
+              <div className="px-5 py-2.5 border-b border-border flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">Auto-advance to next debtor</span>
+                <Toggle checked={autoAdvance} onChange={toggleAutoAdvance} size="sm" />
+              </div>
+            )}
 
             <div className="px-5 pt-4">
               <a

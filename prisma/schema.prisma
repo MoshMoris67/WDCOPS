@@ -1,14 +1,14 @@
 // WellcashOps data model — mirrors §6 of the Wellcash Uganda requirements doc.
-// Dev datasource is SQLite for zero-install local setup; point DATABASE_URL at a
-// self-hosted Postgres instance for production (see .env and the gap-analysis doc
-// for why "self-hosted" specifically — no third-party service may hold client data).
+// Self-hosted Postgres in both dev (docker-compose.yml) and production — no
+// third-party service may hold client data, so DATABASE_URL always points at
+// a Postgres instance you run yourself, never a managed DB-as-a-service.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

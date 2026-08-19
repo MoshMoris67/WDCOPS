@@ -1,6 +1,5 @@
 # Node modules
 node_modules/
-package-lock.json
 
 # Next.js build output
 .next/
@@ -40,8 +39,10 @@ turbo/
 .env
 .env.local
 
-# Local SQLite dev database
+# Leftover local SQLite dev database files, from before the Postgres switch —
+# kept on disk as a fallback, never pushed.
 prisma/*.db
 prisma/*.db-journal
 prisma/*.db-shm
 prisma/*.db-wal
+prisma/migrations.sqlite-archive/

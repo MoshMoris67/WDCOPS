@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: wellcashops-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wellcashops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-wellcashops}
+    ports:
+      # Host 5433 -> container 5432, since a separate native Postgres service
+      # already owns 5432 on this machine. This container is self-hosted (runs
+      # on this machine, under our own compose file), not a third-party service.
+      - "5433:5432"
+    volumes:
+      - wellcashops_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wellcashops}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  wellcashops_pgdata:
