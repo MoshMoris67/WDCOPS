@@ -30,6 +30,8 @@ interface FileRow {
   assignedCount: number;
   totalBalance: number;
   agentsAllocated: number;
+  importStatus: 'processing' | 'complete' | 'failed';
+  importError: string | null;
 }
 
 interface AgentOption {
@@ -140,6 +142,15 @@ const statusConfig = {
   pending: { label: 'Pending Distribution', variant: 'info' as const },
 };
 
+// Importing/failed take priority over the usual distribution-status badge — a file
+// mid-background-import always reads as "Importing…" regardless of its debtor/assigned
+// counts (which are still filling in), not as "Pending Distribution".
+function fileStatusBadge(file: FileRow): { label: string; variant: 'positive' | 'muted' | 'warning' | 'info' | 'negative' } {
+  if (file.importStatus === 'processing') return { label: 'Importing…', variant: 'warning' };
+  if (file.importStatus === 'failed') return { label: 'Import Failed', variant: 'negative' };
+  return statusConfig[file.status];
+}
+
 function formatUGX(amount: number) {
   if (amount >= 1000000000) return `UGX ${(amount / 1000000000).toFixed(2)}B`;
   if (amount >= 1000000) return `UGX ${(amount / 1000000).toFixed(1)}M`;
@@ -187,6 +198,15 @@ export default function FileManagementContent() {
     const data = await res.json();
     setFiles(data.files ?? []);
   }, []);
+
+  // Large imports finish in the background (see POST /api/files) — poll while any file
+  // is still importStatus 'processing' so the row updates on its own once it's done,
+  // rather than the admin having to manually refresh to find out.
+  useEffect(() => {
+    if (!files.some((f) => f.importStatus === 'processing')) return;
+    const id = setInterval(loadFiles, 4000);
+    return () => clearInterval(id);
+  }, [files, loadFiles]);
 
   useEffect(() => {
     loadFiles();
@@ -283,7 +303,7 @@ export default function FileManagementContent() {
       setIsMidMonth(false);
       await loadFiles();
       setDistributionFileId(payload.file.id);
-      toast.success(`File "${data.batchLabel}" imported — ${payload.file.debtorCount} debtors queued for distribution`);
+      toast.success(`File "${data.batchLabel}" — ${payload.file.debtorCount} debtors importing in the background, ready shortly`);
     } catch {
       toast.error('Could not reach the server — try again');
     } finally {
@@ -490,7 +510,7 @@ export default function FileManagementContent() {
                 </tr>
               )}
               renderTableRow={(file) => {
-                const sc = statusConfig[file.status as keyof typeof statusConfig];
+                const sc = fileStatusBadge(file);
                 return (
                   <tr
                     className={`border-b border-border/60 hover:bg-secondary/40 transition-colors group cursor-pointer ${distributionFileId === file.id ? 'bg-primary/5' : ''}`}
@@ -576,7 +596,7 @@ export default function FileManagementContent() {
                 );
               }}
               renderCard={(file) => {
-                const sc = statusConfig[file.status as keyof typeof statusConfig];
+                const sc = fileStatusBadge(file);
                 return (
                   <div
                     onClick={() => setDistributionFileId(file.id)}
@@ -656,8 +676,8 @@ export default function FileManagementContent() {
                     <h3 className="text-section-header text-foreground">Agent Distribution</h3>
                     <p className="text-xs text-muted-foreground mt-0.5 font-mono-data">{selectedFile.batchLabel}</p>
                   </div>
-                  <Badge variant={statusConfig[selectedFile.status as keyof typeof statusConfig].variant}>
-                    {statusConfig[selectedFile.status as keyof typeof statusConfig].label}
+                  <Badge variant={fileStatusBadge(selectedFile).variant}>
+                    {fileStatusBadge(selectedFile).label}
                   </Badge>
                 </div>
 

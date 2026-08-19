@@ -113,6 +113,7 @@ const AppImage = memo(function AppImage({
             width={width || 400}
             height={height || 300}
             sizes={sizes}
+            style={{ objectFit: 'contain' }}
             {...props}
         />
     );

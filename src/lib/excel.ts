@@ -185,6 +185,14 @@ const SYNONYMS = {
     'balance', 'bal', 'loanbal', 'outstandingbalance', 'totaloutstanding', 'currentbalance',
     'principalbalance', 'clrbal', 'totaldue', 'totalout', 'loanbalance',
   ],
+  amountPaid: [
+    'amountpaid', 'paidamount', 'paid', 'amtpaid', 'paymentamount', 'totalpaid',
+    'paymentreceived', 'amountreceived', 'repayment', 'repaymentamount',
+  ],
+  cumulativePaid: [
+    'cumulativepaid', 'cumpaid', 'totalpaid', 'runningpaid', 'totalpaidtodate',
+    'totalrepaid', 'aggregatepaid',
+  ],
 } as const;
 
 function findColumn(cols: Map<string, number>, synonyms: readonly string[]): number | undefined {
@@ -342,26 +350,60 @@ export interface ReconciliationRow {
   amountOwed: number | null;
 }
 
-/**
- * Reconciliation template: Loan Ref and/or Phone to match, plus Amount Paid (partial) or
- * Cumulative Paid (full). Optionally also Name + Amount Owed for rows that are actually new
- * accounts riding along with the reconciliation rather than a payment update. Accepts .xlsx or .csv.
- */
-export async function parseReconciliationWorkbook(
-  buffer: ArrayBuffer,
-  type: 'full' | 'partial',
-  filename: string
-): Promise<ParseResult<ReconciliationRow>> {
-  const table = await loadTable(buffer, filename);
-  const cols = headerColumnMap(table[0] ?? []);
+export interface ReconciliationMapping {
+  loanRefCol?: number;
+  phoneCol?: number;
+  /** Amount Paid (partial) or Cumulative Paid (full) — whichever the client's file calls it. */
+  amountCol?: number;
+  nameCol?: number;
+  amountOwedCol?: number;
+}
 
-  const loanRefCol = cols.get('loanref') ?? cols.get('loanreference');
-  const phoneCol = cols.get('phone') ?? cols.get('phone1') ?? cols.get('phonenumber');
+/** Best-effort auto-detect from a header row — same idea as suggestImportMapping: a starting
+ * point for the admin to confirm/adjust in the mapping UI, not a guarantee. */
+export function suggestReconciliationMapping(headers: string[], type: 'full' | 'partial'): ReconciliationMapping {
+  const cols = headerColumnMap(headers);
+
+  const loanRefCol = findColumn(cols, SYNONYMS.loanRef);
+  const phoneCol = findColumn(cols, SYNONYMS.phone) ?? findColumnFuzzy(cols, ['phone', 'mobile', 'tel', 'msisdn', 'contact']);
   const amountCol = type === 'full'
-    ? (cols.get('cumulativepaid') ?? cols.get('amountpaid'))
-    : (cols.get('amountpaid') ?? cols.get('cumulativepaid'));
-  const nameCol = cols.get('name');
-  const amountOwedCol = cols.get('amountowed');
+    ? findColumn(cols, SYNONYMS.cumulativePaid) ?? findColumn(cols, SYNONYMS.amountPaid)
+    : findColumn(cols, SYNONYMS.amountPaid) ?? findColumn(cols, SYNONYMS.cumulativePaid);
+  const nameCol = findColumn(cols, SYNONYMS.name) ?? findColumnFuzzy(cols, ['name']);
+  const amountOwedCol = findColumn(cols, SYNONYMS.amountOwed);
+
+  return { loanRefCol, phoneCol, amountCol, nameCol, amountOwedCol };
+}
+
+export interface ReconciliationPreview {
+  headers: string[];
+  sampleRows: string[][];
+  suggested: ReconciliationMapping;
+  totalRows: number;
+  sheets: SheetInfo[];
+}
+
+/** Parses just enough of the file to show a mapping-confirmation step — mirrors previewImportFile. */
+export async function previewReconciliationFile(buffer: ArrayBuffer, filename: string, type: 'full' | 'partial'): Promise<ReconciliationPreview> {
+  const [table, sheets] = await Promise.all([loadTable(buffer, filename), listSheets(buffer, filename)]);
+  const headers = table[0] ?? [];
+  return {
+    headers,
+    sampleRows: table.slice(1, 6),
+    suggested: suggestReconciliationMapping(headers, type),
+    totalRows: Math.max(0, table.length - 1),
+    sheets,
+  };
+}
+
+/**
+ * Parses reconciliation rows from a pre-loaded table using a confirmed column mapping — either
+ * auto-detected (see suggestReconciliationMapping) or hand-picked by the admin after reviewing
+ * a preview, the same pattern parseImportRows uses so a reconciliation file with unfamiliar
+ * headers doesn't just fail with "no valid rows found."
+ */
+export function parseReconciliationRows(table: string[][], mapping: ReconciliationMapping, type: 'full' | 'partial'): ParseResult<ReconciliationRow> {
+  const { loanRefCol, phoneCol, amountCol, nameCol, amountOwedCol } = mapping;
 
   const errors: string[] = [];
   if (loanRefCol === undefined && phoneCol === undefined) {
@@ -395,6 +437,17 @@ export async function parseReconciliationWorkbook(
   }
 
   return { rows, errors };
+}
+
+/** Convenience wrapper for when no explicit mapping is confirmed — loads the table and auto-detects. */
+export async function parseReconciliationWorkbook(
+  buffer: ArrayBuffer,
+  type: 'full' | 'partial',
+  filename: string
+): Promise<ParseResult<ReconciliationRow>> {
+  const table = await loadTable(buffer, filename);
+  const mapping = suggestReconciliationMapping(table[0] ?? [], type);
+  return parseReconciliationRows(table, mapping, type);
 }
 
 export async function buildReportWorkbook(input: {

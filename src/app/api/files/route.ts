@@ -42,6 +42,8 @@ export async function GET() {
       totalBalance,
       agentsAllocated: agentsAllocated.get(f.id) ?? 0,
       status: fileStatus({ isRecalled: f.isRecalled, debtorCount, assignedCount }),
+      importStatus: f.importStatus,
+      importError: f.importError,
     };
   });
 
@@ -94,38 +96,55 @@ export async function POST(req: Request) {
       batchLabel,
       receivedDate: new Date(receivedDateRaw),
       isMidMonthTopup,
+      importStatus: 'processing',
     },
   });
 
-  // A nested `file.create({ data: { debtors: { create: [...] } } })` sends one INSERT
-  // per debtor — fine for a handful of rows, but a real client file can be tens of
-  // thousands of rows, and that turns into tens of thousands of round trips (minutes,
-  // not seconds, especially against SQLite on Windows). createMany batches it into one.
-  await prisma.debtor.createMany({
-    data: rows.map((r) => {
-      // Some clients' files carry the current outstanding balance separately from the
-      // original amount owed (already-partly-repaid loans) — when they don't, balance
-      // defaults to amountOwed, matching the standard-template behavior.
-      const balance = r.balance ?? r.amountOwed;
-      const cumulativePaid = Math.max(0, r.amountOwed - balance);
-      return {
-        fileId: created.id,
-        name: r.name,
-        phone1: r.phone1,
-        phone2: r.phone2,
-        loanRef: r.loanRef,
-        amountOwed: r.amountOwed,
-        cumulativePaid,
-        balance,
-      };
-    }),
-  });
+  // Deliberately not awaited: the row insert is what was timing out on a slow host for
+  // a large file (a nested file.create({data:{debtors:{create:[...]}}}) would be one
+  // INSERT per debtor — createMany batches it into one, but even one bulk statement over
+  // tens of thousands of rows can take longer than a proxy's request timeout allows). By
+  // not awaiting this, the HTTP response below goes out immediately regardless of file
+  // size, and this continues running because the app runs as a real persistent Node
+  // process here (Render), not a serverless function that would freeze the moment the
+  // response is sent — this exact pattern would silently stop mid-way on a serverless host.
+  createMany(created.id, rows).catch(() => {});
 
   return NextResponse.json(
     {
-      file: { id: created.id, batchLabel: created.batchLabel, debtorCount: rows.length },
+      file: { id: created.id, batchLabel: created.batchLabel, debtorCount: rows.length, importStatus: 'processing' },
       warnings: errors,
     },
     { status: 201 }
   );
+}
+
+async function createMany(fileId: string, rows: ReturnType<typeof parseImportRows>['rows']) {
+  try {
+    await prisma.debtor.createMany({
+      data: rows.map((r) => {
+        // Some clients' files carry the current outstanding balance separately from the
+        // original amount owed (already-partly-repaid loans) — when they don't, balance
+        // defaults to amountOwed, matching the standard-template behavior.
+        const balance = r.balance ?? r.amountOwed;
+        const cumulativePaid = Math.max(0, r.amountOwed - balance);
+        return {
+          fileId,
+          name: r.name,
+          phone1: r.phone1,
+          phone2: r.phone2,
+          loanRef: r.loanRef,
+          amountOwed: r.amountOwed,
+          cumulativePaid,
+          balance,
+        };
+      }),
+    });
+    await prisma.file.update({ where: { id: fileId }, data: { importStatus: 'complete' } });
+  } catch (err) {
+    await prisma.file.update({
+      where: { id: fileId },
+      data: { importStatus: 'failed', importError: err instanceof Error ? err.message : 'Import failed' },
+    }).catch(() => {});
+  }
 }

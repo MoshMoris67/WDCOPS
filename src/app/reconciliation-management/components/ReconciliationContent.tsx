@@ -49,6 +49,62 @@ interface UploadFormData {
   notes: string;
 }
 
+interface ReconPreview {
+  headers: string[];
+  sampleRows: string[][];
+  totalRows: number;
+  suggested: {
+    loanRefCol?: number;
+    phoneCol?: number;
+    amountCol?: number;
+    nameCol?: number;
+    amountOwedCol?: number;
+  };
+}
+
+interface ReconMappingState {
+  loanRefCol: string;
+  phoneCol: string;
+  amountCol: string;
+  nameCol: string;
+  amountOwedCol: string;
+}
+
+const EMPTY_RECON_MAPPING: ReconMappingState = {
+  loanRefCol: '', phoneCol: '', amountCol: '', nameCol: '', amountOwedCol: '',
+};
+
+function reconMappingFromSuggestion(suggested: ReconPreview['suggested']): ReconMappingState {
+  const s = (n?: number) => (n === undefined ? '' : String(n));
+  return {
+    loanRefCol: s(suggested.loanRefCol),
+    phoneCol: s(suggested.phoneCol),
+    amountCol: s(suggested.amountCol),
+    nameCol: s(suggested.nameCol),
+    amountOwedCol: s(suggested.amountOwedCol),
+  };
+}
+
+// Mirrors excel.ts's parseReconciliationRows validation: need Loan Ref or Phone to match
+// against, plus either an amount column or full Name+Amount Owed for new accounts.
+function reconMappingIsComplete(m: ReconMappingState): boolean {
+  const hasMatchKey = m.loanRefCol !== '' || m.phoneCol !== '';
+  const hasAmount = m.amountCol !== '';
+  const hasNewAccountInfo = m.nameCol !== '' && m.amountOwedCol !== '';
+  return hasMatchKey && (hasAmount || hasNewAccountInfo);
+}
+
+function buildReconMappingPayload(m: ReconMappingState) {
+  const n = (v: string) => (v === '' ? undefined : Number(v));
+  return {
+    loanRefCol: n(m.loanRefCol),
+    phoneCol: n(m.phoneCol),
+    amountCol: n(m.amountCol),
+    nameCol: n(m.nameCol),
+    amountOwedCol: n(m.amountOwedCol),
+  };
+}
+
 const statusConfig = {
   processed: { label: 'Processed', variant: 'positive' as const, icon: CheckCircle },
   pending: { label: 'Pending', variant: 'warning' as const, icon: Clock },
@@ -78,6 +134,9 @@ export default function ReconciliationContent() {
   const [isUploading, setIsUploading] = useState(false);
   const [selectedUploadFile, setSelectedUploadFile] = useState<globalThis.File | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [reconPreview, setReconPreview] = useState<ReconPreview | null>(null);
+  const [reconMapping, setReconMapping] = useState<ReconMappingState>(EMPTY_RECON_MAPPING);
+  const [isPreviewingRecon, setIsPreviewingRecon] = useState(false);
 
   const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<UploadFormData>({
     defaultValues: { clientId: '', fileId: '', reconciliationType: 'partial', receivedDate: '', receivedTime: '', notes: '' },
@@ -93,6 +152,14 @@ export default function ReconciliationContent() {
     loadReconciliations();
     fetch('/api/files').then((r) => r.json()).then((d) => setFiles(d.files ?? []));
   }, [loadReconciliations]);
+
+  // Large reconciliations finish in the background (see POST /api/reconciliations) —
+  // poll while any row is still status 'pending' so it updates on its own once done.
+  useEffect(() => {
+    if (!reconciliations.some((r) => r.status === 'pending')) return;
+    const id = setInterval(loadReconciliations, 4000);
+    return () => clearInterval(id);
+  }, [reconciliations, loadReconciliations]);
 
   useEffect(() => {
     if (!selectedReconId) {
@@ -115,9 +182,39 @@ export default function ReconciliationContent() {
     return matchSearch && matchClient && matchType;
   });
 
+  async function onReconFileSelected(file: globalThis.File | null) {
+    setSelectedUploadFile(file);
+    setReconPreview(null);
+    setReconMapping(EMPTY_RECON_MAPPING);
+    if (!file) return;
+
+    setIsPreviewingRecon(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('reconciliationType', selectedType);
+      const res = await fetch('/api/reconciliations/preview', { method: 'POST', body: form });
+      const payload = await res.json();
+      if (!res.ok) {
+        toast.error(payload.error || 'Could not read this file');
+        return;
+      }
+      setReconPreview(payload);
+      setReconMapping(reconMappingFromSuggestion(payload.suggested));
+    } catch {
+      toast.error('Could not reach the server — try again');
+    } finally {
+      setIsPreviewingRecon(false);
+    }
+  }
+
   async function onUpload(data: UploadFormData) {
     if (!selectedUploadFile) {
       toast.error('Choose a reconciliation file to upload');
+      return;
+    }
+    if (!reconMappingIsComplete(reconMapping)) {
+      toast.error('Map Loan Ref or Phone, plus an amount column (or Name + Amount Owed for new accounts), before logging');
       return;
     }
     setIsUploading(true);
@@ -130,6 +227,7 @@ export default function ReconciliationContent() {
       form.append('receivedDate', data.receivedDate);
       form.append('receivedTime', data.receivedTime);
       form.append('notes', data.notes);
+      form.append('mapping', JSON.stringify(buildReconMappingPayload(reconMapping)));
 
       const res = await fetch('/api/reconciliations', { method: 'POST', body: form });
       const payload = await res.json();
@@ -140,12 +238,12 @@ export default function ReconciliationContent() {
       setUploadModalOpen(false);
       reset();
       setSelectedUploadFile(null);
+      setReconPreview(null);
+      setReconMapping(EMPTY_RECON_MAPPING);
       await loadReconciliations();
       setSelectedReconId(payload.reconciliation.id);
-      const newAccountsCount = payload.reconciliation.newAccountsCount ?? 0;
       toast.success(
-        `${data.reconciliationType === 'full' ? 'Full' : 'Partial'} reconciliation logged — ${payload.reconciliation.updatedCount} debtor(s) updated` +
-        (newAccountsCount > 0 ? `, ${newAccountsCount} new account(s) added and distributed` : '')
+        `${data.reconciliationType === 'full' ? 'Full' : 'Partial'} reconciliation logged — ${payload.reconciliation.recordCount} row(s) processing in the background, ready shortly`
       );
     } catch {
       toast.error('Could not reach the server — try again');
@@ -503,7 +601,7 @@ export default function ReconciliationContent() {
       {/* Upload Modal */}
       <Modal
         open={uploadModalOpen}
-        onClose={() => { setUploadModalOpen(false); reset(); setSelectedUploadFile(null); }}
+        onClose={() => { setUploadModalOpen(false); reset(); setSelectedUploadFile(null); setReconPreview(null); setReconMapping(EMPTY_RECON_MAPPING); }}
         title="Log New Reconciliation"
         subtitle="Upload a reconciliation file received from a client and log the event"
         size="lg"
@@ -511,7 +609,7 @@ export default function ReconciliationContent() {
           <>
             <button
               type="button"
-              onClick={() => { setUploadModalOpen(false); reset(); setSelectedUploadFile(null); }}
+              onClick={() => { setUploadModalOpen(false); reset(); setSelectedUploadFile(null); setReconPreview(null); setReconMapping(EMPTY_RECON_MAPPING); }}
               className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
               Cancel
@@ -519,7 +617,7 @@ export default function ReconciliationContent() {
             <button
               form="recon-upload-form"
               type="submit"
-              disabled={isUploading}
+              disabled={isUploading || isPreviewingRecon || !reconPreview || !reconMappingIsComplete(reconMapping)}
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
             >
               {isUploading ? (
@@ -541,20 +639,44 @@ export default function ReconciliationContent() {
         }
       >
         <form id="recon-upload-form" onSubmit={handleSubmit(onUpload)} className="space-y-5">
+          {/* Reconciliation type — picked before the file, since it decides whether we
+              suggest "Amount Paid" or "Cumulative Paid" for the mapping's amount column */}
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-foreground">Reconciliation Type <span className="text-negative">*</span></label>
+            <p className="text-xs text-muted-foreground">Select the format this client sent</p>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { value: 'full', title: 'Full Reconciliation', desc: 'Complete file — system compares all records and updates cumulative payments across the whole batch' },
+                { value: 'partial', title: 'Partial (Paid-Only)', desc: 'Only paid accounts — system matches by loan ref or phone and updates only those debtors' },
+              ].map((opt) => (
+                <label
+                  key={`rtype-${opt.value}`}
+                  className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${selectedType === opt.value ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'}`}
+                >
+                  <input type="radio" value={opt.value} className="mt-0.5 accent-primary" {...register('reconciliationType')} />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">{opt.title}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{opt.desc}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+
           {/* File upload */}
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-foreground">Reconciliation File <span className="text-negative">*</span></label>
             <p className="text-xs text-muted-foreground">
-              Required: Loan Ref or Phone, plus {selectedType === 'full' ? 'Cumulative Paid' : 'Amount Paid'}.
-              Rows that don&apos;t match an existing debtor are added as new accounts if the row also has
-              Name, Phone, and Amount Owed — so a client can send new accounts and reconciliation in one file.
+              Any column headers are fine — you&apos;ll confirm what maps to what below. Rows that don&apos;t
+              match an existing debtor are added as new accounts if the row also has Name, Phone, and
+              Amount Owed — so a client can send new accounts and reconciliation in one file.
             </p>
             <label className="block border-2 border-dashed border-border rounded-xl p-6 text-center hover:border-primary/50 transition-colors cursor-pointer bg-secondary/20">
               <input
                 type="file"
                 accept=".xlsx,.csv"
                 className="sr-only"
-                onChange={(e) => setSelectedUploadFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => onReconFileSelected(e.target.files?.[0] ?? null)}
               />
               <Upload size={20} className="text-muted-foreground mx-auto mb-2" />
               <p className="text-sm font-medium text-foreground">
@@ -563,6 +685,79 @@ export default function ReconciliationContent() {
               <p className="text-xs text-muted-foreground mt-1">Accepts .xlsx or .csv up to 20MB</p>
             </label>
           </div>
+
+          {isPreviewingRecon && (
+            <p className="text-sm text-muted-foreground">Reading columns…</p>
+          )}
+
+          {reconPreview && (
+            <div className="space-y-4 p-4 bg-secondary/30 rounded-xl border border-border">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Map Columns</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {reconPreview.totalRows.toLocaleString()} row(s) detected. Matched what we could recognize —
+                  confirm or fix anything below before logging.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {([
+                  ['loanRefCol', 'Loan Ref', false],
+                  ['phoneCol', 'Phone', false],
+                  ['amountCol', selectedType === 'full' ? 'Cumulative Paid' : 'Amount Paid', false],
+                  ['amountOwedCol', 'Amount Owed (new accounts)', false],
+                ] as const).map(([field, label, required]) => (
+                  <div key={field} className="space-y-1">
+                    <label className="text-xs font-semibold text-foreground uppercase tracking-wide">{label}</label>
+                    <select
+                      value={reconMapping[field]}
+                      onChange={(e) => setReconMapping((m) => ({ ...m, [field]: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+                    >
+                      <option value="">{required ? 'Select column…' : 'Not in this file'}</option>
+                      {reconPreview.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-foreground uppercase tracking-wide">Name (new accounts)</label>
+                <p className="text-xs text-muted-foreground">Loan Ref or Phone is needed to match existing debtors; Name + Amount Owed together are what let an unmatched row become a new account instead of just a warning.</p>
+                <select
+                  value={reconMapping.nameCol}
+                  onChange={(e) => setReconMapping((m) => ({ ...m, nameCol: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+                >
+                  <option value="">Not in this file</option>
+                  {reconPreview.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
+                </select>
+              </div>
+
+              {reconPreview.sampleRows.length > 0 && (
+                <div className="overflow-x-auto scrollbar-thin border border-border rounded-lg bg-card">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border bg-secondary/40">
+                        {reconPreview.headers.map((h, i) => (
+                          <th key={i} className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">{h || `Column ${i + 1}`}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reconPreview.sampleRows.map((row, ri) => (
+                        <tr key={ri} className="border-b border-border/60 last:border-0">
+                          {row.map((cell, ci) => (
+                            <td key={ci} className="px-2 py-1.5 whitespace-nowrap text-foreground">{cell}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
@@ -588,29 +783,6 @@ export default function ReconciliationContent() {
                   <option key={f.id} value={f.id}>{f.batchLabel}</option>
                 ))}
               </select>
-            </div>
-          </div>
-
-          {/* Reconciliation type */}
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Reconciliation Type <span className="text-negative">*</span></label>
-            <p className="text-xs text-muted-foreground">Select the format this client sent</p>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { value: 'full', title: 'Full Reconciliation', desc: 'Complete file — system compares all records and updates cumulative payments across the whole batch' },
-                { value: 'partial', title: 'Partial (Paid-Only)', desc: 'Only paid accounts — system matches by loan ref or phone and updates only those debtors' },
-              ].map((opt) => (
-                <label
-                  key={`rtype-${opt.value}`}
-                  className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${selectedType === opt.value ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'}`}
-                >
-                  <input type="radio" value={opt.value} className="mt-0.5 accent-primary" {...register('reconciliationType')} />
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">{opt.title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{opt.desc}</p>
-                  </div>
-                </label>
-              ))}
             </div>
           </div>
 

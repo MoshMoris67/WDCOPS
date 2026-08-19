@@ -114,7 +114,7 @@ function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, is
     <div className="flex flex-col h-full">
       {/* Logo */}
       <div className={`flex items-center h-14 border-b border-border shrink-0 ${collapsed && !isMobile ? 'justify-center px-0' : 'px-4 gap-2'}`}>
-        <AppLogo size={32} />
+        <AppLogo size={collapsed && !isMobile ? 40 : 72} />
         {(!collapsed || isMobile) && <BrandWordmark size="sm" />}
       </div>
 

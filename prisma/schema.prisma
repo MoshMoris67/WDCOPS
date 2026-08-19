@@ -35,6 +35,13 @@ model File {
   branch          String   @default("uganda")
   createdAt       DateTime @default(now())
 
+  // Large imports are processed in the background after the upload response is sent
+  // (see POST /api/files) so a slow host never times out the request regardless of
+  // file size. "complete" is the default so every pre-existing row (imported the old,
+  // synchronous way) reads as already-done without a backfill.
+  importStatus String  @default("complete") // processing | complete | failed
+  importError  String?
+
   debtors         Debtor[]
   reconciliations Reconciliation[]
 

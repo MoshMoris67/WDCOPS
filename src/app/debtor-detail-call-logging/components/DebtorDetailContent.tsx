@@ -208,6 +208,13 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
   // an instant swap reads as the click doing nothing, not as a successful submit.
   function advanceIfEnabled() {
     if (!autoAdvance) return;
+    if (!isOnline) {
+      // Navigating while offline would hit the network for the next page and fail —
+      // the disposition is already safely queued, just don't chase it with a doomed
+      // navigation attempt.
+      toast.info('Logged offline — advance to the next debtor once you\'re back online');
+      return;
+    }
     if (!effectiveNext) {
       toast.info("That's the last debtor in your queue");
       return;

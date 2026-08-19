@@ -89,8 +89,8 @@ export default function LoginContent() {
         {/* Top: brand + live clock */}
         <div className="relative z-10 flex items-start justify-between fade-in">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/15">
-              <AppLogo size={26} />
+            <div className="h-10 px-3 rounded-xl bg-white/10 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/15">
+              <AppLogo size={70} />
             </div>
             <div>
               <BrandWordmark />
@@ -175,7 +175,7 @@ export default function LoginContent() {
         <div className="max-w-md w-full mx-auto fade-in">
           {/* Mobile logo */}
           <div className="flex items-center gap-2.5 mb-8 lg:hidden">
-            <AppLogo size={32} />
+            <AppLogo size={64} />
             <div>
               <BrandWordmark size="sm" />
               <span className="text-xs text-muted-foreground block mt-1">Uganda Branch</span>
