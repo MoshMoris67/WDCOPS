@@ -4,6 +4,8 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
+import BrandWordmark from '@/components/ui/BrandWordmark';
+import ThemeToggle from '@/components/ui/ThemeToggle';
 import { useOnlineStatus, usePendingSyncCount } from '@/lib/use-offline';
 import { getNavGroups, displayRole, type CurrentUser, type NavGroup } from '@/lib/nav-groups';
 import {
@@ -113,12 +115,7 @@ function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, is
       {/* Logo */}
       <div className={`flex items-center h-14 border-b border-border shrink-0 ${collapsed && !isMobile ? 'justify-center px-0' : 'px-4 gap-2'}`}>
         <AppLogo size={32} />
-        {(!collapsed || isMobile) && (
-          <div className="flex flex-col min-w-0">
-            <span className="font-semibold text-sm text-foreground truncate" title="Wellcash Debt Collectors">WELLCASH DEBT COLLECTORS</span>
-            <span className="text-xs text-muted-foreground truncate">Uganda Branch</span>
-          </div>
-        )}
+        {(!collapsed || isMobile) && <BrandWordmark size="sm" />}
       </div>
 
       {/* Sync status */}
@@ -183,6 +180,8 @@ function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, is
 
       {/* Bottom */}
       <div className="border-t border-border p-2 space-y-1">
+        <ThemeToggle collapsed={collapsed && !isMobile} />
+
         {(!collapsed || isMobile) && (
           <button className="w-full flex items-center gap-3 px-2 py-2 rounded-md text-sm font-medium text-secondary-foreground hover:bg-secondary transition-colors">
             <Bell size={18} />

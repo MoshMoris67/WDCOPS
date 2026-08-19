@@ -150,22 +150,34 @@ export default function TeamDashboardContent() {
   const totalStale = clients.reduce((s, c) => s + c.staleCount, 0);
 
   return (
-    <div className="p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-page-title text-foreground">Team Overview</h1>
-        <p className="text-sm text-muted-foreground mt-1">Live view across every client file — scoped by file, not by individual, so any admin sees the full picture</p>
+    <div>
+      {/* Gradient header band */}
+      <div className="relative overflow-hidden px-6 xl:px-8 2xl:px-10 py-7" style={{ background: 'linear-gradient(135deg, #0F1C3F 0%, #1D4ED8 130%)' }}>
+        <div
+          className="absolute -top-24 right-0 w-64 h-64 rounded-full pointer-events-none"
+          style={{ background: 'radial-gradient(circle, rgba(245,158,11,0.28) 0%, rgba(245,158,11,0) 70%)' }}
+        />
+        <div className="max-w-screen-2xl mx-auto relative">
+          <h1 className="text-2xl font-bold text-white">Team Overview</h1>
+          <p className="text-sm text-blue-200 mt-1">Live view across every client file — scoped by file, not by individual, so any admin sees the full picture</p>
+        </div>
       </div>
+
+      <div className="p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto space-y-6">
 
       {/* Branch-wide KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Total Debtors', value: totalDebtors.toLocaleString(), icon: Users, color: 'text-info' },
-          { label: 'Recovered', value: formatUGX(totalRecovered), icon: Wallet, color: 'text-positive' },
-          { label: 'Recovery Rate', value: totalOwed > 0 ? `${Math.round((totalRecovered / totalOwed) * 100)}%` : '0%', icon: TrendingUp, color: 'text-primary' },
-          { label: 'Stale Accounts', value: String(totalStale), icon: AlertTriangle, color: 'text-negative' },
+          { label: 'Total Debtors', value: totalDebtors.toLocaleString(), icon: Users, from: '#DBEAFE', to: '#EFF6FF', color: '#1D4ED8' },
+          { label: 'Recovered', value: formatUGX(totalRecovered), icon: Wallet, from: '#DCFCE7', to: '#F0FDF4', color: '#16A34A' },
+          { label: 'Recovery Rate', value: totalOwed > 0 ? `${Math.round((totalRecovered / totalOwed) * 100)}%` : '0%', icon: TrendingUp, from: '#FEF3C7', to: '#FFFBEB', color: '#D97706' },
+          { label: 'Stale Accounts', value: String(totalStale), icon: AlertTriangle, from: '#FEE2E2', to: '#FEF2F2', color: '#DC2626' },
         ].map((stat) => (
           <div key={stat.label} className="bg-card rounded-xl border border-border shadow-card p-4 flex items-center gap-3">
-            <div className={`w-9 h-9 rounded-lg bg-secondary flex items-center justify-center shrink-0 ${stat.color}`}>
+            <div
+              className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+              style={{ background: `linear-gradient(135deg, ${stat.from}, ${stat.to})`, color: stat.color }}
+            >
               <stat.icon size={18} />
             </div>
             <div>
@@ -345,6 +357,7 @@ export default function TeamDashboardContent() {
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

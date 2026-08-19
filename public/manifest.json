@@ -1,0 +1,16 @@
+{
+  "name": "WellcashOps",
+  "short_name": "WellcashOps",
+  "description": "Centralized debt collections platform for Wellcash Uganda — offline-first agent queue management, live admin oversight, and automated client reporting.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F0F4F8",
+  "theme_color": "#1D4ED8",
+  "orientation": "any",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

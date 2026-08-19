@@ -4,11 +4,12 @@ import React, { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  Eye, EyeOff, Wifi, Copy, Check, LogIn, ShieldCheck, Mail, Lock,
-  PhoneCall, RadioTower, Smartphone, ArrowRight,
+  Eye, EyeOff, Wifi, LogIn, ShieldCheck, Mail, Lock,
+  PhoneCall, RadioTower, Smartphone,
 } from 'lucide-react';
 import AppLogo from '@/components/ui/AppLogo';
 import DispositionBadge from '@/components/ui/DispositionBadge';
+import BrandWordmark from '@/components/ui/BrandWordmark';
 import { toast } from 'sonner';
 
 interface LoginFormData {
@@ -16,25 +17,6 @@ interface LoginFormData {
   password: string;
   rememberMe: boolean;
 }
-
-const demoAccounts = [
-  {
-    role: 'Admin',
-    name: 'IT Admin',
-    email: 'admin@wellcash.ug',
-    password: 'Admin@2026!',
-    accent: '#1D4ED8',
-    detail: 'Full system access — clients, files, users, reports',
-  },
-  {
-    role: 'Agent',
-    name: 'Amara Okonkwo',
-    email: 'agent.okonkwo@wellcash.ug',
-    password: 'Agent@2026!',
-    accent: '#16A34A',
-    detail: 'Own debtor queue and call logging — any device',
-  },
-];
 
 function useKampalaClock() {
   const [now, setNow] = useState<Date | null>(null);
@@ -55,24 +37,11 @@ export default function LoginContent() {
   const searchParams = useSearchParams();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [copiedField, setCopiedField] = useState<string | null>(null);
   const kampala = useKampalaClock();
 
-  const { register, handleSubmit, setValue, formState: { errors }, setError } = useForm<LoginFormData>({
+  const { register, handleSubmit, formState: { errors }, setError } = useForm<LoginFormData>({
     defaultValues: { email: '', password: '', rememberMe: false },
   });
-
-  function autofill(email: string, password: string) {
-    setValue('email', email);
-    setValue('password', password);
-    toast.info('Credentials filled — click Sign In to continue');
-  }
-
-  async function copyToClipboard(text: string, key: string) {
-    await navigator.clipboard.writeText(text);
-    setCopiedField(key);
-    setTimeout(() => setCopiedField(null), 1500);
-  }
 
   async function onSubmit(data: LoginFormData) {
     setIsLoading(true);
@@ -124,8 +93,8 @@ export default function LoginContent() {
               <AppLogo size={26} />
             </div>
             <div>
-              <span className="font-bold text-base text-white block tracking-tight">WELLCASH DEBT COLLECTORS</span>
-              <span className="text-xs text-blue-300/80 block">Uganda Branch · Collections Platform</span>
+              <BrandWordmark />
+              <span className="text-xs text-blue-300/80 block mt-1.5">Uganda Branch · Collections Platform</span>
             </div>
           </div>
           <div className="hidden xl:flex flex-col items-end shrink-0 pl-4">
@@ -208,12 +177,12 @@ export default function LoginContent() {
           <div className="flex items-center gap-2.5 mb-8 lg:hidden">
             <AppLogo size={32} />
             <div>
-              <span className="font-bold text-sm text-foreground block leading-tight">WELLCASH DEBT COLLECTORS</span>
-              <span className="text-xs text-muted-foreground block">Uganda Branch</span>
+              <BrandWordmark size="sm" />
+              <span className="text-xs text-muted-foreground block mt-1">Uganda Branch</span>
             </div>
           </div>
 
-          <div className="bg-card border border-border rounded-2xl shadow-modal p-6 sm:p-8">
+          <div className="bg-gradient-to-b from-card to-card/95 border border-border rounded-2xl shadow-modal p-6 sm:p-8">
           <div className="mb-8">
             <span className="text-xs font-semibold text-primary uppercase tracking-widest font-mono-data">Sign In</span>
             <h2 className="text-2xl font-bold text-foreground mt-1.5">Welcome back</h2>
@@ -299,7 +268,7 @@ export default function LoginContent() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground text-sm font-semibold rounded-lg shadow-[0_4px_14px_-2px_rgba(29,78,216,0.4)] hover:bg-primary/90 hover:shadow-[0_6px_18px_-2px_rgba(29,78,216,0.5)] active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-br from-[#3B82F6] to-primary text-primary-foreground text-sm font-semibold rounded-lg shadow-[0_10px_24px_-8px_rgba(29,78,216,0.55)] hover:shadow-[0_12px_28px_-6px_rgba(29,78,216,0.6)] active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
             >
               {isLoading ? (
                 <>
@@ -323,51 +292,6 @@ export default function LoginContent() {
             <ShieldCheck size={13} className="shrink-0" />
             <span>Data stays on Wellcash infrastructure. Once signed in, the app keeps working offline — call logs sync when you reconnect.</span>
           </div>
-          </div>
-
-          {/* Demo accounts */}
-          <div className="mt-8">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="flex-1 h-px bg-border" />
-              <span className="text-xs text-muted-foreground font-medium px-2">Demo Accounts</span>
-              <div className="flex-1 h-px bg-border" />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {demoAccounts.map((acct) => (
-                <button
-                  key={acct.role}
-                  type="button"
-                  onClick={() => autofill(acct.email, acct.password)}
-                  className="group text-left bg-card border border-border rounded-xl p-3.5 shadow-card hover:shadow-card-hover hover:border-primary/40 transition-all"
-                >
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <span
-                      className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full"
-                      style={{ color: acct.accent, backgroundColor: `${acct.accent}1A` }}
-                    >
-                      {acct.role}
-                    </span>
-                    <ArrowRight size={14} className="text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0 mt-0.5" />
-                  </div>
-                  <p className="text-sm font-semibold text-foreground truncate">{acct.name}</p>
-                  <div className="flex items-center gap-1.5 mt-1">
-                    <span className="font-mono-data text-[11px] text-muted-foreground truncate">{acct.email}</span>
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      onClick={(e) => { e.stopPropagation(); copyToClipboard(acct.email, acct.role); }}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); copyToClipboard(acct.email, acct.role); } }}
-                      className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                      title="Copy email"
-                    >
-                      {copiedField === acct.role ? <Check size={11} className="text-positive" /> : <Copy size={11} />}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug">{acct.detail}</p>
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground text-center mt-3">Click a card to autofill, then Sign In</p>
           </div>
         </div>
       </div>

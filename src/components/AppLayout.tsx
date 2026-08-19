@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 import BottomTabBar from './BottomTabBar';
+import BrandWordmark from '@/components/ui/BrandWordmark';
 import { flushQueue } from '@/lib/offline-sync';
 import type { CurrentUser } from '@/lib/nav-groups';
 
@@ -62,7 +63,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
               <line x1="3" y1="18" x2="21" y2="18" />
             </svg>
           </button>
-          <span className="font-semibold text-foreground text-sm truncate min-w-0">WELLCASH DEBT COLLECTORS</span>
+          <BrandWordmark size="sm" />
         </div>
 
         {/* Page content */}

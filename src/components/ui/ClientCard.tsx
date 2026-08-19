@@ -29,12 +29,12 @@ function formatShortDate(iso: string) {
 // bar, not just one of Badge's fixed semantic variants. Any client, current or future,
 // gets a stable color with zero hardcoding of names.
 const ACCENTS = [
-  { bar: '#1D4ED8', soft: '#EFF6FF', text: '#1D4ED8' },
-  { bar: '#7C3AED', soft: '#F5F3FF', text: '#7C3AED' },
-  { bar: '#0D9488', soft: '#F0FDFA', text: '#0F766E' },
-  { bar: '#D97706', soft: '#FFFBEB', text: '#B45309' },
-  { bar: '#DB2777', soft: '#FDF2F8', text: '#BE185D' },
-  { bar: '#4F46E5', soft: '#EEF2FF', text: '#4338CA' },
+  { bar: '#1D4ED8', light: '#3B82F6', soft: '#EFF6FF', text: '#1D4ED8' },
+  { bar: '#7C3AED', light: '#A78BFA', soft: '#F5F3FF', text: '#7C3AED' },
+  { bar: '#0D9488', light: '#2DD4BF', soft: '#F0FDFA', text: '#0F766E' },
+  { bar: '#D97706', light: '#FBBF24', soft: '#FFFBEB', text: '#B45309' },
+  { bar: '#DB2777', light: '#F472B6', soft: '#FDF2F8', text: '#BE185D' },
+  { bar: '#4F46E5', light: '#818CF8', soft: '#EEF2FF', text: '#4338CA' },
 ] as const;
 
 function accentFor(name: string) {
@@ -57,7 +57,7 @@ export default function ClientCard({ name, categoryLabel, debtorCount, contactRa
       onClick={onClick}
       className={`group relative bg-card border border-border rounded-xl shadow-card hover:shadow-card-hover transition-all overflow-hidden ${onClick ? 'cursor-pointer' : ''}`}
     >
-      <div className="absolute top-0 left-0 w-1 h-full" style={{ backgroundColor: accent.bar }} />
+      <div className="absolute top-0 left-0 w-1.5 h-full" style={{ background: `linear-gradient(180deg, ${accent.light}, ${accent.bar})` }} />
       <div className="p-5 pl-6">
         <div className="flex items-start justify-between gap-2 mb-2">
           <span
@@ -77,7 +77,7 @@ export default function ClientCard({ name, categoryLabel, debtorCount, contactRa
         <h3 className="text-lg font-bold text-foreground group-hover:text-primary transition-colors truncate">{name}</h3>
         <p className="text-xs text-muted-foreground mt-0.5">{debtorCount.toLocaleString()} debtor{debtorCount === 1 ? '' : 's'} on file</p>
 
-        <div className="grid grid-cols-2 gap-3 my-4 bg-secondary/50 rounded-lg p-3.5 border border-border/60">
+        <div className="grid grid-cols-2 gap-3 my-4 rounded-lg p-3.5 border border-border/60" style={{ background: 'linear-gradient(135deg, var(--secondary), transparent)' }}>
           <div>
             <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">Contact Rate</span>
             <span className="text-sm font-bold text-foreground font-tabular">{contactRate}%</span>
@@ -94,7 +94,7 @@ export default function ClientCard({ name, categoryLabel, debtorCount, contactRa
             <span className="font-bold text-foreground font-tabular">{recoveryPct}%</span>
           </div>
           <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
-            <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(100, recoveryPct)}%`, backgroundColor: accent.bar }} />
+            <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(100, recoveryPct)}%`, background: `linear-gradient(90deg, ${accent.light}, ${accent.bar})` }} />
           </div>
         </div>
 

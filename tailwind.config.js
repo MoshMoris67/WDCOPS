@@ -60,9 +60,9 @@ module.exports = {
         'table-cell': ['0.875rem', { fontWeight: '400' }],
       },
       boxShadow: {
-        card: '0 1px 2px 0 rgba(16,24,40,0.04), 0 2px 6px -1px rgba(16,24,40,0.06)',
-        'card-hover': '0 4px 10px -2px rgba(16,24,40,0.08), 0 8px 20px -4px rgba(16,24,40,0.10)',
-        modal: '0 20px 60px -10px rgba(16,24,40,0.28)',
+        card: '0 2px 4px 0 rgba(16,24,40,0.05), 0 6px 16px -4px rgba(16,24,40,0.09)',
+        'card-hover': '0 6px 14px -4px rgba(16,24,40,0.10), 0 14px 32px -8px rgba(16,24,40,0.16)',
+        modal: '0 24px 70px -12px rgba(16,24,40,0.32)',
         dropdown: '0 8px 24px -4px rgba(16,24,40,0.14)',
       },
       animation: {

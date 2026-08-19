@@ -32,6 +32,35 @@
   --info-bg: #EFF6FF;
 }
 
+/* Dark mode — same token names, same everywhere-via-CSS-vars mechanism, so every
+   screen built against these tokens picks this up with zero per-component work. */
+.dark {
+  --background: #0B1220;
+  --foreground: #E5E9F2;
+  --primary: #4F7FFF;
+  --primary-foreground: #FFFFFF;
+  --secondary: #1A2436;
+  --secondary-foreground: #CBD5E1;
+  --accent: #FBBF24;
+  --accent-foreground: #1F1300;
+  --muted: #3B4759;
+  --muted-foreground: #94A3B8;
+  --card: #121B2E;
+  --card-foreground: #E5E9F2;
+  --border: #26314A;
+  --input: #17233A;
+  --ring: #4F7FFF;
+
+  --positive: #34D399;
+  --positive-bg: #0F2A1C;
+  --negative: #F87171;
+  --negative-bg: #2A1315;
+  --warning: #FBBF24;
+  --warning-bg: #2A1F0A;
+  --info: #38BDF8;
+  --info-bg: #0F2333;
+}
+
 @layer base {
   * {
     box-sizing: border-box;
@@ -155,4 +184,22 @@
   .sync-online { background-color: #F0FDF4; color: #16A34A; border-color: #BBF7D0; }
   .sync-offline { background-color: #FEF2F2; color: #DC2626; border-color: #FECACA; }
   .sync-syncing { background-color: #EFF6FF; color: #1D4ED8; border-color: #BFDBFE; }
+
+  .dark .balance-band-easy { background-color: #0F2A1C; color: #4ADE80; }
+  .dark .balance-band-medium { background-color: #2A1F0A; color: #FB923C; }
+  .dark .balance-band-hard { background-color: #2A1315; color: #F87171; }
+
+  .dark .disposition-cb { background-color: #14213D; color: #7C9CFF; }
+  .dark .disposition-ptp { background-color: #0F2A1C; color: #4ADE80; }
+  .dark .disposition-np { background-color: #2A1F0A; color: #FBBF24; }
+  .dark .disposition-na { background-color: #1A2436; color: #94A3B8; }
+  .dark .disposition-hu { background-color: #2A1F0A; color: #FB923C; }
+  .dark .disposition-nb { background-color: #241B3D; color: #C4B5FD; }
+  .dark .disposition-db { background-color: #2A1315; color: #F87171; }
+  .dark .disposition-so { background-color: #1A2436; color: #94A3B8; }
+  .dark .disposition-os { background-color: #2A1330; color: #E879F9; }
+
+  .dark .sync-online { background-color: #0F2A1C; color: #4ADE80; border-color: #14532D; }
+  .dark .sync-offline { background-color: #2A1315; color: #F87171; border-color: #7F1D1D; }
+  .dark .sync-syncing { background-color: #14213D; color: #7C9CFF; border-color: #1E3A8A; }
 }
