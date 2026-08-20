@@ -248,15 +248,17 @@ export default function ReportsContent() {
       {/* Controls */}
       <div className="bg-card rounded-xl shadow-card border border-border p-4">
         <div className="flex items-center gap-4 flex-wrap">
-          {/* Client selector */}
-          <div className="space-y-1">
+          {/* Client selector — bounded to the card's width with its own horizontal scroll,
+              so a long client list scrolls in place instead of forcing the whole page to
+              pan sideways on mobile (min-w-0 lets this flex child actually shrink). */}
+          <div className="space-y-1 w-full sm:w-auto min-w-0 max-w-full">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Client</p>
-            <div className="flex gap-1">
+            <div className="flex gap-1 overflow-x-auto scrollbar-thin -mx-1 px-1 pb-1">
               {clients.map((c) => (
                 <button
                   key={`client-tab-${c.id}`}
                   onClick={() => setSelectedClientId(c.id)}
-                  className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${selectedClientId === c.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'}`}
+                  className={`shrink-0 px-4 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${selectedClientId === c.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'}`}
                 >
                   {c.name}
                 </button>
