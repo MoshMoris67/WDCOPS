@@ -8,6 +8,8 @@ import Badge from '@/components/ui/Badge';
 import DispositionBadge from '@/components/ui/DispositionBadge';
 import Modal from '@/components/ui/Modal';
 import { toast } from 'sonner';
+import { getCached, setCached } from '@/lib/offline-cache';
+import { useOfflineGuard } from '@/lib/use-offline-guard';
 
 interface ClientOption {
   id: string;
@@ -55,20 +57,43 @@ export default function AdminSettingsContent() {
 
   const clientForm = useForm<ClientForm>({ defaultValues: { name: '', reconciliationType: 'partial', reportingFrequency: 'weekly' } });
   const codeForm = useForm<CodeForm>({ defaultValues: { code: '', label: '', description: '', color: '#64748B', requiresCallback: false, requiresPtp: false } });
+  const { blocked: offlineBlocked } = useOfflineGuard();
 
+  // Bespoke, not useCachedQuery — "not authorized" (wrong role) must never be confused
+  // with "couldn't reach the server". Cache-first: render last-known clients/codes
+  // instantly if this admin has loaded this screen before, then let a live response
+  // (including an actual 403-equivalent role check) override it.
   const load = useCallback(async () => {
-    const me = await fetch('/api/auth/me').then((r) => r.json());
-    if (me.user?.role !== 'admin') {
-      setAuthorized(false);
-      return;
-    }
-    setAuthorized(true);
-    const [clientsRes, codesRes] = await Promise.all([
-      fetch('/api/clients').then((r) => r.json()),
-      fetch('/api/disposition-codes').then((r) => r.json()),
+    const [cachedMe, cachedClients, cachedCodes] = await Promise.all([
+      getCached<{ user: { role: string } | null }>('/api/auth/me'),
+      getCached<{ clients: ClientOption[] }>('/api/clients'),
+      getCached<{ codes: DispositionCode[] }>('/api/disposition-codes'),
     ]);
-    setClients(clientsRes.clients ?? []);
-    setCodes(codesRes.codes ?? []);
+    if (cachedMe?.user?.role === 'admin') {
+      setAuthorized(true);
+      if (cachedClients) setClients(cachedClients.clients ?? []);
+      if (cachedCodes) setCodes(cachedCodes.codes ?? []);
+    }
+
+    try {
+      const meRes = await fetch('/api/auth/me');
+      const me = await meRes.json();
+      await setCached('/api/auth/me', me);
+      if (me.user?.role !== 'admin') {
+        setAuthorized(false);
+        return;
+      }
+      setAuthorized(true);
+      const [clientsRes, codesRes] = await Promise.all([
+        fetch('/api/clients').then((r) => r.json()),
+        fetch('/api/disposition-codes').then((r) => r.json()),
+      ]);
+      setClients(clientsRes.clients ?? []);
+      setCodes(codesRes.codes ?? []);
+      await Promise.all([setCached('/api/clients', clientsRes), setCached('/api/disposition-codes', codesRes)]);
+    } catch {
+      // Offline — whatever was set from cache above (if anything) stands as-is.
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -209,7 +234,9 @@ export default function AdminSettingsContent() {
           </div>
           <button
             onClick={openAddClient}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all"
+            disabled={offlineBlocked}
+            title={offlineBlocked ? 'Offline — reconnect to add a client' : undefined}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <Plus size={14} />
             Add Client
@@ -236,10 +263,10 @@ export default function AdminSettingsContent() {
                   <td className="px-4 py-3 text-sm text-muted-foreground capitalize">{c.reportingFrequency}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => openEditClient(c)} className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground" title="Edit">
+                      <button onClick={() => openEditClient(c)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit'}>
                         <Pencil size={14} />
                       </button>
-                      <button onClick={() => deleteClient(c)} className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground" title="Delete">
+                      <button onClick={() => deleteClient(c)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'}>
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -262,7 +289,9 @@ export default function AdminSettingsContent() {
           </div>
           <button
             onClick={openAddCode}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all"
+            disabled={offlineBlocked}
+            title={offlineBlocked ? 'Offline — reconnect to add a code' : undefined}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <Plus size={14} />
             Add Code
@@ -287,10 +316,10 @@ export default function AdminSettingsContent() {
                   <td className="px-4 py-2.5">{c.requiresPtp && <Badge variant="positive">Yes</Badge>}</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => openEditCode(c)} className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground" title="Edit">
+                      <button onClick={() => openEditCode(c)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit'}>
                         <Pencil size={14} />
                       </button>
-                      <button onClick={() => deleteCode(c)} className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground" title="Delete">
+                      <button onClick={() => deleteCode(c)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'}>
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -331,7 +360,7 @@ export default function AdminSettingsContent() {
             <button
               form="client-form"
               type="submit"
-              disabled={isSaving}
+              disabled={isSaving || offlineBlocked}
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60"
             >
               <Plus size={15} />
@@ -386,7 +415,7 @@ export default function AdminSettingsContent() {
             <button
               form="code-form"
               type="submit"
-              disabled={isSaving}
+              disabled={isSaving || offlineBlocked}
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60"
             >
               <Plus size={15} />

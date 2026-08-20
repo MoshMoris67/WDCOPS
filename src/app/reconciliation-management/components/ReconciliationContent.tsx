@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { RefreshCcw, Upload, CheckCircle, Clock, AlertCircle, BarChart2, Eye,  } from 'lucide-react';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
@@ -12,6 +12,8 @@ import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
 import { useClients } from '@/lib/use-clients';
 import { clientBadgeVariant } from '@/lib/client-badge';
+import { useCachedQuery } from '@/lib/use-cached-query';
+import { useOfflineGuard } from '@/lib/use-offline-guard';
 
 interface ReconRow {
   id: string;
@@ -122,10 +124,8 @@ function formatDateTime(iso: string | null) {
 }
 
 export default function ReconciliationContent() {
-  const [reconciliations, setReconciliations] = useState<ReconRow[]>([]);
-  const [affectedDebtors, setAffectedDebtors] = useState<AffectedDebtor[]>([]);
   const clients = useClients();
-  const [files, setFiles] = useState<FileOption[]>([]);
+  const { blocked: offlineBlocked } = useOfflineGuard();
   const [search, setSearch] = useState('');
   const [filterClient, setFilterClient] = useState('All');
   const [filterType, setFilterType] = useState('All');
@@ -142,34 +142,26 @@ export default function ReconciliationContent() {
     defaultValues: { clientId: '', fileId: '', reconciliationType: 'partial', receivedDate: '', receivedTime: '', notes: '' },
   });
 
-  const loadReconciliations = useCallback(async () => {
-    const res = await fetch('/api/reconciliations');
-    const data = await res.json();
-    setReconciliations(data.reconciliations ?? []);
-  }, []);
+  const {
+    data: reconData,
+    refetch: refetchReconciliations,
+  } = useCachedQuery<{ reconciliations: ReconRow[] }>('/api/reconciliations');
+  const reconciliations = reconData?.reconciliations ?? [];
 
-  useEffect(() => {
-    loadReconciliations();
-    fetch('/api/files').then((r) => r.json()).then((d) => setFiles(d.files ?? []));
-  }, [loadReconciliations]);
+  const { data: filesData } = useCachedQuery<{ files: FileOption[] }>('/api/files');
+  const files = filesData?.files ?? [];
 
   // Large reconciliations finish in the background (see POST /api/reconciliations) —
   // poll while any row is still status 'pending' so it updates on its own once done.
   useEffect(() => {
     if (!reconciliations.some((r) => r.status === 'pending')) return;
-    const id = setInterval(loadReconciliations, 4000);
+    const id = setInterval(refetchReconciliations, 4000);
     return () => clearInterval(id);
-  }, [reconciliations, loadReconciliations]);
+  }, [reconciliations, refetchReconciliations]);
 
-  useEffect(() => {
-    if (!selectedReconId) {
-      setAffectedDebtors([]);
-      return;
-    }
-    fetch(`/api/reconciliations/${selectedReconId}/affected-debtors`)
-      .then((r) => r.json())
-      .then((d) => setAffectedDebtors(d.affectedDebtors ?? []));
-  }, [selectedReconId, reconciliations]);
+  const affectedDebtorsUrl = selectedReconId ? `/api/reconciliations/${selectedReconId}/affected-debtors` : null;
+  const { data: affectedData } = useCachedQuery<{ affectedDebtors: AffectedDebtor[] }>(affectedDebtorsUrl);
+  const affectedDebtors = affectedData?.affectedDebtors ?? [];
 
   const selectedRecon = reconciliations.find(r => r.id === selectedReconId);
   const selectedType = watch('reconciliationType');
@@ -240,7 +232,7 @@ export default function ReconciliationContent() {
       setSelectedUploadFile(null);
       setReconPreview(null);
       setReconMapping(EMPTY_RECON_MAPPING);
-      await loadReconciliations();
+      refetchReconciliations();
       setSelectedReconId(payload.reconciliation.id);
       toast.success(
         `${data.reconciliationType === 'full' ? 'Full' : 'Partial'} reconciliation logged — ${payload.reconciliation.recordCount} row(s) processing in the background, ready shortly`
@@ -258,7 +250,7 @@ export default function ReconciliationContent() {
       .then(async (res) => {
         const payload = await res.json();
         if (!res.ok) throw new Error(payload.error || 'Processing failed');
-        await loadReconciliations();
+        refetchReconciliations();
         return payload;
       })
       .finally(() => setProcessingId(null));
@@ -285,7 +277,9 @@ export default function ReconciliationContent() {
         </div>
         <button
           onClick={() => setUploadModalOpen(true)}
-          className="hidden lg:flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all"
+          disabled={offlineBlocked}
+          title={offlineBlocked ? 'Offline — reconnect to log a reconciliation' : undefined}
+          className="hidden lg:flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
         >
           <Upload size={15} />
           Log New Reconciliation
@@ -392,9 +386,9 @@ export default function ReconciliationContent() {
                         {(recon.status === 'pending' || recon.status === 'failed') && (
                           <button
                             onClick={(e) => { e.stopPropagation(); processRecon(recon.id); }}
-                            disabled={processingId === recon.id}
+                            disabled={processingId === recon.id || offlineBlocked}
                             className="p-1.5 rounded-md hover:bg-primary/10 text-primary transition-colors text-xs font-semibold disabled:opacity-50"
-                            title="Process this reconciliation now"
+                            title={offlineBlocked ? 'Offline — reconnect to process' : 'Process this reconciliation now'}
                           >
                             <RefreshCcw size={14} className={processingId === recon.id ? 'animate-spin' : ''} />
                           </button>
@@ -472,7 +466,9 @@ export default function ReconciliationContent() {
               action={
                 <button
                   onClick={() => setUploadModalOpen(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors"
+                  disabled={offlineBlocked}
+                  title={offlineBlocked ? 'Offline — reconnect to log a reconciliation' : undefined}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <Upload size={14} />
                   Log Reconciliation
@@ -538,7 +534,8 @@ export default function ReconciliationContent() {
                 {(selectedRecon.status === 'pending' || selectedRecon.status === 'failed') && (
                   <button
                     onClick={() => processRecon(selectedRecon.id)}
-                    disabled={processingId === selectedRecon.id}
+                    disabled={processingId === selectedRecon.id || offlineBlocked}
+                    title={offlineBlocked ? 'Offline — reconnect to process' : undefined}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60"
                   >
                     <RefreshCcw size={15} className={processingId === selectedRecon.id ? 'animate-spin' : ''} />
@@ -596,7 +593,7 @@ export default function ReconciliationContent() {
         </div>
       </div>
 
-      <Fab onClick={() => setUploadModalOpen(true)} label="Log New Reconciliation" icon={Upload} />
+      <Fab onClick={() => setUploadModalOpen(true)} label="Log New Reconciliation" icon={Upload} disabled={offlineBlocked} />
 
       {/* Upload Modal */}
       <Modal
@@ -617,7 +614,7 @@ export default function ReconciliationContent() {
             <button
               form="recon-upload-form"
               type="submit"
-              disabled={isUploading || isPreviewingRecon || !reconPreview || !reconMappingIsComplete(reconMapping)}
+              disabled={isUploading || isPreviewingRecon || !reconPreview || !reconMappingIsComplete(reconMapping) || offlineBlocked}
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
             >
               {isUploading ? (

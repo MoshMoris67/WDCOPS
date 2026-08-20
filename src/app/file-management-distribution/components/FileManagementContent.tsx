@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { FolderOpen, Upload, CheckCircle, Clock, Users, ChevronRight, FileText, Layers, UserPlus, Pencil, Trash2, Undo2 } from 'lucide-react';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
@@ -17,6 +17,8 @@ import { useForm } from 'react-hook-form';
 import { useClients } from '@/lib/use-clients';
 import { clientBadgeVariant } from '@/lib/client-badge';
 import { useViewMode } from '@/lib/use-view-mode';
+import { useCachedQuery } from '@/lib/use-cached-query';
+import { useOfflineGuard } from '@/lib/use-offline-guard';
 
 interface FileRow {
   id: string;
@@ -162,11 +164,10 @@ function formatDate(iso: string) {
 }
 
 export default function FileManagementContent() {
-  const [files, setFiles] = useState<FileRow[]>([]);
   const clients = useClients();
-  const [agents, setAgents] = useState<AgentOption[]>([]);
+  const { blocked: offlineBlocked } = useOfflineGuard();
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
-  const [distributionData, setDistributionData] = useState<DistributionRow[]>([]);
+  const [agentsPrechecked, setAgentsPrechecked] = useState(false);
   const [search, setSearch] = useState('');
   const [filterClient, setFilterClient] = useState('All');
   const [filterStatus, setFilterStatus] = useState('All');
@@ -193,45 +194,39 @@ export default function FileManagementContent() {
     defaultValues: { batchLabel: '', receivedDate: '', isMidMonthTopup: false },
   });
 
-  const loadFiles = useCallback(async () => {
-    const res = await fetch('/api/files');
-    const data = await res.json();
-    setFiles(data.files ?? []);
-  }, []);
+  const { data: filesData, refetch: refetchFiles } = useCachedQuery<{ files: FileRow[] }>('/api/files');
+  const files = filesData?.files ?? [];
 
   // Large imports finish in the background (see POST /api/files) — poll while any file
   // is still importStatus 'processing' so the row updates on its own once it's done,
   // rather than the admin having to manually refresh to find out.
   useEffect(() => {
     if (!files.some((f) => f.importStatus === 'processing')) return;
-    const id = setInterval(loadFiles, 4000);
+    const id = setInterval(refetchFiles, 4000);
     return () => clearInterval(id);
-  }, [files, loadFiles]);
+  }, [files, refetchFiles]);
 
+  const { data: usersData } = useCachedQuery<{ users: AgentOption[] }>('/api/users');
+  const agents = (usersData?.users ?? []).filter((u) => u.status === 'active' && (u.role === 'agent' || u.role === 'admin'));
+
+  // Pre-check agents only once, the first time the list becomes available — an admin
+  // taking calls is an occasional, deliberate choice per file, not the default (see
+  // api/files/[id]/distribute/route.ts). Must not re-run on every cache refresh, or a
+  // background revalidation would silently wipe out an admin's in-progress selection.
   useEffect(() => {
-    loadFiles();
-    fetch('/api/users').then((r) => r.json()).then((d) => {
-      const eligible: AgentOption[] = (d.users ?? []).filter((u: AgentOption) => u.status === 'active' && (u.role === 'agent' || u.role === 'admin'));
-      setAgents(eligible);
-      // Pre-check agents only — an admin taking calls is an occasional, deliberate
-      // choice per file, not the default (see api/files/[id]/distribute/route.ts).
-      setSelectedAgentIds(eligible.filter((a) => a.role === 'agent').map((a) => a.id));
-    });
-  }, [loadFiles]);
+    if (agentsPrechecked || agents.length === 0) return;
+    setSelectedAgentIds(agents.filter((a) => a.role === 'agent').map((a) => a.id));
+    setAgentsPrechecked(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agents, agentsPrechecked]);
 
   function toggleAgent(agentId: string) {
     setSelectedAgentIds((prev) => (prev.includes(agentId) ? prev.filter((id) => id !== agentId) : [...prev, agentId]));
   }
 
-  useEffect(() => {
-    if (!distributionFileId) {
-      setDistributionData([]);
-      return;
-    }
-    fetch(`/api/files/${distributionFileId}/distribution`)
-      .then((r) => r.json())
-      .then((d) => setDistributionData(d.distribution ?? []));
-  }, [distributionFileId, files]);
+  const distributionUrl = distributionFileId ? `/api/files/${distributionFileId}/distribution` : null;
+  const { data: distributionPayload } = useCachedQuery<{ distribution: DistributionRow[] }>(distributionUrl);
+  const distributionData = distributionPayload?.distribution ?? [];
 
   const filtered = files.filter(f => {
     const matchSearch = f.batchLabel.toLowerCase().includes(search.toLowerCase()) || f.client.toLowerCase().includes(search.toLowerCase());
@@ -301,7 +296,7 @@ export default function FileManagementContent() {
       setPreview(null);
       setMapping(EMPTY_MAPPING);
       setIsMidMonth(false);
-      await loadFiles();
+      refetchFiles();
       setDistributionFileId(payload.file.id);
       toast.success(`File "${data.batchLabel}" — ${payload.file.debtorCount} debtors importing in the background, ready shortly`);
     } catch {
@@ -328,7 +323,7 @@ export default function FileManagementContent() {
         toast.error(payload.error || 'Distribution failed');
         return;
       }
-      await loadFiles();
+      refetchFiles();
       toast.success(`Distribution triggered — ${payload.assignedCount} debtors split across ${payload.agentsUsed} agents`);
     } catch {
       toast.error('Could not reach the server — try again');
@@ -352,7 +347,7 @@ export default function FileManagementContent() {
         return;
       }
       setRebalanceAgentId('');
-      await loadFiles();
+      refetchFiles();
       if (payload.reassignedCount > 0) {
         toast.success(payload.message);
       } else {
@@ -390,7 +385,7 @@ export default function FileManagementContent() {
       }
       toast.success(`"${data.batchLabel}" updated`);
       setEditingFile(null);
-      await loadFiles();
+      refetchFiles();
     } catch {
       toast.error('Could not reach the server — try again');
     } finally {
@@ -412,7 +407,7 @@ export default function FileManagementContent() {
       return;
     }
     toast.success(nextRecalled ? `"${file.batchLabel}" recalled` : `"${file.batchLabel}" reactivated`);
-    await loadFiles();
+    refetchFiles();
   }
 
   async function deleteFile(file: FileRow) {
@@ -425,7 +420,7 @@ export default function FileManagementContent() {
     }
     toast.success(`"${file.batchLabel}" deleted`);
     if (distributionFileId === file.id) setDistributionFileId(null);
-    await loadFiles();
+    refetchFiles();
   }
 
   return (
@@ -438,7 +433,9 @@ export default function FileManagementContent() {
         </div>
         <button
           onClick={() => setImportModalOpen(true)}
-          className="hidden lg:flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all"
+          disabled={offlineBlocked}
+          title={offlineBlocked ? 'Offline — reconnect to import' : undefined}
+          className="hidden lg:flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
         >
           <Upload size={15} />
           Import New File
@@ -522,6 +519,7 @@ export default function FileManagementContent() {
                         <div onClick={(e) => e.stopPropagation()}>
                           <InlineEditCell
                             value={file.batchLabel}
+                            disabled={offlineBlocked}
                             onSave={async (next) => {
                               const res = await fetch(`/api/files/${file.id}`, {
                                 method: 'PATCH',
@@ -530,7 +528,7 @@ export default function FileManagementContent() {
                               });
                               const payload = await res.json();
                               if (!res.ok) { toast.error(payload.error || 'Could not update batch label'); return; }
-                              await loadFiles();
+                              refetchFiles();
                             }}
                           />
                           {file.isMidMonthTopup && (
@@ -570,22 +568,25 @@ export default function FileManagementContent() {
                           <ChevronRight size={15} />
                         </button>
                         <button
-                          className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground"
-                          title="Edit"
+                          className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40"
+                          title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit'}
+                          disabled={offlineBlocked}
                           onClick={(e) => { e.stopPropagation(); openEditFile(file); }}
                         >
                           <Pencil size={14} />
                         </button>
                         <button
-                          className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground"
-                          title={file.status === 'recalled' ? 'Reactivate' : 'Recall'}
+                          className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40"
+                          title={offlineBlocked ? 'Offline — reconnect' : (file.status === 'recalled' ? 'Reactivate' : 'Recall')}
+                          disabled={offlineBlocked}
                           onClick={(e) => { e.stopPropagation(); toggleRecall(file); }}
                         >
                           <Undo2 size={14} />
                         </button>
                         <button
-                          className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground"
-                          title="Delete"
+                          className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40"
+                          title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'}
+                          disabled={offlineBlocked}
                           onClick={(e) => { e.stopPropagation(); deleteFile(file); }}
                         >
                           <Trash2 size={14} />
@@ -632,13 +633,13 @@ export default function FileManagementContent() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1 mt-3 pt-3 border-t border-border/60" onClick={(e) => e.stopPropagation()}>
-                      <button className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground" title="Edit" onClick={() => openEditFile(file)}>
+                      <button className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit'} disabled={offlineBlocked} onClick={() => openEditFile(file)}>
                         <Pencil size={14} />
                       </button>
-                      <button className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground" title={file.status === 'recalled' ? 'Reactivate' : 'Recall'} onClick={() => toggleRecall(file)}>
+                      <button className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect' : (file.status === 'recalled' ? 'Reactivate' : 'Recall')} disabled={offlineBlocked} onClick={() => toggleRecall(file)}>
                         <Undo2 size={14} />
                       </button>
-                      <button className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground" title="Delete" onClick={() => deleteFile(file)}>
+                      <button className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'} disabled={offlineBlocked} onClick={() => deleteFile(file)}>
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -656,7 +657,9 @@ export default function FileManagementContent() {
               action={
                 <button
                   onClick={() => setImportModalOpen(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors"
+                  disabled={offlineBlocked}
+                  title={offlineBlocked ? 'Offline — reconnect to import' : undefined}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <Upload size={14} />
                   Import New File
@@ -796,7 +799,7 @@ export default function FileManagementContent() {
                   </div>
                   <button
                     onClick={() => runDistribution(selectedFile.id)}
-                    disabled={isDistributing || selectedAgentIds.length === 0}
+                    disabled={isDistributing || selectedAgentIds.length === 0 || offlineBlocked}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60"
                   >
                     <Users size={15} />
@@ -827,7 +830,7 @@ export default function FileManagementContent() {
                     </select>
                     <button
                       onClick={() => runRebalance(selectedFile.id)}
-                      disabled={!rebalanceAgentId || isRebalancing}
+                      disabled={!rebalanceAgentId || isRebalancing || offlineBlocked}
                       className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 whitespace-nowrap"
                     >
                       <UserPlus size={15} />
@@ -847,7 +850,7 @@ export default function FileManagementContent() {
         </div>
       </div>
 
-      <Fab onClick={() => setImportModalOpen(true)} label="Import New File" icon={Upload} />
+      <Fab onClick={() => setImportModalOpen(true)} label="Import New File" icon={Upload} disabled={offlineBlocked} />
 
       {/* Import Modal */}
       <Modal
@@ -868,7 +871,7 @@ export default function FileManagementContent() {
             <button
               form="import-form"
               type="submit"
-              disabled={isImporting || isPreviewing || !preview || !mappingIsComplete(mapping)}
+              disabled={isImporting || isPreviewing || !preview || !mappingIsComplete(mapping) || offlineBlocked}
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
             >
               {isImporting ? (
@@ -1124,7 +1127,7 @@ export default function FileManagementContent() {
             <button
               form="edit-file-form"
               type="submit"
-              disabled={isSavingFile}
+              disabled={isSavingFile || offlineBlocked}
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60"
             >
               {isSavingFile ? 'Saving…' : 'Save Changes'}

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Download, Calendar, CheckCircle, Clock, TrendingUp, Users, AlertTriangle } from 'lucide-react';
 import dynamic from 'next/dynamic';
@@ -12,6 +12,8 @@ import InlineEditCell from '@/components/ui/InlineEditCell';
 import { toast } from 'sonner';
 import { useClients } from '@/lib/use-clients';
 import { debtorRowTint } from '@/lib/format-rules';
+import { useCachedQuery } from '@/lib/use-cached-query';
+import { useOfflineGuard } from '@/lib/use-offline-guard';
 
 const ReportDispositionChart = dynamic(() => import('./ReportDispositionChart'), { ssr: false });
 const RecoveryRadialChart = dynamic(() => import('./RecoveryRadialChart'), { ssr: false });
@@ -90,25 +92,20 @@ export default function ReportsContent() {
   const [dateFrom, setDateFrom] = useState(isoDate(new Date()));
   const [dateTo, setDateTo] = useState(isoDate(new Date()));
   const [isExporting, setIsExporting] = useState(false);
-  const [data, setData] = useState<ReportSummary | null>(null);
   const [lastGenerated, setLastGenerated] = useState<string | null>(null);
-  const [dispositionCodes, setDispositionCodes] = useState<DispositionCodeOption[]>([]);
+  const { blocked: offlineBlocked } = useOfflineGuard();
 
-  const [debtors, setDebtors] = useState<DebtorRow[]>([]);
-  const [debtorsTotal, setDebtorsTotal] = useState(0);
-  const [debtorsLoading, setDebtorsLoading] = useState(true);
   const [debtorSearch, setDebtorSearch] = useState('');
   const [debtorPage, setDebtorPage] = useState(1);
   const debtorPageSize = 25;
   const [debtorFileId, setDebtorFileId] = useState('All');
-  const [files, setFiles] = useState<FileOption[]>([]);
-  const [agents, setAgents] = useState<AgentOption[]>([]);
 
-  useEffect(() => {
-    fetch('/api/disposition-codes').then((r) => r.json()).then((d) => setDispositionCodes(d.codes ?? []));
-    fetch('/api/files').then((r) => r.json()).then((d) => setFiles(d.files ?? []));
-    fetch('/api/team/overview').then((r) => r.json()).then((d) => setAgents(d.agents ?? []));
-  }, []);
+  const { data: codesData } = useCachedQuery<{ codes: DispositionCodeOption[] }>('/api/disposition-codes');
+  const dispositionCodes = codesData?.codes ?? [];
+  const { data: filesData } = useCachedQuery<{ files: FileOption[] }>('/api/files');
+  const files = filesData?.files ?? [];
+  const { data: overviewData } = useCachedQuery<{ agents: AgentOption[] }>('/api/team/overview');
+  const agents = overviewData?.agents ?? [];
 
   // A client card on Team Overview links here with ?clientId=... — that always wins over
   // the tab default, and wins again if it changes while this page is already mounted
@@ -125,20 +122,19 @@ export default function ReportsContent() {
     setDebtorPage(1);
   }, [selectedClientId, debtorSearch, debtorFileId]);
 
-  const loadDebtors = useCallback(async () => {
-    if (!selectedClientId) return;
-    setDebtorsLoading(true);
+  const debtorsUrl = selectedClientId ? (() => {
     const params = new URLSearchParams({ clientId: selectedClientId, page: String(debtorPage), pageSize: String(debtorPageSize) });
     if (debtorSearch) params.set('search', debtorSearch);
     if (debtorFileId !== 'All') params.set('fileId', debtorFileId);
-    const res = await fetch(`/api/debtors?${params.toString()}`);
-    const payload = await res.json();
-    setDebtors(payload.debtors ?? []);
-    setDebtorsTotal(payload.total ?? 0);
-    setDebtorsLoading(false);
-  }, [selectedClientId, debtorPage, debtorSearch, debtorFileId]);
-
-  useEffect(() => { loadDebtors(); }, [loadDebtors]);
+    return `/api/debtors?${params.toString()}`;
+  })() : null;
+  const {
+    data: debtorsData,
+    isLoading: debtorsLoading,
+    refetch: refetchDebtors,
+  } = useCachedQuery<{ debtors: DebtorRow[]; total: number }>(debtorsUrl);
+  const debtors = debtorsData?.debtors ?? [];
+  const debtorsTotal = debtorsData?.total ?? 0;
 
   const debtorTotalPages = Math.max(1, Math.ceil(debtorsTotal / debtorPageSize));
 
@@ -154,20 +150,15 @@ export default function ReportsContent() {
       return;
     }
     toast.success(`${debtor.name} reassigned — call history preserved`);
-    await loadDebtors();
+    refetchDebtors();
   }
 
-  const loadSummary = useCallback(async () => {
-    if (!selectedClientId) return;
-    const res = await fetch(`/api/reports/summary?clientId=${selectedClientId}&from=${dateFrom}&to=${dateTo}`);
-    const payload = await res.json();
-    if (res.ok) {
-      setData(payload.summary);
-      setLastGenerated(new Date().toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }));
-    }
-  }, [selectedClientId, dateFrom, dateTo]);
-
-  useEffect(() => { loadSummary(); }, [loadSummary]);
+  const summaryUrl = selectedClientId ? `/api/reports/summary?clientId=${selectedClientId}&from=${dateFrom}&to=${dateTo}` : null;
+  const { data: summaryPayload } = useCachedQuery<{ summary: ReportSummary }>(summaryUrl);
+  const data = summaryPayload?.summary ?? null;
+  useEffect(() => {
+    if (data) setLastGenerated(new Date().toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }));
+  }, [data]);
 
   const selectedClient = clients.find((c) => c.id === selectedClientId);
   const recoveryPct = data && data.totalOwed > 0 ? Math.round((data.recovered / data.totalOwed) * 100) : 0;
@@ -225,7 +216,8 @@ export default function ReportsContent() {
         </div>
         <button
           onClick={handleExport}
-          disabled={isExporting}
+          disabled={isExporting || offlineBlocked}
+          title={offlineBlocked ? 'Offline — reconnect to export' : undefined}
           className="flex items-center gap-1.5 px-4 py-2.5 bg-positive text-white text-sm font-semibold rounded-lg hover:bg-positive/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
         >
           {isExporting ? (
@@ -546,7 +538,8 @@ export default function ReportsContent() {
                   </p>
                   <button
                     onClick={handleExport}
-                    disabled={isExporting}
+                    disabled={isExporting || offlineBlocked}
+                    title={offlineBlocked ? 'Offline — reconnect to export' : undefined}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-positive text-white text-sm font-semibold rounded-lg hover:bg-positive/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
                   >
                     {isExporting ? (
@@ -650,6 +643,7 @@ export default function ReportsContent() {
                     <InlineEditCell
                       value=""
                       displayValue="Reassign…"
+                      disabled={offlineBlocked}
                       options={[{ value: '', label: 'Reassign…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: `${a.name} — ${a.assignedCount} assigned` }))]}
                       onSave={async (agentId) => { if (agentId) await reassignDebtor(d, agentId); }}
                     />
@@ -676,6 +670,7 @@ export default function ReportsContent() {
                     <InlineEditCell
                       value=""
                       displayValue="Reassign to another agent…"
+                      disabled={offlineBlocked}
                       options={[{ value: '', label: 'Reassign to another agent…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: `${a.name} — ${a.assignedCount} assigned` }))]}
                       onSave={async (agentId) => { if (agentId) await reassignDebtor(d, agentId); }}
                     />

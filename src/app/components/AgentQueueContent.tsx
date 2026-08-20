@@ -9,24 +9,10 @@ import { TableRowSkeleton } from '@/components/ui/LoadingSkeleton';
 import { useOnlineStatus, usePendingSyncCount } from '@/lib/use-offline';
 import { clientBadgeVariant } from '@/lib/client-badge';
 import { useClients } from '@/lib/use-clients';
+import { useDebtorQueue } from '@/lib/use-debtor-queue';
+import { useCachedQuery } from '@/lib/use-cached-query';
 import { useIsWide } from '@/lib/use-media-query';
 import DebtorDetailContent from '@/app/debtor-detail-call-logging/components/DebtorDetailContent';
-
-interface DebtorRow {
-  id: string;
-  name: string;
-  phone: string;
-  loanRef: string;
-  amountOwed: number;
-  balance: number;
-  client: string;
-  lastDisposition: string | null;
-  lastCallDate: string | null;
-  naCount: number;
-  isStale: boolean;
-  isPTP: boolean;
-  activePTP: { amount: number; date: string } | null;
-}
 
 interface DispositionCodeOption {
   code: string;
@@ -51,38 +37,18 @@ export default function AgentQueueContent() {
   const searchParams = useSearchParams();
   const selectedId = searchParams.get('selected');
   const isWide = useIsWide();
-  const [debtorQueue, setDebtorQueue] = useState<DebtorRow[]>([]);
+  const { debtors: debtorQueue, isLoading } = useDebtorQueue();
   const [search, setSearch] = useState('');
   const [filterClient, setFilterClient] = useState('All');
-  const [isLoading, setIsLoading] = useState(true);
   const [sortField, setSortField] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(1);
-  const [dispositionCodes, setDispositionCodes] = useState<DispositionCodeOption[]>([]);
+  const { data: codesData } = useCachedQuery<{ codes: DispositionCodeOption[] }>('/api/disposition-codes');
+  const dispositionCodes = codesData?.codes ?? [];
   const isOnline = useOnlineStatus();
   const pendingSync = usePendingSyncCount();
 
   const dispositionColor = (code: string) => dispositionCodes.find((d) => d.code === code)?.color ?? '#64748B';
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/debtors?scope=mine')
-      .then((res) => res.json())
-      .then((data) => {
-        if (!cancelled) setDebtorQueue(data.debtors ?? []);
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    fetch('/api/disposition-codes')
-      .then((res) => res.json())
-      .then((data) => {
-        if (!cancelled) setDispositionCodes(data.codes ?? []);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const filtered = debtorQueue.filter((d) => {
     const matchSearch = d.name.toLowerCase().includes(search.toLowerCase()) ||

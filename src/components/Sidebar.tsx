@@ -7,13 +7,15 @@ import AppLogo from '@/components/ui/AppLogo';
 import BrandWordmark from '@/components/ui/BrandWordmark';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 import NotificationsButton from '@/components/ui/NotificationsButton';
-import { useOnlineStatus, usePendingSyncCount } from '@/lib/use-offline';
+import { useOnlineStatus, usePendingSyncCount, useFailedSyncCount } from '@/lib/use-offline';
+import { retryFailed } from '@/lib/offline-sync';
 import { getNavGroups, displayRole, type CurrentUser, type NavGroup } from '@/lib/nav-groups';
 import {
   ChevronLeft,
   ChevronRight,
   Wifi,
   WifiOff,
+  AlertTriangle,
   LogOut,
 } from 'lucide-react';
 
@@ -30,6 +32,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
   const router = useRouter();
   const isOnline = useOnlineStatus();
   const pendingSync = usePendingSyncCount();
+  const failedSync = useFailedSyncCount();
 
   async function handleSignOut() {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -64,6 +67,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
           onToggleCollapse={onMobileClose}
           isOnline={isOnline}
           pendingSync={pendingSync}
+          failedSync={failedSync}
           isActive={isActive}
           navGroups={navGroups}
           isMobile
@@ -86,6 +90,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
           onToggleCollapse={onToggleCollapse}
           isOnline={isOnline}
           pendingSync={pendingSync}
+          failedSync={failedSync}
           isActive={isActive}
           navGroups={navGroups}
           isMobile={false}
@@ -102,6 +107,7 @@ interface SidebarContentProps {
   onToggleCollapse: () => void;
   isOnline: boolean;
   pendingSync: number;
+  failedSync: number;
   isActive: (href: string) => boolean;
   navGroups: NavGroup[];
   isMobile: boolean;
@@ -109,7 +115,7 @@ interface SidebarContentProps {
   onSignOut: () => void;
 }
 
-function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, isActive, navGroups, isMobile, user, onSignOut }: SidebarContentProps) {
+function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, failedSync, isActive, navGroups, isMobile, user, onSignOut }: SidebarContentProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Logo */}
@@ -127,6 +133,21 @@ function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, is
               ? (pendingSync > 0 ? `Online — syncing ${pendingSync}…` : 'Online — Synced')
               : `Offline${pendingSync > 0 ? ` — ${pendingSync} pending` : ''}`}
           </span>
+        </div>
+      )}
+
+      {/* Entries the server actively rejected — these stopped auto-retrying so they
+          don't block the rest of the queue, and need a deliberate retry. */}
+      {(!collapsed || isMobile) && failedSync > 0 && (
+        <div className="mx-3 mt-2 px-3 py-2 rounded-md border flex items-center gap-2 text-xs font-medium sync-offline">
+          <AlertTriangle size={14} />
+          <span className="flex-1">{failedSync} log{failedSync > 1 ? 's' : ''} failed to sync</span>
+          <button
+            onClick={() => retryFailed()}
+            className="underline hover:no-underline shrink-0"
+          >
+            Retry
+          </button>
         </div>
       )}
 

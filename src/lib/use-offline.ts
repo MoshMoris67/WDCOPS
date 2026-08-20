@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { QUEUE_CHANGED_EVENT, flushQueue, getPendingCount } from './offline-sync';
+import { QUEUE_CHANGED_EVENT, flushQueue, getPendingCount, getFailedCount } from './offline-sync';
 
 export function useOnlineStatus(): boolean {
   const [isOnline, setIsOnline] = useState(true);
@@ -30,6 +30,26 @@ export function usePendingSyncCount(): number {
   useEffect(() => {
     let cancelled = false;
     const refresh = () => getPendingCount().then((c) => { if (!cancelled) setCount(c); });
+    refresh();
+    window.addEventListener(QUEUE_CHANGED_EVENT, refresh);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(QUEUE_CHANGED_EVENT, refresh);
+    };
+  }, []);
+
+  return count;
+}
+
+/** Entries the server has actively rejected (not just "not yet sent") — these stopped
+ *  auto-retrying so they don't block the rest of the queue, and need retryFailed() to
+ *  be given another chance. */
+export function useFailedSyncCount(): number {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => getFailedCount().then((c) => { if (!cancelled) setCount(c); });
     refresh();
     window.addEventListener(QUEUE_CHANGED_EVENT, refresh);
     return () => {

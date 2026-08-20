@@ -13,6 +13,9 @@ import { toast } from 'sonner';
 import { clientBadgeVariant } from '@/lib/client-badge';
 import { debtorRowTint } from '@/lib/format-rules';
 import { useViewMode } from '@/lib/use-view-mode';
+import { useCachedQuery } from '@/lib/use-cached-query';
+import { getCached, setCached } from '@/lib/offline-cache';
+import { useOfflineGuard } from '@/lib/use-offline-guard';
 
 interface ClientSummary {
   id: string;
@@ -85,9 +88,6 @@ export default function TeamDashboardContent() {
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [clients, setClients] = useState<ClientSummary[]>([]);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
-  const [debtors, setDebtors] = useState<DebtorRow[]>([]);
-  const [debtorsLoading, setDebtorsLoading] = useState(true);
-  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const pageSize = 25;
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -95,24 +95,40 @@ export default function TeamDashboardContent() {
   const [filterAgent, setFilterAgent] = useState('All');
   const [filterFile, setFilterFile] = useState('All');
   const [viewMode, setViewMode] = useViewMode('viewMode:debtors');
-  const [files, setFiles] = useState<FileOption[]>([]);
 
   const [perfClientId, setPerfClientId] = useState('All');
   const [perfFileId, setPerfFileId] = useState('All');
   const [perfAgentId, setPerfAgentId] = useState('All');
-  const [perfRows, setPerfRows] = useState<AgentPerfRow[]>([]);
-  const [perfLoading, setPerfLoading] = useState(true);
 
+  const { blocked: mutationsBlocked, reason: offlineReason } = useOfflineGuard();
+
+  // Bespoke (not routed through useCachedQuery) because "not authorized" is a real,
+  // distinct outcome carried by the response status, not just success/failure — a 403
+  // must never be confused with "couldn't reach the server". Still cache-first: render
+  // last-known clients/agents instantly, then let a live 403 (if it ever comes back)
+  // override that. A network failure with nothing cached just leaves this on "Loading…",
+  // which is the honest state for a genuinely first-ever offline visit to this screen.
   const loadOverview = useCallback(async () => {
-    const overviewRes = await fetch('/api/team/overview');
-    if (overviewRes.status === 403) {
-      setAuthorized(false);
-      return;
+    const cached = await getCached<{ clients: ClientSummary[]; agents: AgentSummary[] }>('/api/team/overview');
+    if (cached) {
+      setAuthorized(true);
+      setClients(cached.clients ?? []);
+      setAgents(cached.agents ?? []);
     }
-    setAuthorized(true);
-    const overview = await overviewRes.json();
-    setClients(overview.clients ?? []);
-    setAgents(overview.agents ?? []);
+    try {
+      const overviewRes = await fetch('/api/team/overview');
+      if (overviewRes.status === 403) {
+        setAuthorized(false);
+        return;
+      }
+      const overview = await overviewRes.json();
+      setAuthorized(true);
+      setClients(overview.clients ?? []);
+      setAgents(overview.agents ?? []);
+      await setCached('/api/team/overview', overview);
+    } catch {
+      // Offline — whatever was set from cache above (if anything) stands as-is.
+    }
   }, []);
 
   useEffect(() => {
@@ -123,11 +139,8 @@ export default function TeamDashboardContent() {
     if (authorized === false) router.replace('/agent-dashboard');
   }, [authorized, router]);
 
-  useEffect(() => {
-    if (authorized) {
-      fetch('/api/files').then((r) => r.json()).then((d) => setFiles(d.files ?? []));
-    }
-  }, [authorized]);
+  const { data: filesData } = useCachedQuery<{ files: FileOption[] }>(authorized ? '/api/files' : null);
+  const files = filesData?.files ?? [];
 
   useEffect(() => {
     setPage(1);
@@ -142,39 +155,35 @@ export default function TeamDashboardContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterClient]);
 
-  const loadDebtors = useCallback(async () => {
-    setDebtorsLoading(true);
+  const debtorsUrl = (() => {
     const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
     if (debouncedSearch) params.set('search', debouncedSearch);
     if (filterClient !== 'All') params.set('clientId', filterClient);
     if (filterAgent !== 'All') params.set('agentId', filterAgent);
     if (filterFile !== 'All') params.set('fileId', filterFile);
-    const res = await fetch(`/api/debtors?${params.toString()}`);
-    const payload = await res.json();
-    setDebtors(payload.debtors ?? []);
-    setTotal(payload.total ?? 0);
-    setDebtorsLoading(false);
-  }, [page, debouncedSearch, filterClient, filterAgent, filterFile]);
+    return `/api/debtors?${params.toString()}`;
+  })();
+  const {
+    data: debtorsData,
+    isLoading: debtorsLoading,
+    refetch: refetchDebtors,
+  } = useCachedQuery<{ debtors: DebtorRow[]; total: number }>(authorized ? debtorsUrl : null);
+  const debtors = debtorsData?.debtors ?? [];
+  const total = debtorsData?.total ?? 0;
 
-  useEffect(() => {
-    if (authorized) loadDebtors();
-  }, [authorized, loadDebtors]);
-
-  const loadPerf = useCallback(async () => {
-    setPerfLoading(true);
+  const perfUrl = (() => {
     const params = new URLSearchParams();
     if (perfClientId !== 'All') params.set('clientId', perfClientId);
     if (perfFileId !== 'All') params.set('fileId', perfFileId);
     if (perfAgentId !== 'All') params.set('agentId', perfAgentId);
-    const res = await fetch(`/api/team/agent-performance?${params.toString()}`);
-    const payload = await res.json();
-    setPerfRows(payload.rows ?? []);
-    setPerfLoading(false);
-  }, [perfClientId, perfFileId, perfAgentId]);
-
-  useEffect(() => {
-    if (authorized) loadPerf();
-  }, [authorized, loadPerf]);
+    return `/api/team/agent-performance?${params.toString()}`;
+  })();
+  const {
+    data: perfData,
+    isLoading: perfLoading,
+    refetch: refetchPerf,
+  } = useCachedQuery<{ rows: AgentPerfRow[] }>(authorized ? perfUrl : null);
+  const perfRows = perfData?.rows ?? [];
 
   useEffect(() => {
     if (perfFileId !== 'All' && !files.some((f) => f.id === perfFileId && (perfClientId === 'All' || f.clientId === perfClientId))) {
@@ -182,10 +191,6 @@ export default function TeamDashboardContent() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [perfClientId]);
-
-  const loadAll = useCallback(async () => {
-    await Promise.all([loadOverview(), loadDebtors(), loadPerf()]);
-  }, [loadOverview, loadDebtors, loadPerf]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -201,7 +206,9 @@ export default function TeamDashboardContent() {
       return;
     }
     toast.success(`${debtor.name} reassigned — call history preserved`);
-    await loadAll();
+    await loadOverview();
+    refetchDebtors();
+    refetchPerf();
   }
 
   if (authorized === null) {
@@ -307,7 +314,10 @@ export default function TeamDashboardContent() {
           <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h2 className="text-section-header text-foreground">All Debtors</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">{debtors.length} of {total.toLocaleString()} debtors</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {debtors.length} of {total.toLocaleString()} debtors
+                {mutationsBlocked && <span className="ml-2 text-warning">· {offlineReason.replace('make this change', 'reassign')}</span>}
+              </p>
             </div>
             <ListToolbar
               search={debouncedSearch}
@@ -374,6 +384,7 @@ export default function TeamDashboardContent() {
                     <InlineEditCell
                       value=""
                       displayValue="Reassign…"
+                      disabled={mutationsBlocked}
                       options={[{ value: '', label: 'Reassign…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: `${a.name}${a.role === 'admin' ? ' (Admin)' : ''} — ${a.assignedCount} assigned` }))]}
                       onSave={async (agentId) => { if (agentId) await reassignDebtor(d, agentId); }}
                     />
@@ -403,6 +414,7 @@ export default function TeamDashboardContent() {
                     <InlineEditCell
                       value=""
                       displayValue="Reassign to another agent…"
+                      disabled={mutationsBlocked}
                       options={[{ value: '', label: 'Reassign to another agent…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: `${a.name}${a.role === 'admin' ? ' (Admin)' : ''} — ${a.assignedCount} assigned` }))]}
                       onSave={async (agentId) => { if (agentId) await reassignDebtor(d, agentId); }}
                     />

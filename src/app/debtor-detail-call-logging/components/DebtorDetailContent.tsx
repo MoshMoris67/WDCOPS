@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Phone, ChevronLeft, ChevronRight, Clock, CheckCircle, MessageSquare, CreditCard, History, User, Calendar, Wifi, WifiOff, Send, Info, X,  } from 'lucide-react';
@@ -10,7 +10,9 @@ import DispositionBadge from '@/components/ui/DispositionBadge';
 import Toggle from '@/components/ui/Toggle';
 import { toast } from 'sonner';
 import { useOnlineStatus } from '@/lib/use-offline';
-import { queueCallLog, QUEUE_CHANGED_EVENT } from '@/lib/offline-sync';
+import { queueCallLog, syncOneNow, QUEUE_CHANGED_EVENT } from '@/lib/offline-sync';
+import { useCachedQuery } from '@/lib/use-cached-query';
+import { useCachedDebtorLite } from '@/lib/use-debtor-queue';
 import { clientBadgeVariant } from '@/lib/client-badge';
 
 interface CallLogFormData {
@@ -145,15 +147,30 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isOnline = useOnlineStatus();
-  const [debtor, setDebtor] = useState<DebtorDetail | null>(null);
-  const [localLogs, setLocalLogs] = useState<CallHistoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [dispositionCodes, setDispositionCodes] = useState<DispositionCodeOption[]>([]);
 
+  // Full detail (debtor + call history) — cache-backed, so a debtor already opened once
+  // on this device renders instantly even offline. `isLoading` only stays true while
+  // neither a cached nor a live response has landed yet (a true cold, never-fetched case).
+  const detailUrl = debtorId ? `/api/debtors/${debtorId}` : null;
+  const {
+    data: detailData,
+    isLoading: detailLoading,
+    error: detailError,
+    refetch: refetchDetail,
+  } = useCachedQuery<{ debtor: DebtorDetail; callHistory: CallHistoryItem[] }>(detailUrl);
+  const debtor = detailData?.debtor ?? null;
+
+  // Fallback when the full detail was never individually fetched on this device but the
+  // debtor is (or recently was) in the cached queue list — enough to still log a call.
+  const liteRow = useCachedDebtorLite(debtorId);
+
+  const [localLogs, setLocalLogs] = useState<CallHistoryItem[]>([]);
   useEffect(() => {
-    fetch('/api/disposition-codes').then((r) => r.json()).then((d) => setDispositionCodes(d.codes ?? []));
-  }, []);
+    setLocalLogs(detailData?.callHistory ?? []);
+  }, [detailData]);
+
+  const { data: codesData } = useCachedQuery<{ codes: DispositionCodeOption[] }>('/api/disposition-codes');
+  const dispositionCodes = codesData?.codes ?? [];
 
   const dispositionColor = (code: string) => dispositionCodes.find((d) => d.code === code)?.color ?? '#64748B';
 
@@ -164,45 +181,17 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
   const selectedCode = watch('dispositionCode');
   const selectedDispo = dispositionCodes.find(d => d.code === selectedCode);
 
-  const loadDebtor = useCallback(async () => {
-    if (!debtorId) {
-      setLoading(false);
-      setLoadError('No debtor selected — go back to the queue and pick one.');
-      return;
-    }
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const res = await fetch(`/api/debtors/${debtorId}`);
-      const payload = await res.json();
-      if (!res.ok) {
-        setLoadError(payload.error || 'Could not load this debtor');
-        return;
-      }
-      setDebtor(payload.debtor);
-      setLocalLogs(payload.callHistory ?? []);
-    } catch {
-      setLoadError('Could not reach the server — try again');
-    } finally {
-      setLoading(false);
-    }
-  }, [debtorId]);
-
-  useEffect(() => {
-    loadDebtor();
-  }, [loadDebtor]);
-
   useEffect(() => {
     // Fires both when an entry is queued (still offline — nothing to refetch yet) and
     // when the queue successfully drains (back online — refetch to get the real record).
     // Only the latter should trigger a refetch, or we'd immediately re-fail the fetch
     // that just got queued and stomp the optimistic update with an error state.
     const onQueueChanged = () => {
-      if (navigator.onLine) loadDebtor();
+      if (navigator.onLine) refetchDetail();
     };
     window.addEventListener(QUEUE_CHANGED_EVENT, onQueueChanged);
     return () => window.removeEventListener(QUEUE_CHANGED_EVENT, onQueueChanged);
-  }, [loadDebtor]);
+  }, [refetchDetail]);
 
   // Brief delay so the agent actually sees the "logged" toast before the view jumps —
   // an instant swap reads as the click doing nothing, not as a successful submit.
@@ -236,67 +225,261 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
         : null;
     const promisedAmount = selectedDispo?.requiresPtp && data.promisedAmount ? Number(data.promisedAmount) : null;
 
-    if (!isOnline) {
-      await queueCallLog({
-        debtorId,
-        debtorName: debtor?.name ?? '',
-        dispositionCode: data.dispositionCode,
+    // Always write locally first, unconditionally — this is what actually makes the
+    // disposition durable. `isOnline` (navigator.onLine) only means "some network
+    // interface is up"; a request can still hang or fail even while it reads true, and
+    // branching the write itself on that flag is how a logged call used to go missing
+    // whenever the network was merely flaky rather than cleanly off. The network push
+    // below is a separate, best-effort concern — nothing here waits on it to keep the
+    // agent's data safe.
+    const localId = await queueCallLog({
+      debtorId,
+      debtorName: debtor?.name ?? liteRow?.name ?? '',
+      dispositionCode: data.dispositionCode,
+      note: data.note || null,
+      promisedAmount,
+      promisedDate,
+    });
+    setLocalLogs((prev) => [
+      {
+        id: `local-${Date.now()}`,
+        disposition: data.dispositionCode,
         note: data.note || null,
         promisedAmount,
         promisedDate,
-      });
-      setLocalLogs((prev) => [
-        {
-          id: `local-${Date.now()}`,
-          disposition: data.dispositionCode,
-          note: data.note || null,
-          promisedAmount,
-          promisedDate,
-          createdAt: new Date().toISOString(),
-          agentName: 'You',
-          synced: false,
-        },
-        ...prev,
-      ]);
-      reset();
-      setActiveTab('history');
-      setIsSubmitting(false);
-      toast.warning('Logged offline — will sync when connected');
-      advanceIfEnabled();
-      return;
-    }
+        createdAt: new Date().toISOString(),
+        agentName: 'You',
+        synced: false,
+      },
+      ...prev,
+    ]);
+    reset();
+    setActiveTab('history');
+    setIsSubmitting(false);
+    advanceIfEnabled();
 
-    try {
-      const res = await fetch('/api/call-logs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          debtorId,
-          dispositionCode: data.dispositionCode,
-          note: data.note,
-          promisedAmount,
-          promisedDate,
-        }),
-      });
-      const payload = await res.json();
-      if (!res.ok) {
-        toast.error(payload.error || 'Could not log this call');
-        return;
-      }
-
-      reset();
-      setActiveTab('history');
-      await loadDebtor();
+    // Try to push it right away so an agent who's actually online still sees "synced"
+    // instead of always being told "queued" — but this is purely cosmetic. Whether it
+    // resolves here or later (AppLayout's periodic flush, or the next 'online' event),
+    // the record is already safe on disk.
+    const outcome = await syncOneNow(localId);
+    if (outcome.ok) {
       toast.success(`Disposition ${data.dispositionCode} logged and synced`);
-      advanceIfEnabled();
-    } catch {
-      toast.error('Could not reach the server — try again');
-    } finally {
-      setIsSubmitting(false);
+      refetchDetail();
+    } else if (outcome.retryable) {
+      toast.warning('Logged — will sync when connected');
+    } else {
+      toast.error(`Logged locally, but the server rejected it: ${outcome.message}`);
     }
   }
 
-  if (loading) {
+  // Shared between the full detail view and the offline "lite" fallback below — the form
+  // itself only ever needed the phone number from the full debtor shape, everything else
+  // it touches (dispositionCodes, register, errors, isSubmitting, isOnline, ...) is already
+  // in scope regardless of which debtor shape is available.
+  function renderLogCallCard(phone: string) {
+    return (
+      <>
+        <div className="px-5 pt-4">
+          <a
+            href={`tel:${phone}`}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-positive text-white text-sm font-semibold rounded-lg hover:bg-positive/90 active:scale-95 transition-all"
+          >
+            <Phone size={15} />
+            Call {phone}
+          </a>
+        </div>
+
+        <form ref={formRef} onSubmit={handleSubmit(onSubmit)} className="p-5 space-y-4">
+          {/* Disposition code selector */}
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-foreground">
+              Disposition Code <span className="text-negative">*</span>
+            </label>
+            <p className="text-xs text-muted-foreground">Select the outcome of this call attempt</p>
+            <div className="grid grid-cols-3 gap-1.5">
+              {dispositionCodes.map((d) => (
+                <label
+                  key={`disp-${d.code}`}
+                  className={`
+                    cursor-pointer flex flex-col items-center justify-center p-2 rounded-lg border-2 transition-all text-center
+                    ${selectedCode === d.code
+                      ? 'border-primary bg-primary/5' :'border-border hover:border-primary/40 hover:bg-secondary/50'
+                    }
+                  `}
+                  title={d.description ?? undefined}
+                >
+                  <input
+                    type="radio"
+                    value={d.code}
+                    className="sr-only"
+                    {...register('dispositionCode', { required: 'Select a disposition code' })}
+                  />
+                  <DispositionBadge code={d.code} color={d.color} className="mb-0.5" />
+                  <span className="text-xs text-muted-foreground leading-tight mt-0.5">{d.label.split(' ').slice(0, 2).join(' ')}</span>
+                </label>
+              ))}
+            </div>
+            {dispositionCodes.length === 0 && (
+              <p className="text-xs text-muted-foreground">Loading disposition codes…</p>
+            )}
+            {errors.dispositionCode && (
+              <p className="text-xs text-negative">{errors.dispositionCode.message}</p>
+            )}
+            {selectedDispo && (
+              <div className="flex items-start gap-1.5 mt-1 text-xs text-muted-foreground">
+                <Info size={12} className="mt-0.5 shrink-0" />
+                <span>{selectedDispo.description}</span>
+              </div>
+            )}
+          </div>
+
+          {/* PTP fields */}
+          {selectedDispo?.requiresPtp && (
+            <div className="space-y-3 bg-[var(--positive-bg)] border border-[#BBF7D0] rounded-lg p-3 fade-in">
+              <p className="text-xs font-semibold text-positive flex items-center gap-1.5">
+                <CheckCircle size={13} />
+                Promise To Pay Details
+              </p>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-foreground">
+                  Promised Amount (UGX) <span className="text-negative">*</span>
+                </label>
+                <input
+                  type="number"
+                  placeholder="e.g. 400000"
+                  className={`w-full px-3 py-2 text-sm bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 font-tabular ${errors.promisedAmount ? 'border-negative' : 'border-border'}`}
+                  {...register('promisedAmount', {
+                    required: selectedDispo?.requiresPtp ? 'Enter the promised amount' : false,
+                    min: { value: 1, message: 'Amount must be positive' },
+                  })}
+                />
+                {errors.promisedAmount && <p className="text-xs text-negative">{errors.promisedAmount.message}</p>}
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-foreground">
+                  Payment Date <span className="text-negative">*</span>
+                </label>
+                <input
+                  type="date"
+                  className={`w-full px-3 py-2 text-sm bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${errors.promisedDate ? 'border-negative' : 'border-border'}`}
+                  {...register('promisedDate', {
+                    required: selectedDispo?.requiresPtp ? 'Select the payment date' : false,
+                  })}
+                />
+                {errors.promisedDate && <p className="text-xs text-negative">{errors.promisedDate.message}</p>}
+              </div>
+            </div>
+          )}
+
+          {/* Callback fields */}
+          {selectedDispo?.requiresCallback && (
+            <div className="space-y-3 bg-[var(--info-bg)] border border-[#BFDBFE] rounded-lg p-3 fade-in">
+              <p className="text-xs font-semibold text-info flex items-center gap-1.5">
+                <Calendar size={13} />
+                Schedule Callback
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-foreground">Date <span className="text-negative">*</span></label>
+                  <input
+                    type="date"
+                    className="w-full px-2 py-2 text-sm bg-white border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+                    {...register('callbackDate', {
+                      required: selectedDispo?.requiresCallback ? 'Select callback date' : false,
+                    })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-foreground">Time</label>
+                  <input
+                    type="time"
+                    className="w-full px-2 py-2 text-sm bg-white border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+                    {...register('callbackTime')}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Notes */}
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-foreground">
+              <span className="flex items-center gap-1.5"><MessageSquare size={14} />Call Notes</span>
+            </label>
+            <p className="text-xs text-muted-foreground">Optional — describe the conversation, debtor attitude, or next steps</p>
+            <textarea
+              rows={3}
+              placeholder="e.g. Debtor was cooperative, mentioned salary comes on 20th…"
+              className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 resize-none placeholder:text-muted-foreground"
+              {...register('note')}
+            />
+          </div>
+
+          {/* Offline notice */}
+          {!isOnline && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--warning-bg)] border border-[#FDE68A] text-xs text-warning">
+              <WifiOff size={12} />
+              <span>No connection — log saved locally and will sync on reconnect</span>
+            </div>
+          )}
+
+          {/* Submit */}
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
+          >
+            {isSubmitting ? (
+              <>
+                <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <span>Logging…</span>
+              </>
+            ) : (
+              <>
+                <Send size={15} />
+                <span>Log Disposition</span>
+              </>
+            )}
+          </button>
+        </form>
+      </>
+    );
+  }
+
+  const backNav = embedded ? (
+    <button
+      onClick={onClose}
+      className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5"
+    >
+      <X size={16} />
+      Close
+    </button>
+  ) : (
+    <Link
+      href="/my-queue"
+      className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5"
+    >
+      <ChevronLeft size={16} />
+      Back to Queue
+    </Link>
+  );
+
+  if (!debtorId) {
+    return (
+      <div className={embedded ? '' : 'p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto'}>
+        {backNav}
+        <div className="bg-card rounded-xl shadow-card border border-border p-8 text-center">
+          <p className="text-sm font-medium text-foreground">No debtor selected — go back to the queue and pick one.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (detailLoading) {
     return (
       <div className={embedded ? '' : 'p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto'}>
         <p className="text-sm text-muted-foreground">Loading debtor…</p>
@@ -304,28 +487,74 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
     );
   }
 
-  if (loadError || !debtor) {
+  if (!debtor) {
+    // Full detail was never fetched on this device (and the network attempt above just
+    // failed too) — but this debtor is still in the cached queue list, which is enough
+    // to let the agent keep working: log a call with what we do have, rather than a dead
+    // end. Real profile data (payment history, branch, assigned agent) needs a connection.
+    if (liteRow) {
+      const recoveryPct = liteRow.amountOwed > 0 ? Math.round(((liteRow.amountOwed - liteRow.balance) / liteRow.amountOwed) * 100) : 0;
+      return (
+        <div className={embedded ? '' : 'p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto'}>
+          {backNav}
+          <div className="flex items-start gap-2 px-3 py-2.5 mb-5 rounded-lg bg-[var(--warning-bg)] border border-[#FDE68A] text-xs text-warning">
+            <WifiOff size={14} className="mt-0.5 shrink-0" />
+            <span>Full profile unavailable offline — showing last-known summary only. Payment history, branch, and assigned agent need a connection.</span>
+          </div>
+
+          <div className="bg-card rounded-xl shadow-card border border-border p-5 mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                  <span className="text-lg font-bold text-primary">{initials(liteRow.name)}</span>
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold text-foreground">{liteRow.name}</h1>
+                  <div className="flex items-center gap-3 mt-1 flex-wrap text-sm text-muted-foreground">
+                    <a href={`tel:${liteRow.phone}`} className="flex items-center gap-1 hover:text-primary hover:underline">
+                      <Phone size={13} />{liteRow.phone}
+                    </a>
+                    <Badge variant={clientBadgeVariant(liteRow.client)}>{liteRow.client}</Badge>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="text-right">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider">Balance</p>
+                  <p className="font-tabular font-bold text-xl text-negative">{formatUGX(liteRow.balance)}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider">Recovery</p>
+                  <p className="font-tabular font-bold text-xl text-foreground">{recoveryPct}%</p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 pt-4 border-t border-border flex items-center gap-6 flex-wrap text-xs text-muted-foreground">
+              <span><span className="font-medium text-foreground">Loan Ref:</span> <span className="font-mono-data">{liteRow.loanRef}</span></span>
+              <span><span className="font-medium text-foreground">NA Count:</span> {liteRow.naCount} / 5</span>
+            </div>
+          </div>
+
+          <div className="bg-card rounded-xl shadow-card border border-border overflow-hidden">
+            <div className="px-5 py-4 border-b border-border">
+              <h2 className="text-sm font-semibold text-foreground">Log a Call</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">Select outcome and add notes</p>
+            </div>
+            {renderLogCallCard(liteRow.phone)}
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className={embedded ? '' : 'p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto'}>
-        {embedded ? (
-          <button
-            onClick={onClose}
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5"
-          >
-            <X size={16} />
-            Close
-          </button>
-        ) : (
-          <Link
-            href="/my-queue"
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5"
-          >
-            <ChevronLeft size={16} />
-            Back to Queue
-          </Link>
-        )}
+        {backNav}
         <div className="bg-card rounded-xl shadow-card border border-border p-8 text-center">
-          <p className="text-sm font-medium text-foreground">{loadError || 'Debtor not found'}</p>
+          <p className="text-sm font-medium text-foreground">
+            {!isOnline
+              ? "Not available offline — this debtor hasn't been opened on this device yet."
+              : (detailError || 'Could not load this debtor')}
+          </p>
         </div>
       </div>
     );
@@ -614,172 +843,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
               </div>
             )}
 
-            <div className="px-5 pt-4">
-              <a
-                href={`tel:${debtor.phone1}`}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-positive text-white text-sm font-semibold rounded-lg hover:bg-positive/90 active:scale-95 transition-all"
-              >
-                <Phone size={15} />
-                Call {debtor.phone1}
-              </a>
-            </div>
-
-            <form ref={formRef} onSubmit={handleSubmit(onSubmit)} className="p-5 space-y-4">
-              {/* Disposition code selector */}
-              <div className="space-y-1.5">
-                <label className="block text-sm font-medium text-foreground">
-                  Disposition Code <span className="text-negative">*</span>
-                </label>
-                <p className="text-xs text-muted-foreground">Select the outcome of this call attempt</p>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {dispositionCodes.map((d) => (
-                    <label
-                      key={`disp-${d.code}`}
-                      className={`
-                        cursor-pointer flex flex-col items-center justify-center p-2 rounded-lg border-2 transition-all text-center
-                        ${selectedCode === d.code
-                          ? 'border-primary bg-primary/5' :'border-border hover:border-primary/40 hover:bg-secondary/50'
-                        }
-                      `}
-                      title={d.description ?? undefined}
-                    >
-                      <input
-                        type="radio"
-                        value={d.code}
-                        className="sr-only"
-                        {...register('dispositionCode', { required: 'Select a disposition code' })}
-                      />
-                      <DispositionBadge code={d.code} color={d.color} className="mb-0.5" />
-                      <span className="text-xs text-muted-foreground leading-tight mt-0.5">{d.label.split(' ').slice(0, 2).join(' ')}</span>
-                    </label>
-                  ))}
-                </div>
-                {dispositionCodes.length === 0 && (
-                  <p className="text-xs text-muted-foreground">Loading disposition codes…</p>
-                )}
-                {errors.dispositionCode && (
-                  <p className="text-xs text-negative">{errors.dispositionCode.message}</p>
-                )}
-                {selectedDispo && (
-                  <div className="flex items-start gap-1.5 mt-1 text-xs text-muted-foreground">
-                    <Info size={12} className="mt-0.5 shrink-0" />
-                    <span>{selectedDispo.description}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* PTP fields */}
-              {selectedDispo?.requiresPtp && (
-                <div className="space-y-3 bg-[var(--positive-bg)] border border-[#BBF7D0] rounded-lg p-3 fade-in">
-                  <p className="text-xs font-semibold text-positive flex items-center gap-1.5">
-                    <CheckCircle size={13} />
-                    Promise To Pay Details
-                  </p>
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-foreground">
-                      Promised Amount (UGX) <span className="text-negative">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      placeholder="e.g. 400000"
-                      className={`w-full px-3 py-2 text-sm bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 font-tabular ${errors.promisedAmount ? 'border-negative' : 'border-border'}`}
-                      {...register('promisedAmount', {
-                        required: selectedDispo?.requiresPtp ? 'Enter the promised amount' : false,
-                        min: { value: 1, message: 'Amount must be positive' },
-                      })}
-                    />
-                    {errors.promisedAmount && <p className="text-xs text-negative">{errors.promisedAmount.message}</p>}
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-foreground">
-                      Payment Date <span className="text-negative">*</span>
-                    </label>
-                    <input
-                      type="date"
-                      className={`w-full px-3 py-2 text-sm bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${errors.promisedDate ? 'border-negative' : 'border-border'}`}
-                      {...register('promisedDate', {
-                        required: selectedDispo?.requiresPtp ? 'Select the payment date' : false,
-                      })}
-                    />
-                    {errors.promisedDate && <p className="text-xs text-negative">{errors.promisedDate.message}</p>}
-                  </div>
-                </div>
-              )}
-
-              {/* Callback fields */}
-              {selectedDispo?.requiresCallback && (
-                <div className="space-y-3 bg-[var(--info-bg)] border border-[#BFDBFE] rounded-lg p-3 fade-in">
-                  <p className="text-xs font-semibold text-info flex items-center gap-1.5">
-                    <Calendar size={13} />
-                    Schedule Callback
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <label className="block text-xs font-medium text-foreground">Date <span className="text-negative">*</span></label>
-                      <input
-                        type="date"
-                        className="w-full px-2 py-2 text-sm bg-white border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
-                        {...register('callbackDate', {
-                          required: selectedDispo?.requiresCallback ? 'Select callback date' : false,
-                        })}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-xs font-medium text-foreground">Time</label>
-                      <input
-                        type="time"
-                        className="w-full px-2 py-2 text-sm bg-white border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
-                        {...register('callbackTime')}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Notes */}
-              <div className="space-y-1.5">
-                <label className="block text-sm font-medium text-foreground">
-                  <span className="flex items-center gap-1.5"><MessageSquare size={14} />Call Notes</span>
-                </label>
-                <p className="text-xs text-muted-foreground">Optional — describe the conversation, debtor attitude, or next steps</p>
-                <textarea
-                  rows={3}
-                  placeholder="e.g. Debtor was cooperative, mentioned salary comes on 20th…"
-                  className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 resize-none placeholder:text-muted-foreground"
-                  {...register('note')}
-                />
-              </div>
-
-              {/* Offline notice */}
-              {!isOnline && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--warning-bg)] border border-[#FDE68A] text-xs text-warning">
-                  <WifiOff size={12} />
-                  <span>No connection — log saved locally and will sync on reconnect</span>
-                </div>
-              )}
-
-              {/* Submit */}
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
-              >
-                {isSubmitting ? (
-                  <>
-                    <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    <span>Logging…</span>
-                  </>
-                ) : (
-                  <>
-                    <Send size={15} />
-                    <span>Log Disposition</span>
-                  </>
-                )}
-              </button>
-            </form>
+            {renderLogCallCard(debtor.phone1)}
           </div>
         </div>
       </div>

@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Phone, AlertTriangle, TrendingUp, Clock, RefreshCw, WifiOff, Calendar, Wifi } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import KPICard from './KPICard';
 import { useOnlineStatus, usePendingSyncCount } from '@/lib/use-offline';
+import { useDebtorQueue } from '@/lib/use-debtor-queue';
+import { useCachedQuery } from '@/lib/use-cached-query';
 
 const DispositionChart = dynamic(() => import('./DispositionChart'), { ssr: false });
 const DailyCallsTrend = dynamic(() => import('./DailyCallsTrend'), { ssr: false });
@@ -43,41 +45,15 @@ function formatUGX(amount: number) {
   return 'UGX ' + amount.toLocaleString('en-UG');
 }
 
-interface DebtorRow {
-  activePTP: { amount: number; date: string } | null;
-  isStale: boolean;
-}
-
 export default function AgentDashboardContent() {
-  const [debtorQueue, setDebtorQueue] = useState<DebtorRow[]>([]);
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [dispositionCodes, setDispositionCodes] = useState<DispositionCodeOption[]>([]);
+  // Only isStale/activePTP are needed here (for the KPI cards) — the full queue table
+  // moved to /my-queue (AgentQueueContent), which reads this same cached queue itself.
+  const { debtors: debtorQueue } = useDebtorQueue();
+  const { data: summary } = useCachedQuery<DashboardSummary>('/api/dashboard/summary?scope=mine');
+  const { data: codesData } = useCachedQuery<{ codes: DispositionCodeOption[] }>('/api/disposition-codes');
+  const dispositionCodes = codesData?.codes ?? [];
   const isOnline = useOnlineStatus();
   const pendingSync = usePendingSyncCount();
-
-  useEffect(() => {
-    let cancelled = false;
-    // Only isStale/activePTP are needed here (for the KPI cards) — the full queue table
-    // moved to /my-queue (AgentQueueContent), which fetches this same endpoint itself.
-    fetch('/api/debtors?scope=mine')
-      .then((res) => res.json())
-      .then((data) => {
-        if (!cancelled) setDebtorQueue(data.debtors ?? []);
-      });
-    fetch('/api/dashboard/summary?scope=mine')
-      .then((res) => res.json())
-      .then((data) => {
-        if (!cancelled) setSummary(data);
-      });
-    fetch('/api/disposition-codes')
-      .then((res) => res.json())
-      .then((data) => {
-        if (!cancelled) setDispositionCodes(data.codes ?? []);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const todayIso = new Date().toISOString().slice(0, 10);
   const ptpDueToday = debtorQueue.filter(d => d.activePTP?.date?.slice(0, 10) === todayIso).length;

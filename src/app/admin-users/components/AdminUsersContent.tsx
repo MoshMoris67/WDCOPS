@@ -10,6 +10,8 @@ import Fab from '@/components/ui/Fab';
 import ListToolbar from '@/components/ui/ListToolbar';
 import ResponsiveList from '@/components/ui/ResponsiveList';
 import { toast } from 'sonner';
+import { getCached, setCached } from '@/lib/offline-cache';
+import { useOfflineGuard } from '@/lib/use-offline-guard';
 
 interface UserRow {
   id: string;
@@ -47,16 +49,31 @@ export default function AdminUsersContent() {
 
   const createForm = useForm<CreateUserForm>({ defaultValues: { name: '', email: '', password: '', role: 'agent' } });
   const editForm = useForm<EditUserForm>({ defaultValues: { name: '', email: '', password: '', role: 'agent' } });
+  const { blocked: offlineBlocked } = useOfflineGuard();
 
+  // Bespoke, not useCachedQuery — a 403 (wrong role) must never be confused with
+  // "couldn't reach the server". Cache-first: render the last-known user list instantly
+  // if this admin has loaded this screen before, then let a live response override it.
+  // None of the cached fields include password data — the API route already excludes it.
   const loadUsers = useCallback(async () => {
-    const res = await fetch('/api/users');
-    if (res.status === 403) {
-      setAuthorized(false);
-      return;
+    const cached = await getCached<{ users: UserRow[] }>('/api/users');
+    if (cached) {
+      setAuthorized(true);
+      setUsers(cached.users ?? []);
     }
-    setAuthorized(true);
-    const data = await res.json();
-    setUsers(data.users ?? []);
+    try {
+      const res = await fetch('/api/users');
+      if (res.status === 403) {
+        setAuthorized(false);
+        return;
+      }
+      setAuthorized(true);
+      const data = await res.json();
+      setUsers(data.users ?? []);
+      await setCached('/api/users', data);
+    } catch {
+      // Offline — whatever was set from cache above (if anything) stands as-is.
+    }
   }, []);
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
@@ -161,7 +178,9 @@ export default function AdminUsersContent() {
         </div>
         <button
           onClick={() => setCreateOpen(true)}
-          className="hidden lg:flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all"
+          disabled={offlineBlocked}
+          title={offlineBlocked ? 'Offline — reconnect to add a user' : undefined}
+          className="hidden lg:flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
         >
           <UserPlus size={15} />
           Add User
@@ -202,22 +221,25 @@ export default function AdminUsersContent() {
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => openEdit(u)}
-                      className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground"
-                      title="Edit"
+                      disabled={offlineBlocked}
+                      className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground disabled:opacity-40"
+                      title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit'}
                     >
                       <Pencil size={14} />
                     </button>
                     <button
                       onClick={() => toggleStatus(u)}
-                      className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground"
-                      title={u.status === 'active' ? 'Deactivate' : 'Reactivate'}
+                      disabled={offlineBlocked}
+                      className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40"
+                      title={offlineBlocked ? 'Offline — reconnect' : (u.status === 'active' ? 'Deactivate' : 'Reactivate')}
                     >
                       {u.status === 'active' ? <Ban size={14} /> : <CheckCircle size={14} />}
                     </button>
                     <button
                       onClick={() => deleteUser(u)}
-                      className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground"
-                      title="Delete"
+                      disabled={offlineBlocked}
+                      className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40"
+                      title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'}
                     >
                       <Trash2 size={14} />
                     </button>
@@ -233,13 +255,13 @@ export default function AdminUsersContent() {
                     <p className="text-xs text-muted-foreground font-mono-data truncate">{u.email}</p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => openEdit(u)} className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground" title="Edit">
+                    <button onClick={() => openEdit(u)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit'}>
                       <Pencil size={14} />
                     </button>
-                    <button onClick={() => toggleStatus(u)} className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground" title={u.status === 'active' ? 'Deactivate' : 'Reactivate'}>
+                    <button onClick={() => toggleStatus(u)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect' : (u.status === 'active' ? 'Deactivate' : 'Reactivate')}>
                       {u.status === 'active' ? <Ban size={14} /> : <CheckCircle size={14} />}
                     </button>
-                    <button onClick={() => deleteUser(u)} className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground" title="Delete">
+                    <button onClick={() => deleteUser(u)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'}>
                       <Trash2 size={14} />
                     </button>
                   </div>
@@ -255,7 +277,7 @@ export default function AdminUsersContent() {
         </div>
       </div>
 
-      <Fab onClick={() => setCreateOpen(true)} label="Add User" icon={UserPlus} />
+      <Fab onClick={() => setCreateOpen(true)} label="Add User" icon={UserPlus} disabled={offlineBlocked} />
 
       {/* Add user */}
       <Modal
@@ -274,7 +296,7 @@ export default function AdminUsersContent() {
             <button
               form="create-user-form"
               type="submit"
-              disabled={isSaving}
+              disabled={isSaving || offlineBlocked}
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60"
             >
               <ShieldCheck size={15} />
@@ -337,7 +359,7 @@ export default function AdminUsersContent() {
             <button
               form="edit-user-form"
               type="submit"
-              disabled={isSaving}
+              disabled={isSaving || offlineBlocked}
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60"
             >
               <Save size={15} />

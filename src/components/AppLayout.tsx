@@ -6,7 +6,8 @@ import Sidebar from './Sidebar';
 import BottomTabBar from './BottomTabBar';
 import BrandWordmark from '@/components/ui/BrandWordmark';
 import { flushQueue } from '@/lib/offline-sync';
-import type { CurrentUser } from '@/lib/nav-groups';
+import { revalidateEssentials } from '@/lib/offline-cache';
+import { useCurrentUser } from '@/lib/use-current-user';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -16,18 +17,30 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const pathname = usePathname();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [user, setUser] = useState<CurrentUser | null>(null);
 
   useEffect(() => {
     flushQueue();
+    revalidateEssentials();
+    // Catches the case navigator.onLine's own 'online' event misses: the browser never
+    // reports going offline (e.g. the server is just unreachable, or a request quietly
+    // times out) so nothing else re-triggers a retry/refresh. A cheap periodic sweep is a
+    // no-op when there's nothing pending or nothing worth refreshing, so this costs
+    // nothing on the common path.
+    const interval = setInterval(() => {
+      flushQueue();
+      revalidateEssentials();
+    }, 45000);
+    return () => clearInterval(interval);
   }, []);
 
+  // Cache-backed: a failed fetch here (offline mid-session) no longer wipes out `user`
+  // and drops Sidebar/BottomTabBar into a logged-out-looking state — it just keeps
+  // showing whoever was last known to be signed in.
+  const { data: userData, refetch: refetchUser } = useCurrentUser();
+  const user = userData?.user ?? null;
   useEffect(() => {
-    fetch('/api/auth/me')
-      .then((res) => res.json())
-      .then((data) => setUser(data.user))
-      .catch(() => setUser(null));
-  }, [pathname]);
+    refetchUser();
+  }, [pathname, refetchUser]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
