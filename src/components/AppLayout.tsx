@@ -13,10 +13,10 @@ interface AppLayoutProps {
   children: React.ReactNode;
 }
 
-// Must match public/sw.js's SHELLS_CACHE constant — deliberately not versioned with the
-// rest of the service worker's cache so a redeploy doesn't wipe every route's offline
-// fallback along with it.
-const SHELLS_CACHE_NAME = 'wellcashops-route-shells';
+// Must match public/sw.js's SHELLS_CACHE constant exactly, version suffix included — a
+// shell is a snapshot of whatever code was live when it was cached, so it has to be
+// invalidated on every deploy along with everything else, not survive across them.
+const SHELLS_CACHE_NAME = 'wellcashops-route-shells-v2';
 const cachedShellPathnames = new Set<string>();
 
 export default function AppLayout({ children }: AppLayoutProps) {

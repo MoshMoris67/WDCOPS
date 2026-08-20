@@ -21,19 +21,27 @@
 //   IndexedDB-based offline call-log queue and auth cookies must keep working exactly
 //   as they do today — this worker must never cache or rewrite an API response.
 //
-// Bump CACHE_VERSION on meaningful changes here; old-version caches are removed on
-// activate so redeploys don't accumulate stale entries forever. SHELLS_CACHE is
-// deliberately unversioned (see below) and survives redeploys on its own.
-const CACHE_VERSION = 'v1';
+// Bump CACHE_VERSION on ANY meaningful change to the deployed app, not just this file —
+// both caches below are versioned by it and get swept on the next activate. Learned the
+// hard way: an early version of this worker left SHELLS_CACHE unversioned on purpose so
+// it would "survive redeploys" — but a route's shell is a snapshot of whatever JS/HTML
+// was live when it was cached, and surviving a redeploy is exactly what made a stale
+// shell (cached from a hard-reload during testing, before a bug was fixed) keep serving
+// the old, broken page indefinitely afterwards, even once the live site was current.
+// Versioning both together means a redeploy actually invalidates what it should.
+// IMPORTANT: src/components/AppLayout.tsx has its own SHELLS_CACHE_NAME constant that
+// must be updated to match SHELLS_CACHE below whenever this version changes — it can't
+// import from this file (this is a plain static asset, not part of the JS build).
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = `wellcashops-${CACHE_VERSION}`;
 const OFFLINE_URL = '/offline.html';
-// Unversioned on purpose — holds one cached document per app route (pathname only, no
-// query string), fed by the page itself (see AppLayout.tsx) every time it visits a route
-// while online. This app is entirely client-rendered: no page bakes query-specific data
-// (e.g. which debtor id) into its server HTML, so any previously cached copy of a route's
-// shell hydrates fine and fetches the real content itself once running. That's what makes
-// it possible to fall back to it for a *different* query string on the same route below.
-const SHELLS_CACHE = 'wellcashops-route-shells';
+// Holds one cached document per app route (pathname only, no query string), fed by the
+// page itself (see AppLayout.tsx) every time it visits a route while online. This app is
+// entirely client-rendered: no page bakes query-specific data (e.g. which debtor id) into
+// its server HTML, so any cached copy of a route's shell hydrates fine and fetches the
+// real content itself once running — which is what makes it possible to fall back to it
+// for a *different* query string on the same route below.
+const SHELLS_CACHE = `wellcashops-route-shells-${CACHE_VERSION}`;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
