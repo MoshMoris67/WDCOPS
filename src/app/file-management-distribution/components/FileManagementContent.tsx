@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { FolderOpen, Upload, CheckCircle, Clock, Users, ChevronRight, FileText, Layers, UserPlus, Pencil, Trash2, Undo2 } from 'lucide-react';
+import { FolderOpen, Upload, CheckCircle, Clock, Users, ChevronRight, FileText, Layers, UserPlus, Pencil, Trash2, Undo2, RefreshCcw } from 'lucide-react';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import Toggle from '@/components/ui/Toggle';
@@ -32,7 +32,7 @@ interface FileRow {
   assignedCount: number;
   totalBalance: number;
   agentsAllocated: number;
-  importStatus: 'processing' | 'complete' | 'failed';
+  importStatus: 'queued' | 'processing' | 'complete' | 'failed';
   importError: string | null;
 }
 
@@ -148,7 +148,9 @@ const statusConfig = {
 // mid-background-import always reads as "Importing…" regardless of its debtor/assigned
 // counts (which are still filling in), not as "Pending Distribution".
 function fileStatusBadge(file: FileRow): { label: string; variant: 'positive' | 'muted' | 'warning' | 'info' | 'negative' } {
-  if (file.importStatus === 'processing') return { label: 'Importing…', variant: 'warning' };
+  // 'queued' means the background worker hasn't picked it up yet (usually a few
+  // seconds) — reads the same as 'processing' to an admin watching this list.
+  if (file.importStatus === 'queued' || file.importStatus === 'processing') return { label: 'Importing…', variant: 'warning' };
   if (file.importStatus === 'failed') return { label: 'Import Failed', variant: 'negative' };
   return statusConfig[file.status];
 }
@@ -201,7 +203,7 @@ export default function FileManagementContent() {
   // is still importStatus 'processing' so the row updates on its own once it's done,
   // rather than the admin having to manually refresh to find out.
   useEffect(() => {
-    if (!files.some((f) => f.importStatus === 'processing')) return;
+    if (!files.some((f) => f.importStatus === 'queued' || f.importStatus === 'processing')) return;
     const id = setInterval(refetchFiles, 4000);
     return () => clearInterval(id);
   }, [files, refetchFiles]);
@@ -423,6 +425,17 @@ export default function FileManagementContent() {
     refetchFiles();
   }
 
+  async function retryImport(file: FileRow) {
+    const res = await fetch(`/api/files/${file.id}/import`, { method: 'POST' });
+    const payload = await res.json();
+    if (!res.ok) {
+      toast.error(payload.error || 'Could not retry this import');
+      return;
+    }
+    toast.info(`Retrying import for "${file.batchLabel}"`);
+    refetchFiles();
+  }
+
   return (
     <div className="p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto space-y-6">
       {/* Header */}
@@ -567,6 +580,16 @@ export default function FileManagementContent() {
                         >
                           <ChevronRight size={15} />
                         </button>
+                        {file.importStatus === 'failed' && (
+                          <button
+                            className="p-1.5 rounded-md hover:bg-primary/10 text-primary transition-colors disabled:opacity-40"
+                            title={offlineBlocked ? 'Offline — reconnect to retry' : 'Retry import'}
+                            disabled={offlineBlocked}
+                            onClick={(e) => { e.stopPropagation(); retryImport(file); }}
+                          >
+                            <RefreshCcw size={14} />
+                          </button>
+                        )}
                         <button
                           className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40"
                           title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit'}
@@ -633,6 +656,11 @@ export default function FileManagementContent() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1 mt-3 pt-3 border-t border-border/60" onClick={(e) => e.stopPropagation()}>
+                      {file.importStatus === 'failed' && (
+                        <button className="p-1.5 rounded-md hover:bg-primary/10 text-primary transition-colors disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to retry' : 'Retry import'} disabled={offlineBlocked} onClick={() => retryImport(file)}>
+                          <RefreshCcw size={14} />
+                        </button>
+                      )}
                       <button className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit'} disabled={offlineBlocked} onClick={() => openEditFile(file)}>
                         <Pencil size={14} />
                       </button>

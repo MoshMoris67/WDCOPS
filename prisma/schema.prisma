@@ -36,12 +36,19 @@ model File {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  // Large imports are processed in the background after the upload response is sent
-  // (see POST /api/files) so a slow host never times out the request regardless of
-  // file size. "complete" is the default so every pre-existing row (imported the old,
-  // synchronous way) reads as already-done without a backfill.
-  importStatus String  @default("complete") // processing | complete | failed
-  importError  String?
+  // Large imports are inserted a chunk at a time by POST /api/worker/tick, called on a
+  // schedule by an external cron (see .github/workflows/worker-tick.yml) rather than
+  // during the upload request — so a slow host never times out the request, and no
+  // single tick has to finish 77,000 rows before its own request is allowed to. Each
+  // tick picks up from rowsProcessed and inserts the next chunk; "complete" is the
+  // default so every pre-existing row (imported the old, synchronous way) reads as
+  // already-done without a backfill. "queued" means no tick has picked it up yet;
+  // rawRows holds the already-parsed rows (JSON) for ticks to insert from — same pattern
+  // as Reconciliation.rawRows below, kept so a manual retry never needs a re-upload.
+  importStatus   String  @default("complete") // queued | processing | complete | failed
+  importError    String?
+  rawRows        String?
+  rowsProcessed  Int     @default(0)
 
   debtors         Debtor[]
   reconciliations Reconciliation[]

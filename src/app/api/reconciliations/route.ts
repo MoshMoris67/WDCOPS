@@ -3,7 +3,6 @@ import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { requireRole, isSessionPayload } from '@/lib/rbac';
 import { loadTable, parseReconciliationRows, suggestReconciliationMapping, SUPPORTED_IMPORT_EXTENSIONS, type ReconciliationMapping } from '@/lib/excel';
-import { processReconciliation } from '@/lib/reconciliation';
 
 export async function GET() {
   const session = await getSession();
@@ -90,12 +89,11 @@ export async function POST(req: Request) {
     },
   });
 
-  // Deliberately not awaited — same reasoning as POST /api/files: processing a large
-  // reconciliation row-by-row can outrun a slow host's request timeout, so the response
-  // goes out immediately and this keeps running in the background on this persistent
-  // Node process. The row already carries status: 'pending' for the UI to show while
-  // this runs; it flips to processed/failed when this finishes.
-  runReconciliation(reconciliation.id, clientId, type, rows).catch(() => {});
+  // Processing (row-by-row matching against debtors, which can be slow for a large file)
+  // is picked up by POST /api/worker/tick on its next scheduled run, not here — it looks
+  // for status: 'pending' rows with rawRows present, same idea as file imports. The row
+  // already carries status: 'pending' for the UI to show while that's in flight; it flips
+  // to processed/failed once a tick finishes it.
 
   return NextResponse.json(
     {
@@ -104,31 +102,4 @@ export async function POST(req: Request) {
     },
     { status: 201 }
   );
-}
-
-async function runReconciliation(
-  reconciliationId: string,
-  clientId: string,
-  type: 'full' | 'partial',
-  rows: Parameters<typeof processReconciliation>[3]
-) {
-  try {
-    const result = await processReconciliation(reconciliationId, clientId, type, rows);
-    await prisma.reconciliation.update({
-      where: { id: reconciliationId },
-      data: {
-        status: result.status,
-        updatedCount: result.updatedCount,
-        newAccountsCount: result.newAccountsCount,
-        totalUpdated: result.totalUpdated,
-        errorSummary: result.errorSummary,
-        processedAt: new Date(),
-      },
-    });
-  } catch (err) {
-    await prisma.reconciliation.update({
-      where: { id: reconciliationId },
-      data: { status: 'failed', errorSummary: err instanceof Error ? err.message : 'Processing failed', processedAt: new Date() },
-    }).catch(() => {});
-  }
 }

@@ -90,61 +90,30 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'No valid debtor rows found in the file', details: errors }, { status: 400 });
   }
 
+  // The insert used to be what timed out on a slow host for a large file — even one
+  // batched INSERT over tens of thousands of rows can take longer than a request is
+  // allowed to run, and a fire-and-forget promise left running in this same process
+  // would silently die if it ever restarted mid-import. So this route now does the
+  // minimum: persist the already-parsed rows and mark the file 'queued'. An external
+  // cron calls POST /api/worker/tick on a schedule (see .github/workflows/worker-tick.yml)
+  // to insert it a chunk at a time, resuming across ticks — see prisma/schema.prisma's
+  // File.rawRows/rowsProcessed comment for why no single tick tries to finish it all.
   const created = await prisma.file.create({
     data: {
       clientId,
       batchLabel,
       receivedDate: new Date(receivedDateRaw),
       isMidMonthTopup,
-      importStatus: 'processing',
+      importStatus: 'queued',
+      rawRows: JSON.stringify(rows),
     },
   });
 
-  // Deliberately not awaited: the row insert is what was timing out on a slow host for
-  // a large file (a nested file.create({data:{debtors:{create:[...]}}}) would be one
-  // INSERT per debtor — createMany batches it into one, but even one bulk statement over
-  // tens of thousands of rows can take longer than a proxy's request timeout allows). By
-  // not awaiting this, the HTTP response below goes out immediately regardless of file
-  // size, and this continues running because the app runs as a real persistent Node
-  // process here (Render), not a serverless function that would freeze the moment the
-  // response is sent — this exact pattern would silently stop mid-way on a serverless host.
-  createMany(created.id, rows).catch(() => {});
-
   return NextResponse.json(
     {
-      file: { id: created.id, batchLabel: created.batchLabel, debtorCount: rows.length, importStatus: 'processing' },
+      file: { id: created.id, batchLabel: created.batchLabel, debtorCount: rows.length, importStatus: 'queued' },
       warnings: errors,
     },
     { status: 201 }
   );
-}
-
-async function createMany(fileId: string, rows: ReturnType<typeof parseImportRows>['rows']) {
-  try {
-    await prisma.debtor.createMany({
-      data: rows.map((r) => {
-        // Some clients' files carry the current outstanding balance separately from the
-        // original amount owed (already-partly-repaid loans) — when they don't, balance
-        // defaults to amountOwed, matching the standard-template behavior.
-        const balance = r.balance ?? r.amountOwed;
-        const cumulativePaid = Math.max(0, r.amountOwed - balance);
-        return {
-          fileId,
-          name: r.name,
-          phone1: r.phone1,
-          phone2: r.phone2,
-          loanRef: r.loanRef,
-          amountOwed: r.amountOwed,
-          cumulativePaid,
-          balance,
-        };
-      }),
-    });
-    await prisma.file.update({ where: { id: fileId }, data: { importStatus: 'complete' } });
-  } catch (err) {
-    await prisma.file.update({
-      where: { id: fileId },
-      data: { importStatus: 'failed', importError: err instanceof Error ? err.message : 'Import failed' },
-    }).catch(() => {});
-  }
 }

@@ -1,0 +1,28 @@
+name: Worker tick
+
+# Drives all background processing for wellcashops (large file imports, reconciliation
+# processing) since Render's free tier has no Background Worker instance type — see
+# src/app/api/worker/tick/route.ts. Every 5 minutes (GitHub Actions' minimum cron
+# granularity) this calls that endpoint, which does one bounded chunk of whatever's
+# queued and returns; a 77,000-row file just takes several ticks, not one, since no
+# single request tries to finish it all. As a side benefit, these regular requests also
+# keep the free web service from spinning down after 15 minutes idle.
+#
+# Requires two repo secrets (Settings → Secrets and variables → Actions):
+#   APP_URL        the deployed app's base URL, e.g. https://wellcashops.onrender.com
+#   WORKER_SECRET  must match the WORKER_SECRET env var set on the Render web service
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call the worker tick endpoint
+        run: |
+          curl --fail --silent --show-error \
+            -X POST "${{ secrets.APP_URL }}/api/worker/tick" \
+            -H "Authorization: Bearer ${{ secrets.WORKER_SECRET }}"
