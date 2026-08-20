@@ -266,7 +266,7 @@ export default function TeamDashboardContent() {
             totalOwed={c.totalOwed}
             staleCount={c.staleCount}
             recentFiles={c.recentFiles}
-            onClick={() => setFilterClient(c.id)}
+            onClick={() => router.push(`/reports-client-export?clientId=${c.id}`)}
           />
         ))}
         {clients.length === 0 && (

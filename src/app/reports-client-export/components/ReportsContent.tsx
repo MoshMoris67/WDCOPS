@@ -1,13 +1,17 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Download, Calendar, CheckCircle, Clock, TrendingUp, Users, AlertTriangle,  } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
+import { Download, Calendar, CheckCircle, Clock, TrendingUp, Users, AlertTriangle } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Badge from '@/components/ui/Badge';
 import DispositionBadge from '@/components/ui/DispositionBadge';
 import ResponsiveList from '@/components/ui/ResponsiveList';
+import ListToolbar from '@/components/ui/ListToolbar';
+import InlineEditCell from '@/components/ui/InlineEditCell';
 import { toast } from 'sonner';
 import { useClients } from '@/lib/use-clients';
+import { debtorRowTint } from '@/lib/format-rules';
 
 const ReportDispositionChart = dynamic(() => import('./ReportDispositionChart'), { ssr: false });
 const RecoveryRadialChart = dynamic(() => import('./RecoveryRadialChart'), { ssr: false });
@@ -26,6 +30,34 @@ interface ReportSummary {
   agentSummary: { agentId: string; name: string; calls: number; ptps: number; recovered: number }[];
 }
 
+interface DebtorRow {
+  id: string;
+  name: string;
+  phone: string;
+  loanRef: string;
+  balance: number;
+  lastDisposition: string | null;
+  lastCallDate: string | null;
+  isStale: boolean;
+}
+
+interface AgentOption {
+  id: string;
+  name: string;
+  status: string;
+  assignedCount: number;
+}
+
+interface FileOption {
+  id: string;
+  clientId: string;
+  batchLabel: string;
+}
+
+const dispositionVariantMap: Record<string, 'cb' | 'ptp' | 'np' | 'na' | 'hu' | 'nb' | 'db' | 'so' | 'os'> = {
+  CB: 'cb', PTP: 'ptp', NP: 'np', NA: 'na', HU: 'hu', NB: 'nb', DB: 'db', SO: 'so', OS: 'os',
+};
+
 type FrequencyKey = 'daily' | 'weekly' | 'monthly';
 
 const frequencies: { key: FrequencyKey; label: string }[] = [
@@ -40,12 +72,19 @@ function formatUGX(amount: number) {
   return 'UGX ' + amount.toLocaleString('en-UG');
 }
 
+function formatDate(iso: string | null) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-GB');
+}
+
 function isoDate(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
 export default function ReportsContent() {
   const clients = useClients();
+  const searchParams = useSearchParams();
+  const clientIdParam = searchParams.get('clientId');
   const [selectedClientId, setSelectedClientId] = useState('');
   const [selectedFrequency, setSelectedFrequency] = useState<FrequencyKey>('daily');
   const [dateFrom, setDateFrom] = useState(isoDate(new Date()));
@@ -55,13 +94,68 @@ export default function ReportsContent() {
   const [lastGenerated, setLastGenerated] = useState<string | null>(null);
   const [dispositionCodes, setDispositionCodes] = useState<DispositionCodeOption[]>([]);
 
+  const [debtors, setDebtors] = useState<DebtorRow[]>([]);
+  const [debtorsTotal, setDebtorsTotal] = useState(0);
+  const [debtorsLoading, setDebtorsLoading] = useState(true);
+  const [debtorSearch, setDebtorSearch] = useState('');
+  const [debtorPage, setDebtorPage] = useState(1);
+  const debtorPageSize = 25;
+  const [debtorFileId, setDebtorFileId] = useState('All');
+  const [files, setFiles] = useState<FileOption[]>([]);
+  const [agents, setAgents] = useState<AgentOption[]>([]);
+
   useEffect(() => {
     fetch('/api/disposition-codes').then((r) => r.json()).then((d) => setDispositionCodes(d.codes ?? []));
+    fetch('/api/files').then((r) => r.json()).then((d) => setFiles(d.files ?? []));
+    fetch('/api/team/overview').then((r) => r.json()).then((d) => setAgents(d.agents ?? []));
   }, []);
+
+  // A client card on Team Overview links here with ?clientId=... — that always wins over
+  // the tab default, and wins again if it changes while this page is already mounted
+  // (clicking a different client's card while already viewing one client's report).
+  useEffect(() => {
+    if (clientIdParam) setSelectedClientId(clientIdParam);
+  }, [clientIdParam]);
 
   useEffect(() => {
     if (clients.length > 0) setSelectedClientId((prev) => prev || clients[0].id);
   }, [clients]);
+
+  useEffect(() => {
+    setDebtorPage(1);
+  }, [selectedClientId, debtorSearch, debtorFileId]);
+
+  const loadDebtors = useCallback(async () => {
+    if (!selectedClientId) return;
+    setDebtorsLoading(true);
+    const params = new URLSearchParams({ clientId: selectedClientId, page: String(debtorPage), pageSize: String(debtorPageSize) });
+    if (debtorSearch) params.set('search', debtorSearch);
+    if (debtorFileId !== 'All') params.set('fileId', debtorFileId);
+    const res = await fetch(`/api/debtors?${params.toString()}`);
+    const payload = await res.json();
+    setDebtors(payload.debtors ?? []);
+    setDebtorsTotal(payload.total ?? 0);
+    setDebtorsLoading(false);
+  }, [selectedClientId, debtorPage, debtorSearch, debtorFileId]);
+
+  useEffect(() => { loadDebtors(); }, [loadDebtors]);
+
+  const debtorTotalPages = Math.max(1, Math.ceil(debtorsTotal / debtorPageSize));
+
+  async function reassignDebtor(debtor: DebtorRow, agentId: string) {
+    const res = await fetch(`/api/debtors/${debtor.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assignedAgentId: agentId }),
+    });
+    const payload = await res.json();
+    if (!res.ok) {
+      toast.error(payload.error || 'Reassignment failed');
+      return;
+    }
+    toast.success(`${debtor.name} reassigned — call history preserved`);
+    await loadDebtors();
+  }
 
   const loadSummary = useCallback(async () => {
     if (!selectedClientId) return;
@@ -494,6 +588,122 @@ export default function ReportsContent() {
             </div>
           </div>
         </>
+      )}
+
+      {/* Debtors on this client's file(s) */}
+      {selectedClientId && (
+        <div className="bg-card rounded-xl shadow-card border border-border">
+          <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h2 className="text-section-header text-foreground">Debtors</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">{debtors.length} of {debtorsTotal.toLocaleString()} on {selectedClient?.name}</p>
+            </div>
+            <ListToolbar
+              search={debtorSearch}
+              onSearchChange={setDebtorSearch}
+              searchPlaceholder="Search debtors…"
+              filters={[
+                {
+                  key: 'file', value: debtorFileId, onChange: setDebtorFileId,
+                  options: [
+                    { value: 'All', label: 'All Files' },
+                    ...files.filter((f) => f.clientId === selectedClientId).map((f) => ({ value: f.id, label: f.batchLabel })),
+                  ],
+                },
+              ]}
+            />
+          </div>
+          <div className="p-4 md:p-0">
+            <ResponsiveList
+              items={debtors}
+              keyFor={(d) => d.id}
+              isLoading={debtorsLoading}
+              emptyState={
+                debtorsLoading
+                  ? <p className="text-sm text-muted-foreground text-center py-8">Loading…</p>
+                  : <p className="text-sm text-muted-foreground text-center py-8">No debtors match your filters.</p>
+              }
+              renderTableHead={() => (
+                <tr className="border-b border-border bg-secondary/30">
+                  {['Debtor', 'Balance', 'Last Disp.', 'Last Call', 'Reassign'].map((col) => (
+                    <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                  ))}
+                </tr>
+              )}
+              renderTableRow={(d) => (
+                <tr className={`border-b border-border/60 hover:bg-secondary/40 transition-colors ${debtorRowTint({ isStale: d.isStale, balance: d.balance })}`}>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <div className="flex items-center gap-1.5">
+                      {d.isStale && <AlertTriangle size={12} className="text-negative shrink-0" />}
+                      <span className="font-medium text-foreground text-sm">{d.name}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{d.loanRef}</p>
+                  </td>
+                  <td className="px-4 py-3 whitespace-nowrap font-tabular text-sm text-foreground">{formatUGX(d.balance)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    {d.lastDisposition ? <Badge variant={dispositionVariantMap[d.lastDisposition] || 'default'}>{d.lastDisposition}</Badge> : <span className="text-xs text-muted-foreground">—</span>}
+                  </td>
+                  <td className="px-4 py-3 whitespace-nowrap text-xs text-muted-foreground">{formatDate(d.lastCallDate)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <InlineEditCell
+                      value=""
+                      displayValue="Reassign…"
+                      options={[{ value: '', label: 'Reassign…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: `${a.name} — ${a.assignedCount} assigned` }))]}
+                      onSave={async (agentId) => { if (agentId) await reassignDebtor(d, agentId); }}
+                    />
+                  </td>
+                </tr>
+              )}
+              renderCard={(d) => (
+                <div className={`bg-card border border-border rounded-xl p-4 shadow-card ${debtorRowTint({ isStale: d.isStale, balance: d.balance })}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        {d.isStale && <AlertTriangle size={12} className="text-negative shrink-0" />}
+                        <span className="font-medium text-foreground text-sm truncate">{d.name}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{d.loanRef}</p>
+                    </div>
+                    {d.lastDisposition ? <Badge variant={dispositionVariantMap[d.lastDisposition] || 'default'}>{d.lastDisposition}</Badge> : <span className="text-xs text-muted-foreground">No calls yet</span>}
+                  </div>
+                  <div className="flex items-center justify-between mt-3">
+                    <span className="font-tabular text-sm text-foreground">{formatUGX(d.balance)}</span>
+                    <span className="text-xs text-muted-foreground">{formatDate(d.lastCallDate)}</span>
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-border/60">
+                    <InlineEditCell
+                      value=""
+                      displayValue="Reassign to another agent…"
+                      options={[{ value: '', label: 'Reassign to another agent…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: `${a.name} — ${a.assignedCount} assigned` }))]}
+                      onSave={async (agentId) => { if (agentId) await reassignDebtor(d, agentId); }}
+                    />
+                  </div>
+                </div>
+              )}
+            />
+          </div>
+          {debtorTotalPages > 1 && (
+            <div className="px-5 py-3 border-t border-border flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">Page {debtorPage} of {debtorTotalPages}</p>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setDebtorPage((p) => Math.max(1, p - 1))}
+                  disabled={debtorPage <= 1}
+                  className="px-2.5 py-1 text-xs font-medium rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => setDebtorPage((p) => Math.min(debtorTotalPages, p + 1))}
+                  disabled={debtorPage >= debtorTotalPages}
+                  className="px-2.5 py-1 text-xs font-medium rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
