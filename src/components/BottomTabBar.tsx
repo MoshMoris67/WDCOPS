@@ -13,7 +13,7 @@ interface BottomTabBarProps {
 
 const ADMIN_TABS = [
   { href: '/team-dashboard', label: 'Overview', icon: LayoutDashboard },
-  { href: '/agent-dashboard', label: 'My Queue', icon: Phone },
+  { href: '/my-queue', label: 'My Queue', icon: Phone },
   { href: '/file-management-distribution', label: 'Files', icon: FolderOpen },
   { href: '/reconciliation-management', label: 'Recon', icon: RefreshCcw },
 ];

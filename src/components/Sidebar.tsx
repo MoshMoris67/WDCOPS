@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
 import BrandWordmark from '@/components/ui/BrandWordmark';
 import ThemeToggle from '@/components/ui/ThemeToggle';
+import NotificationsButton from '@/components/ui/NotificationsButton';
 import { useOnlineStatus, usePendingSyncCount } from '@/lib/use-offline';
 import { getNavGroups, displayRole, type CurrentUser, type NavGroup } from '@/lib/nav-groups';
 import {
@@ -14,7 +15,6 @@ import {
   Wifi,
   WifiOff,
   LogOut,
-  Bell,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -183,11 +183,7 @@ function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, is
         <ThemeToggle collapsed={collapsed && !isMobile} />
 
         {(!collapsed || isMobile) && (
-          <button className="w-full flex items-center gap-3 px-2 py-2 rounded-md text-sm font-medium text-secondary-foreground hover:bg-secondary transition-colors">
-            <Bell size={18} />
-            <span>Notifications</span>
-            <span className="ml-auto bg-negative text-white text-xs font-semibold px-1.5 py-0.5 rounded-full">2</span>
-          </button>
+          <NotificationsButton scope={user?.role === 'agent' ? 'mine' : 'branch'} />
         )}
 
         <div className={`flex items-center gap-2 px-2 py-2 ${collapsed && !isMobile ? 'justify-center flex-col' : ''}`}>

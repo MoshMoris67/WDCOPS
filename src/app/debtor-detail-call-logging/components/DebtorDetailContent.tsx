@@ -98,7 +98,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
   const formRef = useRef<HTMLFormElement>(null);
 
   // Standalone mode has no live queue in memory (it's a fresh page navigation), so it
-  // reads the ordered id list AgentDashboardContent stashes in sessionStorage right
+  // reads the ordered id list AgentQueueContent stashes in sessionStorage right
   // before navigating away — same Prev/Next affordance as the embedded split panel,
   // just sourced differently. Absent entirely (a bookmarked/direct link) simply means no
   // Prev/Next controls, not an error.
@@ -106,7 +106,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
   useEffect(() => {
     if (embedded) return;
     try {
-      const raw = sessionStorage.getItem('queue:agent-dashboard');
+      const raw = sessionStorage.getItem('queue:my-queue');
       setStandaloneQueueIds(raw ? JSON.parse(raw) : null);
     } catch {
       setStandaloneQueueIds(null);
@@ -317,7 +317,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
           </button>
         ) : (
           <Link
-            href="/agent-dashboard"
+            href="/my-queue"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5"
           >
             <ChevronLeft size={16} />
@@ -353,7 +353,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
           </button>
         ) : (
           <Link
-            href="/agent-dashboard"
+            href="/my-queue"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             <ChevronLeft size={16} />

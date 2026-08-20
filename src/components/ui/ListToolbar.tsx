@@ -22,13 +22,14 @@ interface ListToolbarProps {
   searchPlaceholder?: string;
   filters?: ListToolbarFilter[];
   action?: React.ReactNode;
+  hideSearch?: boolean;
 }
 
 // Consolidates the mixed search-input / dropdown-filter / chip-toggle patterns that used
 // to be hand-rolled per screen. Debounces the search box internally (~300ms) so callers
 // whose search hits the server (or just re-filters a big in-memory list) don't re-run on
 // every keystroke; the input itself stays responsive via local state.
-export default function ListToolbar({ search, onSearchChange, searchPlaceholder = 'Search…', filters = [], action }: ListToolbarProps) {
+export default function ListToolbar({ search, onSearchChange, searchPlaceholder = 'Search…', filters = [], action, hideSearch = false }: ListToolbarProps) {
   const [localSearch, setLocalSearch] = useState(search);
 
   useEffect(() => setLocalSearch(search), [search]);
@@ -43,16 +44,18 @@ export default function ListToolbar({ search, onSearchChange, searchPlaceholder 
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <div className="relative">
-        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <input
-          type="text"
-          placeholder={searchPlaceholder}
-          value={localSearch}
-          onChange={(e) => setLocalSearch(e.target.value)}
-          className="pl-8 pr-3 py-1.5 text-sm bg-input border border-border rounded-lg w-40 focus:outline-none focus:ring-2 focus:ring-ring/50"
-        />
-      </div>
+      {!hideSearch && (
+        <div className="relative">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder={searchPlaceholder}
+            value={localSearch}
+            onChange={(e) => setLocalSearch(e.target.value)}
+            className="pl-8 pr-3 py-1.5 text-sm bg-input border border-border rounded-lg w-40 focus:outline-none focus:ring-2 focus:ring-ring/50"
+          />
+        </div>
+      )}
 
       {filters.map((f) =>
         (f.variant ?? 'select') === 'select' ? (

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
-import { getLastCallNonNaCount } from '@/lib/debtor-aggregates';
+import { getLastCallNonNaCount, getFileDebtorAggregates, getFileAgentRecoveredAggregates } from '@/lib/debtor-aggregates';
 
 function startOfDay(d: Date) {
   const x = new Date(d);
@@ -60,5 +60,34 @@ export async function GET(req: Request) {
     dailyTrend.push({ date: formatLocalDate(dayStart), count });
   }
 
-  return NextResponse.json({ callsToday, contactRate, dispositionBreakdownToday, dailyTrend });
+  // Per-file "how much has this file collected in total, and how much of that is mine" —
+  // only meaningful for a single agent's own view, not the branch-wide admin summary.
+  let fileBreakdown: { fileId: string; batchLabel: string; clientName: string; totalCollected: number; myCollected: number }[] = [];
+  if (agentFilter) {
+    const myFileIds = await prisma.debtor.findMany({
+      where: { assignedAgentId: agentFilter },
+      select: { fileId: true },
+      distinct: ['fileId'],
+    }).then((rows) => rows.map((r) => r.fileId));
+
+    if (myFileIds.length > 0) {
+      const [fileAggregates, agentAggregates, files] = await Promise.all([
+        getFileDebtorAggregates(myFileIds),
+        getFileAgentRecoveredAggregates(myFileIds),
+        prisma.file.findMany({ where: { id: { in: myFileIds } }, include: { client: true } }),
+      ]);
+      const myRecoveredByFile = new Map(
+        agentAggregates.filter((r) => r.agentId === agentFilter).map((r) => [r.fileId, r.recovered])
+      );
+      fileBreakdown = files.map((f) => ({
+        fileId: f.id,
+        batchLabel: f.batchLabel,
+        clientName: f.client.name,
+        totalCollected: fileAggregates.get(f.id)?.recovered ?? 0,
+        myCollected: myRecoveredByFile.get(f.id) ?? 0,
+      })).sort((a, b) => b.myCollected - a.myCollected);
+    }
+  }
+
+  return NextResponse.json({ callsToday, contactRate, dispositionBreakdownToday, dailyTrend, fileBreakdown });
 }

@@ -50,6 +50,22 @@ interface DebtorRow {
   recentlyPaid: boolean;
 }
 
+interface FileOption {
+  id: string;
+  clientId: string;
+  batchLabel: string;
+}
+
+interface AgentPerfRow {
+  fileId: string;
+  batchLabel: string;
+  clientName: string;
+  agentId: string;
+  agentName: string;
+  assignedCount: number;
+  recovered: number;
+}
+
 const dispositionVariantMap: Record<string, 'cb' | 'ptp' | 'np' | 'na' | 'hu' | 'nb' | 'db' | 'so' | 'os'> = {
   CB: 'cb', PTP: 'ptp', NP: 'np', NA: 'na', HU: 'hu', NB: 'nb', DB: 'db', SO: 'so', OS: 'os',
 };
@@ -76,7 +92,16 @@ export default function TeamDashboardContent() {
   const pageSize = 25;
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filterClient, setFilterClient] = useState('All');
+  const [filterAgent, setFilterAgent] = useState('All');
+  const [filterFile, setFilterFile] = useState('All');
   const [viewMode, setViewMode] = useViewMode('viewMode:debtors');
+  const [files, setFiles] = useState<FileOption[]>([]);
+
+  const [perfClientId, setPerfClientId] = useState('All');
+  const [perfFileId, setPerfFileId] = useState('All');
+  const [perfAgentId, setPerfAgentId] = useState('All');
+  const [perfRows, setPerfRows] = useState<AgentPerfRow[]>([]);
+  const [perfLoading, setPerfLoading] = useState(true);
 
   const loadOverview = useCallback(async () => {
     const overviewRes = await fetch('/api/team/overview');
@@ -99,28 +124,68 @@ export default function TeamDashboardContent() {
   }, [authorized, router]);
 
   useEffect(() => {
+    if (authorized) {
+      fetch('/api/files').then((r) => r.json()).then((d) => setFiles(d.files ?? []));
+    }
+  }, [authorized]);
+
+  useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, filterClient]);
+  }, [debouncedSearch, filterClient, filterAgent, filterFile]);
+
+  // Changing the client filter can orphan a previously-selected file that belongs to a
+  // different client — clear it rather than silently keeping a mismatched filter applied.
+  useEffect(() => {
+    if (filterFile !== 'All' && !files.some((f) => f.id === filterFile && (filterClient === 'All' || f.clientId === filterClient))) {
+      setFilterFile('All');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterClient]);
 
   const loadDebtors = useCallback(async () => {
     setDebtorsLoading(true);
     const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
     if (debouncedSearch) params.set('search', debouncedSearch);
     if (filterClient !== 'All') params.set('clientId', filterClient);
+    if (filterAgent !== 'All') params.set('agentId', filterAgent);
+    if (filterFile !== 'All') params.set('fileId', filterFile);
     const res = await fetch(`/api/debtors?${params.toString()}`);
     const payload = await res.json();
     setDebtors(payload.debtors ?? []);
     setTotal(payload.total ?? 0);
     setDebtorsLoading(false);
-  }, [page, debouncedSearch, filterClient]);
+  }, [page, debouncedSearch, filterClient, filterAgent, filterFile]);
 
   useEffect(() => {
     if (authorized) loadDebtors();
   }, [authorized, loadDebtors]);
 
+  const loadPerf = useCallback(async () => {
+    setPerfLoading(true);
+    const params = new URLSearchParams();
+    if (perfClientId !== 'All') params.set('clientId', perfClientId);
+    if (perfFileId !== 'All') params.set('fileId', perfFileId);
+    if (perfAgentId !== 'All') params.set('agentId', perfAgentId);
+    const res = await fetch(`/api/team/agent-performance?${params.toString()}`);
+    const payload = await res.json();
+    setPerfRows(payload.rows ?? []);
+    setPerfLoading(false);
+  }, [perfClientId, perfFileId, perfAgentId]);
+
+  useEffect(() => {
+    if (authorized) loadPerf();
+  }, [authorized, loadPerf]);
+
+  useEffect(() => {
+    if (perfFileId !== 'All' && !files.some((f) => f.id === perfFileId && (perfClientId === 'All' || f.clientId === perfClientId))) {
+      setPerfFileId('All');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [perfClientId]);
+
   const loadAll = useCallback(async () => {
-    await Promise.all([loadOverview(), loadDebtors()]);
-  }, [loadOverview, loadDebtors]);
+    await Promise.all([loadOverview(), loadDebtors(), loadPerf()]);
+  }, [loadOverview, loadDebtors, loadPerf]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -252,6 +317,19 @@ export default function TeamDashboardContent() {
                   key: 'client', value: filterClient, onChange: setFilterClient,
                   options: [{ value: 'All', label: 'All Clients' }, ...clients.map((c) => ({ value: c.id, label: c.name }))],
                 },
+                {
+                  key: 'agent', value: filterAgent, onChange: setFilterAgent,
+                  options: [{ value: 'All', label: 'All Agents' }, ...agents.map((a) => ({ value: a.id, label: a.name }))],
+                },
+                {
+                  key: 'file', value: filterFile, onChange: setFilterFile,
+                  options: [
+                    { value: 'All', label: 'All Files' },
+                    ...files
+                      .filter((f) => filterClient === 'All' || f.clientId === filterClient)
+                      .map((f) => ({ value: f.id, label: f.batchLabel })),
+                  ],
+                },
               ]}
               action={<ViewToggle value={viewMode} onChange={setViewMode} />}
             />
@@ -356,6 +434,74 @@ export default function TeamDashboardContent() {
               </div>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Agent performance per file */}
+      <div className="bg-card rounded-xl shadow-card border border-border">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="text-section-header text-foreground">Agent Performance by File</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">How much each agent has recovered, broken down per file</p>
+          </div>
+          <ListToolbar
+            search=""
+            onSearchChange={() => {}}
+            hideSearch
+            filters={[
+              {
+                key: 'perf-client', value: perfClientId, onChange: setPerfClientId,
+                options: [{ value: 'All', label: 'All Clients' }, ...clients.map((c) => ({ value: c.id, label: c.name }))],
+              },
+              {
+                key: 'perf-file', value: perfFileId, onChange: setPerfFileId,
+                options: [
+                  { value: 'All', label: 'All Files' },
+                  ...files
+                    .filter((f) => perfClientId === 'All' || f.clientId === perfClientId)
+                    .map((f) => ({ value: f.id, label: f.batchLabel })),
+                ],
+              },
+              {
+                key: 'perf-agent', value: perfAgentId, onChange: setPerfAgentId,
+                options: [{ value: 'All', label: 'All Agents' }, ...agents.map((a) => ({ value: a.id, label: a.name }))],
+              },
+            ]}
+          />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border bg-secondary/30">
+                {['Agent', 'File', 'Client', 'Assigned', 'Collected'].map((col) => (
+                  <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {perfRows.map((r) => (
+                <tr key={`${r.fileId}-${r.agentId}`} className="border-b border-border/60 hover:bg-secondary/40 transition-colors">
+                  <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-foreground">{r.agentName}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-sm text-foreground">{r.batchLabel}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <Badge variant={clientBadgeVariant(r.clientName)}>{r.clientName}</Badge>
+                  </td>
+                  <td className="px-4 py-3 whitespace-nowrap font-tabular text-sm text-foreground">{r.assignedCount}</td>
+                  <td className="px-4 py-3 whitespace-nowrap font-tabular text-sm font-semibold text-positive">{formatUGX(r.recovered)}</td>
+                </tr>
+              ))}
+              {!perfLoading && perfRows.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">No agent activity matches these filters.</td>
+                </tr>
+              )}
+              {perfLoading && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">Loading…</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
       </div>

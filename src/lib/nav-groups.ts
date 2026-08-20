@@ -27,7 +27,10 @@ export interface NavGroup {
 export function getNavGroups(role: CurrentUser['role']): NavGroup[] {
   if (role === 'agent') {
     return [
-      { label: 'Operations', items: [{ href: '/agent-dashboard', label: 'Dashboard', icon: LayoutDashboard }] },
+      { label: 'Operations', items: [
+        { href: '/agent-dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { href: '/my-queue', label: 'My Queue', icon: Phone },
+      ] },
     ];
   }
 
@@ -36,7 +39,7 @@ export function getNavGroups(role: CurrentUser['role']): NavGroup[] {
   return [
     { label: 'Admin', items: [
       { href: '/team-dashboard', label: 'Team Overview', icon: LayoutDashboard },
-      { href: '/agent-dashboard', label: 'My Queue', icon: Phone },
+      { href: '/my-queue', label: 'My Queue', icon: Phone },
       { href: '/file-management-distribution', label: 'Files', icon: FolderOpen },
       { href: '/reconciliation-management', label: 'Reconciliations', icon: RefreshCcw },
       { href: '/reports-client-export', label: 'Reports', icon: BarChart2 },

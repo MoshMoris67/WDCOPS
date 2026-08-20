@@ -34,6 +34,7 @@ model File {
   isRecalled      Boolean  @default(false)
   branch          String   @default("uganda")
   createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   // Large imports are processed in the background after the upload response is sent
   // (see POST /api/files) so a slow host never times out the request regardless of
@@ -73,6 +74,7 @@ model Debtor {
   @@index([assignedAgentId])
   @@index([loanRef])
   @@index([phone1])
+  @@index([fileId, assignedAgentId])
 }
 
 model CallLog {

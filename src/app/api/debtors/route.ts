@@ -30,6 +30,10 @@ export async function GET(req: Request) {
   }
   const clientId = url.searchParams.get('clientId');
   if (clientId) where.file = { clientId };
+  const fileId = url.searchParams.get('fileId');
+  if (fileId) where.fileId = fileId;
+  const agentId = url.searchParams.get('agentId');
+  if (agentId) where.assignedAgentId = agentId;
 
   const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
   const requestedPageSize = Number(url.searchParams.get('pageSize'));

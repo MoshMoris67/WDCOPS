@@ -51,6 +51,34 @@ export async function getAgentsAllocatedCounts(fileIds: string[]): Promise<Map<s
   return result;
 }
 
+export interface FileAgentAggregate {
+  fileId: string;
+  agentId: string;
+  assignedCount: number;
+  recovered: number;
+}
+
+// Recovered amount per (file, agent) pair — same groupBy shape as getAgentsAllocatedCounts,
+// with a sum added. Backs both an agent's own "how much of this file's collections came
+// from me" view and the admin's file-by-agent performance breakdown.
+export async function getFileAgentRecoveredAggregates(fileIds: string[]): Promise<FileAgentAggregate[]> {
+  if (fileIds.length === 0) return [];
+
+  const rows = await prisma.debtor.groupBy({
+    by: ['fileId', 'assignedAgentId'],
+    where: { fileId: { in: fileIds }, assignedAgentId: { not: null } },
+    _count: { _all: true },
+    _sum: { cumulativePaid: true },
+  });
+
+  return rows.map((r) => ({
+    fileId: r.fileId,
+    agentId: r.assignedAgentId as string,
+    assignedCount: r._count._all,
+    recovered: r._sum.cumulativePaid ?? 0,
+  }));
+}
+
 interface DateRange {
   from: Date;
   to: Date;
