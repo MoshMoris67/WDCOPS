@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { RefreshCcw, Upload, CheckCircle, Clock, AlertCircle, BarChart2, Eye,  } from 'lucide-react';
+import { RefreshCcw, Upload, CheckCircle, Clock, AlertCircle, BarChart2, Eye, Pencil, Trash2, UserCheck, Search } from 'lucide-react';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
@@ -29,6 +29,7 @@ interface ReconRow {
   status: 'processed' | 'pending' | 'failed';
   totalAmountUpdated: number;
   errorSummary: string | null;
+  notes: string | null;
 }
 
 interface AffectedDebtor {
@@ -49,6 +50,20 @@ interface UploadFormData {
   receivedDate: string;
   receivedTime: string;
   notes: string;
+}
+
+interface EditReconForm {
+  receivedDate: string;
+  receivedTime: string;
+  notes: string;
+}
+
+interface DebtorSearchResult {
+  id: string;
+  name: string;
+  loanRef: string;
+  client: string;
+  balance: number;
 }
 
 interface ReconPreview {
@@ -137,9 +152,24 @@ export default function ReconciliationContent() {
   const [reconPreview, setReconPreview] = useState<ReconPreview | null>(null);
   const [reconMapping, setReconMapping] = useState<ReconMappingState>(EMPTY_RECON_MAPPING);
   const [isPreviewingRecon, setIsPreviewingRecon] = useState(false);
+  const [editingRecon, setEditingRecon] = useState<ReconRow | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  const [manualModalOpen, setManualModalOpen] = useState(false);
+  const [manualSearch, setManualSearch] = useState('');
+  const [manualResults, setManualResults] = useState<DebtorSearchResult[]>([]);
+  const [isSearchingDebtors, setIsSearchingDebtors] = useState(false);
+  const [manualSelectedDebtor, setManualSelectedDebtor] = useState<DebtorSearchResult | null>(null);
+  const [manualAmount, setManualAmount] = useState('');
+  const [manualNote, setManualNote] = useState('');
+  const [isSubmittingManual, setIsSubmittingManual] = useState(false);
 
   const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<UploadFormData>({
     defaultValues: { clientId: '', fileId: '', reconciliationType: 'partial', receivedDate: '', receivedTime: '', notes: '' },
+  });
+
+  const editForm = useForm<EditReconForm>({
+    defaultValues: { receivedDate: '', receivedTime: '', notes: '' },
   });
 
   const {
@@ -158,6 +188,67 @@ export default function ReconciliationContent() {
     const id = setInterval(refetchReconciliations, 4000);
     return () => clearInterval(id);
   }, [reconciliations, refetchReconciliations]);
+
+  // Debounced debtor search for the Manual Entry modal — searches every client's
+  // debtors (not scoped to "my queue"), reusing the same endpoint the admin screens
+  // already search with.
+  useEffect(() => {
+    if (!manualModalOpen || manualSelectedDebtor || manualSearch.trim().length < 2) {
+      setManualResults([]);
+      return;
+    }
+    let cancelled = false;
+    setIsSearchingDebtors(true);
+    const id = setTimeout(() => {
+      fetch(`/api/debtors?search=${encodeURIComponent(manualSearch.trim())}&pageSize=8`)
+        .then((r) => r.json())
+        .then((d) => { if (!cancelled) setManualResults(d.debtors ?? []); })
+        .finally(() => { if (!cancelled) setIsSearchingDebtors(false); });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(id); };
+  }, [manualModalOpen, manualSearch, manualSelectedDebtor]);
+
+  function openManualEntry() {
+    setManualModalOpen(true);
+    setManualSearch('');
+    setManualResults([]);
+    setManualSelectedDebtor(null);
+    setManualAmount('');
+    setManualNote('');
+  }
+
+  function closeManualEntry() {
+    setManualModalOpen(false);
+  }
+
+  async function submitManualEntry() {
+    if (!manualSelectedDebtor) return;
+    const amount = Number(manualAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error('Enter an amount greater than zero');
+      return;
+    }
+    setIsSubmittingManual(true);
+    try {
+      const res = await fetch('/api/reconciliations/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ debtorId: manualSelectedDebtor.id, amount, note: manualNote || undefined }),
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        toast.error(payload.error || 'Could not record this payment');
+        return;
+      }
+      toast.success(`${formatUGX(amount)} recorded for ${manualSelectedDebtor.name}`);
+      closeManualEntry();
+      refetchReconciliations();
+    } catch {
+      toast.error('Could not reach the server — try again');
+    } finally {
+      setIsSubmittingManual(false);
+    }
+  }
 
   const affectedDebtorsUrl = selectedReconId ? `/api/reconciliations/${selectedReconId}/affected-debtors` : null;
   const { data: affectedData } = useCachedQuery<{ affectedDebtors: AffectedDebtor[] }>(affectedDebtorsUrl);
@@ -262,6 +353,57 @@ export default function ReconciliationContent() {
     });
   }
 
+  function openEditRecon(r: ReconRow) {
+    setEditingRecon(r);
+    const receivedAt = new Date(r.receivedAt);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    editForm.reset({
+      receivedDate: `${receivedAt.getFullYear()}-${pad(receivedAt.getMonth() + 1)}-${pad(receivedAt.getDate())}`,
+      receivedTime: `${pad(receivedAt.getHours())}:${pad(receivedAt.getMinutes())}`,
+      notes: r.notes ?? '',
+    });
+  }
+
+  async function onSubmitEditRecon(data: EditReconForm) {
+    if (!editingRecon) return;
+    setIsSavingEdit(true);
+    try {
+      const res = await fetch(`/api/reconciliations/${editingRecon.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          receivedAt: `${data.receivedDate}T${data.receivedTime || '00:00'}`,
+          notes: data.notes || null,
+        }),
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        toast.error(payload.error || 'Could not save changes');
+        return;
+      }
+      toast.success('Reconciliation updated');
+      setEditingRecon(null);
+      refetchReconciliations();
+    } catch {
+      toast.error('Could not reach the server — try again');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  }
+
+  async function deleteRecon(r: ReconRow) {
+    if (!window.confirm(`Delete this reconciliation for ${r.client} (${r.batchLabel ?? 'no batch'})? This only works if it hasn't updated any debtor balances yet.`)) return;
+    const res = await fetch(`/api/reconciliations/${r.id}`, { method: 'DELETE' });
+    const payload = await res.json();
+    if (!res.ok) {
+      toast.error(payload.error || 'Could not delete this reconciliation');
+      return;
+    }
+    toast.success('Reconciliation deleted');
+    if (selectedReconId === r.id) setSelectedReconId(null);
+    refetchReconciliations();
+  }
+
   const totalProcessed = reconciliations.filter(r => r.status === 'processed').length;
   const totalPending = reconciliations.filter(r => r.status === 'pending').length;
   const totalFailed = reconciliations.filter(r => r.status === 'failed').length;
@@ -275,15 +417,26 @@ export default function ReconciliationContent() {
           <h1 className="text-page-title text-foreground">Reconciliation Management</h1>
           <p className="text-sm text-muted-foreground mt-1">Log and process client reconciliation events — full and partial formats supported</p>
         </div>
-        <button
-          onClick={() => setUploadModalOpen(true)}
-          disabled={offlineBlocked}
-          title={offlineBlocked ? 'Offline — reconnect to log a reconciliation' : undefined}
-          className="hidden lg:flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-        >
-          <Upload size={15} />
-          Log New Reconciliation
-        </button>
+        <div className="hidden lg:flex items-center gap-2">
+          <button
+            onClick={() => openManualEntry()}
+            disabled={offlineBlocked}
+            title={offlineBlocked ? 'Offline — reconnect to record a payment' : undefined}
+            className="flex items-center gap-1.5 px-4 py-2 bg-secondary text-secondary-foreground text-sm font-semibold rounded-lg hover:bg-secondary/80 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <UserCheck size={15} />
+            Manual Entry
+          </button>
+          <button
+            onClick={() => setUploadModalOpen(true)}
+            disabled={offlineBlocked}
+            title={offlineBlocked ? 'Offline — reconnect to log a reconciliation' : undefined}
+            className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <Upload size={15} />
+            Log New Reconciliation
+          </button>
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -489,10 +642,33 @@ export default function ReconciliationContent() {
                     <h3 className="text-section-header text-foreground">Processing Summary</h3>
                     <p className="text-xs text-muted-foreground mt-0.5 font-mono-data">{selectedRecon.batchLabel}</p>
                   </div>
-                  <Badge variant={statusConfig[selectedRecon.status as keyof typeof statusConfig].variant}>
-                    {statusConfig[selectedRecon.status as keyof typeof statusConfig].label}
-                  </Badge>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Badge variant={statusConfig[selectedRecon.status as keyof typeof statusConfig].variant}>
+                      {statusConfig[selectedRecon.status as keyof typeof statusConfig].label}
+                    </Badge>
+                    <button
+                      onClick={() => openEditRecon(selectedRecon)}
+                      disabled={offlineBlocked}
+                      title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit notes/date'}
+                      className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    {selectedRecon.updatedCount === 0 && selectedRecon.newAccountsCount === 0 && (
+                      <button
+                        onClick={() => deleteRecon(selectedRecon)}
+                        disabled={offlineBlocked}
+                        title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'}
+                        className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
                 </div>
+                {selectedRecon.notes && (
+                  <p className="text-xs text-muted-foreground -mt-2">{selectedRecon.notes}</p>
+                )}
 
                 <div className="grid grid-cols-2 gap-3">
                   {[
@@ -819,6 +995,176 @@ export default function ReconciliationContent() {
             <span>Processing runs automatically after logging. Agents will see updated balances and a "recently paid" flag on their queue — they never see raw reconciliation data.</span>
           </div>
         </form>
+      </Modal>
+
+      {/* Edit reconciliation — metadata only. Type and every count/amount field are a
+          record of what already happened to debtor balances, not editable inputs. */}
+      <Modal
+        open={!!editingRecon}
+        onClose={() => setEditingRecon(null)}
+        title="Edit Reconciliation"
+        subtitle={editingRecon ? `${editingRecon.client} — ${editingRecon.batchLabel ?? 'no batch'}` : undefined}
+        footer={
+          <>
+            <button
+              onClick={() => setEditingRecon(null)}
+              className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              form="edit-recon-form"
+              type="submit"
+              disabled={isSavingEdit || offlineBlocked}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60"
+            >
+              {isSavingEdit ? 'Saving…' : 'Save Changes'}
+            </button>
+          </>
+        }
+      >
+        <form id="edit-recon-form" onSubmit={editForm.handleSubmit(onSubmitEditRecon)} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-foreground">Date Received</label>
+              <input
+                type="date"
+                className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+                {...editForm.register('receivedDate', { required: 'Enter the date received' })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-foreground">Time Received</label>
+              <input
+                type="time"
+                className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+                {...editForm.register('receivedTime')}
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-foreground">Notes</label>
+            <textarea
+              rows={3}
+              placeholder="Any context about this reconciliation batch"
+              className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 resize-none placeholder:text-muted-foreground"
+              {...editForm.register('notes')}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Type, amounts, and match results can&apos;t be edited — they&apos;re a record of what actually happened to debtor balances, not editable inputs.
+          </p>
+        </form>
+      </Modal>
+
+      {/* Manual Entry — record one debtor's payment without uploading a file. Always a
+          'partial' reconciliation under the hood (see api/reconciliations/manual). */}
+      <Modal
+        open={manualModalOpen}
+        onClose={closeManualEntry}
+        title="Manual Entry"
+        subtitle="Record one debtor's payment directly — for a single payment between file uploads"
+        footer={
+          <>
+            <button
+              onClick={closeManualEntry}
+              className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={submitManualEntry}
+              disabled={!manualSelectedDebtor || isSubmittingManual || offlineBlocked}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <UserCheck size={15} />
+              {isSubmittingManual ? 'Recording…' : 'Record Payment'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {!manualSelectedDebtor ? (
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-foreground">Debtor</label>
+              <p className="text-xs text-muted-foreground">Search by name, loan reference, or phone</p>
+              <div className="relative">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  autoFocus
+                  value={manualSearch}
+                  onChange={(e) => setManualSearch(e.target.value)}
+                  placeholder="e.g. Nakato Grace, or KCB-2024-0091"
+                  className="w-full pl-9 pr-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+                />
+              </div>
+              {isSearchingDebtors && <p className="text-xs text-muted-foreground">Searching…</p>}
+              {!isSearchingDebtors && manualSearch.trim().length >= 2 && manualResults.length === 0 && (
+                <p className="text-xs text-muted-foreground">No debtors match &quot;{manualSearch}&quot;.</p>
+              )}
+              {manualResults.length > 0 && (
+                <div className="border border-border rounded-lg divide-y divide-border max-h-56 overflow-y-auto scrollbar-thin">
+                  {manualResults.map((d) => (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => { setManualSelectedDebtor(d); setManualSearch(''); }}
+                      className="w-full text-left px-3 py-2.5 hover:bg-secondary/50 transition-colors"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium text-foreground">{d.name}</span>
+                        <Badge variant={clientBadgeVariant(d.client)}>{d.client}</Badge>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 mt-0.5">
+                        <span className="text-xs font-mono-data text-muted-foreground">{d.loanRef}</span>
+                        <span className="text-xs font-tabular text-muted-foreground">Balance: {formatUGX(d.balance)}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="flex items-start justify-between gap-2 p-3 bg-secondary/40 rounded-lg border border-border">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">{manualSelectedDebtor.name}</p>
+                  <p className="text-xs font-mono-data text-muted-foreground">{manualSelectedDebtor.loanRef}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Current balance: {formatUGX(manualSelectedDebtor.balance)}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setManualSelectedDebtor(null)}
+                  className="text-xs text-primary hover:underline shrink-0"
+                >
+                  Change
+                </button>
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-foreground">Amount Collected (UGX) <span className="text-negative">*</span></label>
+                <input
+                  type="number"
+                  autoFocus
+                  value={manualAmount}
+                  onChange={(e) => setManualAmount(e.target.value)}
+                  placeholder="e.g. 150000"
+                  className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 font-tabular"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-foreground">Notes</label>
+                <textarea
+                  rows={2}
+                  value={manualNote}
+                  onChange={(e) => setManualNote(e.target.value)}
+                  placeholder="Optional — e.g. paid via mobile money, confirmed by phone"
+                  className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 resize-none placeholder:text-muted-foreground"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">Adds to whatever this debtor has already paid — the same as a partial reconciliation, just for one record.</p>
+            </>
+          )}
+        </div>
       </Modal>
     </div>
   );
