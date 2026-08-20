@@ -54,13 +54,41 @@ export async function getCachedDebtor(id: string): Promise<CachedDebtorRow | und
   }
 }
 
+/**
+ * Replaces the ENTIRE cached queue with exactly this snapshot — not an upsert. The
+ * `/api/debtors?scope=mine` response is always the caller's complete current queue, so
+ * anything not in it must be gone from the cache too (reassigned away, or — on a shared
+ * device — simply a different agent's debtors from a previous login). A plain bulkPut
+ * only ever adds/overwrites by id and never removes, which is exactly what let one
+ * agent's queue silently accumulate on top of another's every time someone new signed
+ * in on the same browser: 682 debtors, then 682+686, then +684, approaching the whole
+ * table. Clear-then-insert in one transaction closes that gap without a window where
+ * the table sits empty mid-write.
+ */
 export async function putCachedDebtors(rows: Omit<CachedDebtorRow, 'cachedAt'>[]): Promise<void> {
   try {
     const cachedAt = new Date().toISOString();
-    await db.debtors.bulkPut(rows.map((row) => ({ ...row, cachedAt })));
+    await db.transaction('rw', db.debtors, async () => {
+      await db.debtors.clear();
+      await db.debtors.bulkPut(rows.map((row) => ({ ...row, cachedAt })));
+    });
     notifyCacheChanged();
   } catch {
     // Same as above — this pass just doesn't get persisted.
+  }
+}
+
+/** Wipes every locally-cached read (queue, debtor detail, disposition codes, identity,
+ *  admin lists, ...) — call this on sign-out so a different account logging in on the
+ *  same device never has a stale or briefly-mixed-in trace of the previous one's data
+ *  to read before its own first fetch completes. Deliberately leaves pendingCallLogs
+ *  alone — those are real unsynced work and must survive a logout to still sync later. */
+export async function clearReadCache(): Promise<void> {
+  try {
+    await Promise.all([db.debtors.clear(), db.cache.clear()]);
+    notifyCacheChanged();
+  } catch {
+    // Nothing to do — worst case stale reads linger until overwritten by a fresh fetch.
   }
 }
 

@@ -11,6 +11,7 @@ import AppLogo from '@/components/ui/AppLogo';
 import DispositionBadge from '@/components/ui/DispositionBadge';
 import BrandWordmark from '@/components/ui/BrandWordmark';
 import { toast } from 'sonner';
+import { clearReadCache } from '@/lib/offline-cache';
 
 interface LoginFormData {
   email: string;
@@ -56,6 +57,11 @@ export default function LoginContent() {
         setError('root', { message: payload.error || 'Invalid credentials — use a demo account below to sign in' });
         return;
       }
+      // Belt and braces alongside the sign-out-time clear in Sidebar.tsx: covers signing
+      // in as a different account without an explicit sign-out first (an expired
+      // session, or a shared/test device someone else was just using), so this account
+      // never inherits a stale trace of whoever was signed in before.
+      await clearReadCache();
       toast.success(`Welcome back, ${payload.user.name}!`);
       const next = searchParams.get('next') || '/agent-dashboard';
       router.push(next);

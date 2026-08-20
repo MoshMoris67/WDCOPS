@@ -9,6 +9,7 @@ import ThemeToggle from '@/components/ui/ThemeToggle';
 import NotificationsButton from '@/components/ui/NotificationsButton';
 import { useOnlineStatus, usePendingSyncCount, useFailedSyncCount } from '@/lib/use-offline';
 import { retryFailed } from '@/lib/offline-sync';
+import { clearReadCache } from '@/lib/offline-cache';
 import { getNavGroups, displayRole, type CurrentUser, type NavGroup } from '@/lib/nav-groups';
 import {
   ChevronLeft,
@@ -36,6 +37,11 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
 
   async function handleSignOut() {
     await fetch('/api/auth/logout', { method: 'POST' });
+    // A different account may sign in on this same device/browser next — clear every
+    // locally-cached read (queue, debtor detail, disposition codes, identity, admin
+    // lists) so it never has a stale or momentarily-mixed-in trace of this session's
+    // data to read before its own first fetch completes.
+    await clearReadCache();
     router.push('/sign-up-login-screen');
     router.refresh();
   }
