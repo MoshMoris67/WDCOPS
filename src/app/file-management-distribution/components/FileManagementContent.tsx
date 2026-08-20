@@ -69,7 +69,7 @@ interface EditFileForm {
 interface FilePreview {
   headers: string[];
   sampleRows: string[][];
-  totalRows: number;
+  totalRows: number | null;
   suggested: {
     nameCol?: number;
     firstNameCol?: number;
@@ -954,8 +954,10 @@ export default function FileManagementContent() {
               <div>
                 <p className="text-sm font-semibold text-foreground">Map Columns</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {preview.totalRows.toLocaleString()} row(s) detected. Matched what we could recognize —
-                  confirm or fix anything below before importing.
+                  {preview.totalRows !== null
+                    ? `${preview.totalRows.toLocaleString()} row(s) detected.`
+                    : 'Showing a sample — the full row count is confirmed during import.'}{' '}
+                  Matched what we could recognize — confirm or fix anything below before importing.
                 </p>
               </div>
 

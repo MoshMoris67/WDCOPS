@@ -69,7 +69,7 @@ interface DebtorSearchResult {
 interface ReconPreview {
   headers: string[];
   sampleRows: string[][];
-  totalRows: number;
+  totalRows: number | null;
   suggested: {
     loanRefCol?: number;
     phoneCol?: number;
@@ -868,8 +868,10 @@ export default function ReconciliationContent() {
               <div>
                 <p className="text-sm font-semibold text-foreground">Map Columns</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {reconPreview.totalRows.toLocaleString()} row(s) detected. Matched what we could recognize —
-                  confirm or fix anything below before logging.
+                  {reconPreview.totalRows !== null
+                    ? `${reconPreview.totalRows.toLocaleString()} row(s) detected.`
+                    : 'Showing a sample — the full row count is confirmed during processing.'}{' '}
+                  Matched what we could recognize — confirm or fix anything below before logging.
                 </p>
               </div>
 

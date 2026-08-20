@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import { Readable } from 'stream';
 
 function normalizeHeader(raw: string): string {
   return raw.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -109,17 +110,45 @@ export async function loadTable(buffer: ArrayBuffer, filename: string): Promise<
   return rows;
 }
 
-export interface SheetInfo {
-  name: string;
-  rowCount: number;
-}
+/**
+ * Header + a handful of sample rows from the first sheet only, via exceljs's streaming
+ * reader instead of `loadTable`'s full `workbook.xlsx.load()` — for the mapping-preview
+ * step we only ever show 5 rows, so there's no reason to pay for parsing all 77,000 of
+ * them (measured 6-10s locally, and apparently much worse on Render's free-tier CPU —
+ * that's the "Reading columns... then Could not reach server" hang). Breaking out of the
+ * for-await loop after the sample stops the reader from pulling any more of the file.
+ *
+ * `styles: 'cache'` matters and isn't the default: without it exceljs can't tell a
+ * date-formatted numeric cell from a plain number, and returns the raw Excel serial
+ * (e.g. "45912") instead of a real date — confirmed the hard way against this file's
+ * actual date columns, and confirmed fixed by this option (zero mismatches against a
+ * full DOM parse of the same rows).
+ */
+async function previewXlsxFast(buffer: ArrayBuffer, sampleCount = 5): Promise<{ headers: string[]; sampleRows: string[][] }> {
+  const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from([Buffer.from(buffer)]), {
+    styles: 'cache',
+    sharedStrings: 'cache',
+    hyperlinks: 'ignore',
+    worksheets: 'emit',
+  });
 
-/** Sheet names + row counts for a workbook — surfaced in the import preview so an admin can see every sheet got picked up. */
-export async function listSheets(buffer: ArrayBuffer, filename: string): Promise<SheetInfo[]> {
-  if (isCsv(filename)) return [{ name: filename, rowCount: 0 }];
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
-  return workbook.worksheets.map((s) => ({ name: s.name, rowCount: s.rowCount }));
+  let headers: string[] = [];
+  const sampleRows: string[][] = [];
+
+  for await (const worksheetReader of workbookReader) {
+    let rowCount = 0;
+    for await (const row of worksheetReader) {
+      const cells: string[] = [];
+      row.eachCell({ includeEmpty: true }, (cell) => cells.push(cellFromXlsxValue(cell.value)));
+      rowCount++;
+      if (rowCount === 1) headers = cells;
+      else sampleRows.push(cells);
+      if (rowCount > sampleCount) break;
+    }
+    break; // first sheet only — matches loadTable's/preview's existing "first sheet is canonical" behavior
+  }
+
+  return { headers, sampleRows };
 }
 
 function headerColumnMap(headerRow: string[]): Map<string, number> {
@@ -241,21 +270,26 @@ export interface FilePreview {
   headers: string[];
   sampleRows: string[][];
   suggested: ImportMapping;
-  totalRows: number;
-  sheets: SheetInfo[];
+  /** null for .xlsx — an exact count needs a full parse (confirmed as slow as loading the
+   * whole file, so not worth doing just to display a number); still exact for .csv, since
+   * the fast tokenizer already parses the whole file in well under a second either way. */
+  totalRows: number | null;
 }
 
 /** Parses just enough of the file to show a mapping-confirmation step — headers, a few sample rows, and a best-guess mapping. */
 export async function previewImportFile(buffer: ArrayBuffer, filename: string): Promise<FilePreview> {
-  const [table, sheets] = await Promise.all([loadTable(buffer, filename), listSheets(buffer, filename)]);
-  const headers = table[0] ?? [];
-  return {
-    headers,
-    sampleRows: table.slice(1, 6),
-    suggested: suggestImportMapping(headers),
-    totalRows: Math.max(0, table.length - 1),
-    sheets,
-  };
+  if (isCsv(filename)) {
+    const table = await loadTable(buffer, filename);
+    const headers = table[0] ?? [];
+    return {
+      headers,
+      sampleRows: table.slice(1, 6),
+      suggested: suggestImportMapping(headers),
+      totalRows: Math.max(0, table.length - 1),
+    };
+  }
+  const { headers, sampleRows } = await previewXlsxFast(buffer);
+  return { headers, sampleRows, suggested: suggestImportMapping(headers), totalRows: null };
 }
 
 export interface ImportRow {
@@ -379,21 +413,24 @@ export interface ReconciliationPreview {
   headers: string[];
   sampleRows: string[][];
   suggested: ReconciliationMapping;
-  totalRows: number;
-  sheets: SheetInfo[];
+  /** See FilePreview.totalRows — same tradeoff, same reasoning. */
+  totalRows: number | null;
 }
 
 /** Parses just enough of the file to show a mapping-confirmation step — mirrors previewImportFile. */
 export async function previewReconciliationFile(buffer: ArrayBuffer, filename: string, type: 'full' | 'partial'): Promise<ReconciliationPreview> {
-  const [table, sheets] = await Promise.all([loadTable(buffer, filename), listSheets(buffer, filename)]);
-  const headers = table[0] ?? [];
-  return {
-    headers,
-    sampleRows: table.slice(1, 6),
-    suggested: suggestReconciliationMapping(headers, type),
-    totalRows: Math.max(0, table.length - 1),
-    sheets,
-  };
+  if (isCsv(filename)) {
+    const table = await loadTable(buffer, filename);
+    const headers = table[0] ?? [];
+    return {
+      headers,
+      sampleRows: table.slice(1, 6),
+      suggested: suggestReconciliationMapping(headers, type),
+      totalRows: Math.max(0, table.length - 1),
+    };
+  }
+  const { headers, sampleRows } = await previewXlsxFast(buffer);
+  return { headers, sampleRows, suggested: suggestReconciliationMapping(headers, type), totalRows: null };
 }
 
 /**
