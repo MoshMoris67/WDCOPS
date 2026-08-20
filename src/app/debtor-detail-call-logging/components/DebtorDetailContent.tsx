@@ -197,17 +197,14 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
   // an instant swap reads as the click doing nothing, not as a successful submit.
   function advanceIfEnabled() {
     if (!autoAdvance) return;
-    if (!isOnline) {
-      // Navigating while offline would hit the network for the next page and fail —
-      // the disposition is already safely queued, just don't chase it with a doomed
-      // navigation attempt.
-      toast.info('Logged offline — advance to the next debtor once you\'re back online');
-      return;
-    }
     if (!effectiveNext) {
       toast.info("That's the last debtor in your queue");
       return;
     }
+    // Safe offline too: the next debtor is already part of the same cached queue this
+    // list came from, so it renders from IndexedDB (full detail if it's been opened
+    // before, the lite queue-row summary otherwise) rather than needing a network round
+    // trip — see use-debtor-queue.ts and the service worker's route-shell fallback.
     setTimeout(() => effectiveNext(), 900);
   }
 

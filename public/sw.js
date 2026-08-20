@@ -2,9 +2,18 @@
 // pages keep working with no connection, without ever touching API data.
 //
 // - Navigation requests: network-first. Try the network, cache a copy of what comes
-//   back, and on failure serve the cached copy for that exact URL — or, if that route
-//   was never visited while online, a small branded offline fallback page instead of
-//   the browser's own generic interstitial.
+//   back, and on failure serve the cached copy for that exact URL. Most in-app
+//   navigation here is client-side (Next.js Link/router.push), which this service
+//   worker never sees at all — so an exact-URL match is rare in practice. What
+//   actually saves most offline navigations is the *route shell* fallback: a
+//   pathname-only cached copy (any query string), fed either by a real document
+//   fetch above or by AppLayout.tsx proactively caching each route it visits while
+//   online. Every page here is fully client-rendered — none bake query-specific data
+//   (e.g. which debtor id) into their server HTML — so any cached copy of a route
+//   hydrates correctly and fetches its real content from IndexedDB/the network
+//   itself once running, regardless of which exact query string it was cached under.
+//   Only a route that's never been visited at all falls through to the small branded
+//   offline fallback page instead of the browser's own generic interstitial.
 // - Static assets (/_next/static/*, fonts, icons): cache-first. Hashed/immutable
 //   filenames are safe to serve straight from cache, falling back to network (and
 //   caching the result) only on a miss.
@@ -13,10 +22,18 @@
 //   as they do today — this worker must never cache or rewrite an API response.
 //
 // Bump CACHE_VERSION on meaningful changes here; old-version caches are removed on
-// activate so redeploys don't accumulate stale entries forever.
+// activate so redeploys don't accumulate stale entries forever. SHELLS_CACHE is
+// deliberately unversioned (see below) and survives redeploys on its own.
 const CACHE_VERSION = 'v1';
 const CACHE_NAME = `wellcashops-${CACHE_VERSION}`;
 const OFFLINE_URL = '/offline.html';
+// Unversioned on purpose — holds one cached document per app route (pathname only, no
+// query string), fed by the page itself (see AppLayout.tsx) every time it visits a route
+// while online. This app is entirely client-rendered: no page bakes query-specific data
+// (e.g. which debtor id) into its server HTML, so any previously cached copy of a route's
+// shell hydrates fine and fetches the real content itself once running. That's what makes
+// it possible to fall back to it for a *different* query string on the same route below.
+const SHELLS_CACHE = 'wellcashops-route-shells';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -28,7 +45,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((names) =>
-      Promise.all(names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name)))
+      Promise.all(names.filter((name) => name !== CACHE_NAME && name !== SHELLS_CACHE).map((name) => caches.delete(name)))
     ).then(() => self.clients.claim())
   );
 });
@@ -52,13 +69,29 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          const exactCopy = response.clone();
+          const shellCopy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, exactCopy));
+          // Also keep a pathname-only copy as this route's shell — covers a real
+          // document load (cold launch, hard refresh) even without the client-side
+          // helper in AppLayout.tsx ever running for this route yet.
+          caches.open(SHELLS_CACHE).then((cache) => cache.put(new Request(url.pathname), shellCopy));
           return response;
         })
         .catch(async () => {
-          const cached = await caches.match(request);
-          return cached || caches.match(OFFLINE_URL);
+          // Exact URL (this pathname + this exact query string) seen before.
+          const exact = await caches.match(request);
+          if (exact) return exact;
+          // Same route, different query — e.g. a different debtor id reached by
+          // auto-advancing to the next queue entry, or the browser/OS reloading the
+          // tab from wherever it happened to be when it was last backgrounded. Client
+          // navigations to these routes never hit this service worker at all (Next.js
+          // fetches an RSC payload, not a full document), so the exact URL is almost
+          // never the one that's cached — but the route's shell (see SHELLS_CACHE
+          // above) usually is, from an earlier visit while online.
+          const shell = await caches.match(new Request(url.pathname), { ignoreSearch: true });
+          if (shell) return shell;
+          return caches.match(OFFLINE_URL);
         })
     );
     return;

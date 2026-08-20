@@ -13,6 +13,12 @@ interface AppLayoutProps {
   children: React.ReactNode;
 }
 
+// Must match public/sw.js's SHELLS_CACHE constant — deliberately not versioned with the
+// rest of the service worker's cache so a redeploy doesn't wipe every route's offline
+// fallback along with it.
+const SHELLS_CACHE_NAME = 'wellcashops-route-shells';
+const cachedShellPathnames = new Set<string>();
+
 export default function AppLayout({ children }: AppLayoutProps) {
   const pathname = usePathname();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -41,6 +47,27 @@ export default function AppLayout({ children }: AppLayoutProps) {
   useEffect(() => {
     refetchUser();
   }, [pathname, refetchUser]);
+
+  useEffect(() => {
+    // In-app navigation (Link/router.push) never touches the service worker — Next.js
+    // fetches an RSC payload, not a full document — so a route visited only that way
+    // has nothing cached for the SW to fall back on. That's what left auto-advance (and
+    // any hard reload of a debtor deep link) stuck on the SW's dead-end offline page
+    // even though the actual data was sitting right there in IndexedDB. Proactively
+    // fetching and caching each route's shell here — keyed by pathname only, no query
+    // string — means a *different* debtor id on the same route still has something to
+    // fall back to. See public/sw.js's SHELLS_CACHE for the matching half of this.
+    if (typeof window === 'undefined' || !('caches' in window) || !navigator.onLine) return;
+    if (cachedShellPathnames.has(pathname)) return;
+    cachedShellPathnames.add(pathname);
+    fetch(pathname)
+      .then((res) => {
+        if (res.ok) return caches.open(SHELLS_CACHE_NAME).then((cache) => cache.put(pathname, res));
+      })
+      .catch(() => {
+        cachedShellPathnames.delete(pathname); // network hiccup — worth trying again later
+      });
+  }, [pathname]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
