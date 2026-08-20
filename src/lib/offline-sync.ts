@@ -48,6 +48,22 @@ export async function getPendingLogs(): Promise<PendingCallLog[]> {
   return db.pendingCallLogs.orderBy('queuedAt').toArray();
 }
 
+/** Failed entries with their rejection reason (`lastError`) intact — the "Retry" affordance
+ *  alone gives no way to see *why* something keeps failing, which reads as broken when it's
+ *  actually working correctly (a genuinely invalid record retrying forever and going nowhere). */
+export async function getFailedLogs(): Promise<PendingCallLog[]> {
+  return db.pendingCallLogs.where('status').equals('failed').sortBy('queuedAt');
+}
+
+/** Gives up on one entry permanently — for a record retrying can never fix (e.g. the debtor
+ *  it was queued against was reassigned or deleted before it ever synced). Retry only ever
+ *  resends the exact same request, so a rejection rooted in the data itself, not the network,
+ *  will just fail the same way forever; discarding is the only way to actually clear it. */
+export async function discardFailedLog(localId: number): Promise<void> {
+  await db.pendingCallLogs.delete(localId);
+  notifyQueueChanged();
+}
+
 type SyncOutcome = { ok: true } | { ok: false; retryable: boolean; message: string };
 
 /** Pushes one queued entry to the real API. Never throws — every failure mode (network,

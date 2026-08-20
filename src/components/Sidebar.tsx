@@ -1,14 +1,14 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
 import BrandWordmark from '@/components/ui/BrandWordmark';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 import NotificationsButton from '@/components/ui/NotificationsButton';
+import FailedSyncModal from '@/components/FailedSyncModal';
 import { useOnlineStatus, usePendingSyncCount, useFailedSyncCount } from '@/lib/use-offline';
-import { retryFailed } from '@/lib/offline-sync';
 import { clearReadCache } from '@/lib/offline-cache';
 import { getNavGroups, displayRole, type CurrentUser, type NavGroup } from '@/lib/nav-groups';
 import {
@@ -34,6 +34,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
   const isOnline = useOnlineStatus();
   const pendingSync = usePendingSyncCount();
   const failedSync = useFailedSyncCount();
+  const [failedSyncModalOpen, setFailedSyncModalOpen] = useState(false);
 
   async function handleSignOut() {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -74,6 +75,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
           isOnline={isOnline}
           pendingSync={pendingSync}
           failedSync={failedSync}
+          onOpenFailedSync={() => setFailedSyncModalOpen(true)}
           isActive={isActive}
           navGroups={navGroups}
           isMobile
@@ -97,6 +99,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
           isOnline={isOnline}
           pendingSync={pendingSync}
           failedSync={failedSync}
+          onOpenFailedSync={() => setFailedSyncModalOpen(true)}
           isActive={isActive}
           navGroups={navGroups}
           isMobile={false}
@@ -104,6 +107,8 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
           onSignOut={handleSignOut}
         />
       </aside>
+
+      <FailedSyncModal open={failedSyncModalOpen} onClose={() => setFailedSyncModalOpen(false)} />
     </>
   );
 }
@@ -114,6 +119,7 @@ interface SidebarContentProps {
   isOnline: boolean;
   pendingSync: number;
   failedSync: number;
+  onOpenFailedSync: () => void;
   isActive: (href: string) => boolean;
   navGroups: NavGroup[];
   isMobile: boolean;
@@ -121,7 +127,7 @@ interface SidebarContentProps {
   onSignOut: () => void;
 }
 
-function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, failedSync, isActive, navGroups, isMobile, user, onSignOut }: SidebarContentProps) {
+function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, failedSync, onOpenFailedSync, isActive, navGroups, isMobile, user, onSignOut }: SidebarContentProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Logo */}
@@ -143,18 +149,19 @@ function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, fa
       )}
 
       {/* Entries the server actively rejected — these stopped auto-retrying so they
-          don't block the rest of the queue, and need a deliberate retry. */}
+          don't block the rest of the queue. A blind "Retry" here isn't enough on its
+          own (retrying resends the exact same request — if the server had a real
+          reason to reject it, it just fails again the same way), so this opens the
+          detail view instead, where the actual reason is visible per entry. */}
       {(!collapsed || isMobile) && failedSync > 0 && (
-        <div className="mx-3 mt-2 px-3 py-2 rounded-md border flex items-center gap-2 text-xs font-medium sync-offline">
-          <AlertTriangle size={14} />
+        <button
+          onClick={onOpenFailedSync}
+          className="mx-3 mt-2 px-3 py-2 rounded-md border flex items-center gap-2 text-xs font-medium sync-offline text-left hover:brightness-95 transition-[filter]"
+        >
+          <AlertTriangle size={14} className="shrink-0" />
           <span className="flex-1">{failedSync} log{failedSync > 1 ? 's' : ''} failed to sync</span>
-          <button
-            onClick={() => retryFailed()}
-            className="underline hover:no-underline shrink-0"
-          >
-            Retry
-          </button>
-        </div>
+          <span className="underline shrink-0">Details</span>
+        </button>
       )}
 
       {collapsed && !isMobile && (
