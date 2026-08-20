@@ -40,6 +40,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   });
 }
 
+/** Permanently deletes a file and everything tied to its debtors — including call logs.
+ *  Deliberately allowed even when calls have been logged (an explicit, admin-only choice:
+ *  this used to be blocked to protect the audit trail, but is now a real requested
+ *  capability for cleaning up a mistaken/duplicate import). There is no undo — the
+ *  frontend confirmation dialog says so in plain terms before this ever runs. */
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireRole(['admin']);
   if (!isSessionPayload(session)) return session;
@@ -51,20 +56,15 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
 
   const debtorIds = (await prisma.debtor.findMany({ where: { fileId: id }, select: { id: true } })).map((d) => d.id);
 
-  const callLogCount = debtorIds.length > 0 ? await prisma.callLog.count({ where: { debtorId: { in: debtorIds } } }) : 0;
-  if (callLogCount > 0) {
-    return NextResponse.json(
-      { error: `This file's debtors have ${callLogCount} logged call(s) — deleting would break the audit trail. Recall the file instead.` },
-      { status: 400 }
-    );
-  }
-
   await prisma.$transaction([
     // Reconciliations referencing this file stay (they're a client-facing audit log in their own
     // right) — just unlink the file so deleting it doesn't leave a dangling reference.
     prisma.reconciliation.updateMany({ where: { fileId: id }, data: { fileId: null } }),
     prisma.reconciliationEntry.deleteMany({ where: { debtorId: { in: debtorIds } } }),
     prisma.assignment.deleteMany({ where: { debtorId: { in: debtorIds } } }),
+    // Must run before debtor.deleteMany — CallLog.debtorId has no cascade, so a debtor
+    // with logged calls would otherwise fail to delete on the foreign key.
+    prisma.callLog.deleteMany({ where: { debtorId: { in: debtorIds } } }),
     prisma.debtor.deleteMany({ where: { fileId: id } }),
     prisma.file.delete({ where: { id } }),
   ]);

@@ -413,7 +413,7 @@ export default function FileManagementContent() {
   }
 
   async function deleteFile(file: FileRow) {
-    if (!window.confirm(`Delete "${file.batchLabel}" and its ${file.debtorCount} debtor(s)? This only works if no calls have been logged against them.`)) return;
+    if (!window.confirm(`Permanently delete "${file.batchLabel}"? This deletes all ${file.debtorCount} debtor(s) AND every call logged against them — there is no undo.`)) return;
     const res = await fetch(`/api/files/${file.id}`, { method: 'DELETE' });
     const payload = await res.json();
     if (!res.ok) {
