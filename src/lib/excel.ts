@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import { Readable } from 'node:stream';
 
 function normalizeHeader(raw: string): string {
   return raw.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -62,48 +63,69 @@ function cellFromXlsxValue(value: ExcelJS.CellValue): string {
   return String(value).trim();
 }
 
-function sheetToRows(sheet: ExcelJS.Worksheet): string[][] {
-  const rows: string[][] = [];
-  sheet.eachRow((row) => {
-    const cells: string[] = [];
-    row.eachCell({ includeEmpty: true }, (cell) => {
-      cells.push(cellFromXlsxValue(cell.value));
-    });
-    rows.push(cells);
-  });
-  return rows;
-}
-
 function rowsMatch(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((cell, i) => cell.trim().toLowerCase() === (b[i] ?? '').trim().toLowerCase());
 }
 
 /**
- * Loads any supported file into a plain table (row 0 = header) — .xlsx via exceljs,
- * .csv via the fast tokenizer above. A workbook with multiple sheets (e.g. a client
- * splitting one large roster across tabs to work around a row limit in whatever
- * tool produced it) has every sheet's rows appended after the first, using the
- * first sheet's header as canonical — if a later sheet repeats that same header
- * row verbatim, it's dropped as a duplicate rather than imported as a debtor.
+ * Reads an .xlsx workbook's sheets via exceljs's streaming reader, not
+ * `workbook.xlsx.load()` — the full/"rich" API builds a complete styled
+ * Workbook/Row/Cell object graph (merged cells, formulas, style refs) for
+ * every cell whether anything here uses it or not, which is the exact same
+ * class of problem parseCsvText above was written to avoid for .csv: it
+ * measures at ~3 seconds per 1,000 rows, so a real 77,000-row client file
+ * turns into minutes — long enough to time out the request regardless of
+ * which endpoint is asking (this is what both the "Reading columns" preview
+ * and the real import were hitting). Streaming reads the same row/cell data
+ * without building that object graph, so this stays a flat scan.
+ */
+async function streamXlsxSheets(buffer: ArrayBuffer): Promise<{ name: string; rows: string[][] }[]> {
+  const stream = Readable.from([Buffer.from(buffer)]);
+  const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(stream, {});
+  const sheets: { name: string; rows: string[][] }[] = [];
+  for await (const worksheetReader of workbookReader) {
+    const rows: string[][] = [];
+    for await (const row of worksheetReader) {
+      const cells: string[] = [];
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        cells.push(cellFromXlsxValue(cell.value));
+      });
+      rows.push(cells);
+    }
+    // exceljs's WorksheetReader sets `.name` from the workbook's real sheet metadata at
+    // runtime (see node_modules/exceljs/lib/stream/xlsx/workbook-reader.js), it's just
+    // missing from the package's own .d.ts — safe to read past the type gap.
+    const name = (worksheetReader as unknown as { name?: string }).name ?? '';
+    sheets.push({ name, rows });
+  }
+  return sheets;
+}
+
+/**
+ * Loads any supported file into a plain table (row 0 = header) — .xlsx via the
+ * streaming reader above, .csv via the fast tokenizer above. A workbook with multiple
+ * sheets (e.g. a client splitting one large roster across tabs to work around a row
+ * limit in whatever tool produced it) has every sheet's rows appended after the
+ * first, using the first sheet's header as canonical — if a later sheet repeats
+ * that same header row verbatim, it's dropped as a duplicate rather than imported
+ * as a debtor.
  */
 export async function loadTable(buffer: ArrayBuffer, filename: string): Promise<string[][]> {
   if (isCsv(filename)) {
     return parseCsvText(Buffer.from(buffer).toString('utf8'));
   }
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
-  if (workbook.worksheets.length === 0) throw new Error('The workbook has no sheets');
+  const sheets = await streamXlsxSheets(buffer);
+  if (sheets.length === 0) throw new Error('The workbook has no sheets');
 
-  const [firstSheet, ...restSheets] = workbook.worksheets;
-  const rows = sheetToRows(firstSheet);
+  const [firstSheet, ...restSheets] = sheets;
+  const rows = firstSheet.rows;
   const headerRow = rows[0];
 
   for (const sheet of restSheets) {
-    const sheetRows = sheetToRows(sheet);
-    if (sheetRows.length === 0) continue;
-    const startsWithRepeatedHeader = headerRow && rowsMatch(sheetRows[0], headerRow);
-    rows.push(...sheetRows.slice(startsWithRepeatedHeader ? 1 : 0));
+    if (sheet.rows.length === 0) continue;
+    const startsWithRepeatedHeader = headerRow && rowsMatch(sheet.rows[0], headerRow);
+    rows.push(...sheet.rows.slice(startsWithRepeatedHeader ? 1 : 0));
   }
 
   return rows;
@@ -117,9 +139,8 @@ export interface SheetInfo {
 /** Sheet names + row counts for a workbook — surfaced in the import preview so an admin can see every sheet got picked up. */
 export async function listSheets(buffer: ArrayBuffer, filename: string): Promise<SheetInfo[]> {
   if (isCsv(filename)) return [{ name: filename, rowCount: 0 }];
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
-  return workbook.worksheets.map((s) => ({ name: s.name, rowCount: s.rowCount }));
+  const sheets = await streamXlsxSheets(buffer);
+  return sheets.map((s) => ({ name: s.name, rowCount: s.rows.length }));
 }
 
 function headerColumnMap(headerRow: string[]): Map<string, number> {
