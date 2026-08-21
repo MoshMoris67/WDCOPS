@@ -356,7 +356,7 @@ export default function ReconciliationContent() {
 
     toast.promise(request, {
       loading: 'Processing reconciliation…',
-      success: 'Reconciliation processed — balances updated',
+      success: (payload) => payload.inProgress ? payload.message : 'Reconciliation processed — balances updated',
       error: (e) => e.message || 'Processing failed — check loan reference matching',
     });
   }

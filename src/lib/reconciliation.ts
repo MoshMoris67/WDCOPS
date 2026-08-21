@@ -71,6 +71,11 @@ export async function parseReconciliationUpload(reconciliationId: string): Promi
  * already working this client, weighted by how caught-up each one currently
  * is (see lib/coverage.ts) — an agent behind on their existing list gets
  * fewer of the new ones, not none.
+ *
+ * Kept as the simple, one-query-per-row version deliberately — this is only ever called
+ * with exactly one row now (see api/reconciliations/manual/route.ts), where that cost is
+ * irrelevant. Every bulk-upload path uses processReconciliationTick below instead, which
+ * applies these same matching rules in batches instead of one row at a time.
  */
 export async function processReconciliation(
   reconciliationId: string,
@@ -138,6 +143,169 @@ export async function processReconciliation(
       : null;
 
   return { updatedCount, totalUpdated, unmatchedCount, newAccountsCount, status, errorSummary };
+}
+
+export interface TickResult {
+  processed: number;
+  done: boolean;
+}
+
+// One matching query per this many rows, not one per row — the actual fix here. The
+// original processReconciliation did a `findFirst` *and* its own small transaction for
+// every single row, sequentially; for a reconciliation with tens of thousands of rows
+// that's tens of thousands of DB round trips before anything else can happen, and it
+// wasn't resumable — a crash partway through would re-apply every row it already
+// processed on retry, double-counting payments. Both are fixed the same way file import
+// already was: batch the matching lookup (one findMany per BATCH_SIZE rows, using an `in`
+// filter instead of one findFirst per row), batch the writes into one transaction per
+// batch instead of one per row, and persist a rowsProcessed cursor after every batch so a
+// tick that gets cut off resumes instead of restarting.
+const BATCH_SIZE = 500;
+
+/**
+ * Chunked, resumable version of processReconciliation for the upload path — called once
+ * per scheduled cron tick (see api/worker/tick/route.ts), repeatedly, until the whole
+ * reconciliation is processed. See processReconciliation's docstring for the matching
+ * rules themselves (loan ref preferred, phone fallback; unmatched-but-complete rows
+ * become new accounts) — this applies the exact same rules, just batched.
+ *
+ * New-account rows are accumulated in pendingNewAccountRows across every chunk and only
+ * turned into real debtors once, on the final chunk — calling createAndDistributeNewAccounts
+ * once per chunk would create a separate "new accounts" File per chunk instead of one for
+ * the whole run.
+ */
+export async function processReconciliationTick(reconciliationId: string, timeBudgetMs = 20000): Promise<TickResult> {
+  const started = Date.now();
+  const r = await prisma.reconciliation.findUnique({ where: { id: reconciliationId } });
+  if (!r) return { processed: 0, done: true };
+  if (!r.rawRows) {
+    await prisma.reconciliation.update({
+      where: { id: reconciliationId },
+      data: { status: 'failed', errorSummary: 'No parsed rows to process — the upload may have been interrupted, log a new reconciliation instead' },
+    });
+    return { processed: 0, done: true };
+  }
+
+  const startCursor = r.rowsProcessed;
+
+  try {
+    const allRows: ReconciliationRow[] = JSON.parse(r.rawRows);
+    const type = r.type as 'full' | 'partial';
+    let cursor = r.rowsProcessed;
+    let updatedCount = r.updatedCount;
+    let totalUpdated = r.totalUpdated;
+    let unmatchedCount = r.unmatchedCount;
+    let pendingNewAccountRows: ReconciliationRow[] = r.pendingNewAccountRows ? JSON.parse(r.pendingNewAccountRows) : [];
+
+    while (cursor < allRows.length && Date.now() - started < timeBudgetMs) {
+      const batch = allRows.slice(cursor, cursor + BATCH_SIZE);
+
+      const loanRefs = [...new Set(batch.map((row) => row.loanRef).filter((v): v is string => !!v))];
+      const phones = [...new Set(batch.map((row) => row.phone).filter((v): v is string => !!v))];
+
+      const candidates = loanRefs.length > 0 || phones.length > 0
+        ? await prisma.debtor.findMany({
+            where: {
+              file: { clientId: r.clientId },
+              OR: [
+                ...(loanRefs.length > 0 ? [{ loanRef: { in: loanRefs } }] : []),
+                ...(phones.length > 0 ? [{ phone1: { in: phones } }, { phone2: { in: phones } }] : []),
+              ],
+            },
+          })
+        : [];
+
+      const byLoanRef = new Map(candidates.map((d) => [d.loanRef, d]));
+      const byPhone = new Map<string, (typeof candidates)[number]>();
+      for (const d of candidates) {
+        if (d.phone1 && !byPhone.has(d.phone1)) byPhone.set(d.phone1, d);
+        if (d.phone2 && !byPhone.has(d.phone2)) byPhone.set(d.phone2, d);
+      }
+
+      const debtorUpdates: ReturnType<typeof prisma.debtor.update>[] = [];
+      const entryCreates: ReturnType<typeof prisma.reconciliationEntry.create>[] = [];
+      // A duplicate loan ref/phone within one batch means the same debtor gets touched
+      // twice before the batch's transaction ever commits — track each debtor's
+      // running (not-yet-committed) cumulativePaid so the second occurrence builds on
+      // the first instead of both computing off the same stale, pre-batch value.
+      const runningCumulativePaid = new Map<string, number>();
+
+      for (const row of batch) {
+        const debtor = (row.loanRef && byLoanRef.get(row.loanRef)) || (row.phone && byPhone.get(row.phone)) || null;
+
+        if (!debtor) {
+          if (row.name && row.phone && row.amountOwed !== null) {
+            pendingNewAccountRows.push(row);
+          } else {
+            unmatchedCount++;
+          }
+          continue;
+        }
+
+        const alreadyTouched = runningCumulativePaid.has(debtor.id);
+        const currentCumulativePaid = runningCumulativePaid.get(debtor.id) ?? debtor.cumulativePaid;
+        const oldBalance = alreadyTouched ? Math.max(0, debtor.amountOwed - currentCumulativePaid) : debtor.balance;
+        const newCumulativePaid = type === 'full' ? row.amount : currentCumulativePaid + row.amount;
+        const newBalance = Math.max(0, debtor.amountOwed - newCumulativePaid);
+        const paidAmount = Math.max(0, newCumulativePaid - currentCumulativePaid);
+        runningCumulativePaid.set(debtor.id, newCumulativePaid);
+
+        debtorUpdates.push(
+          prisma.debtor.update({ where: { id: debtor.id }, data: { cumulativePaid: newCumulativePaid, balance: newBalance } })
+        );
+        entryCreates.push(
+          prisma.reconciliationEntry.create({ data: { reconciliationId, debtorId: debtor.id, oldBalance, newBalance, paidAmount } })
+        );
+
+        updatedCount++;
+        totalUpdated += paidAmount;
+      }
+
+      if (debtorUpdates.length > 0) {
+        await prisma.$transaction([...debtorUpdates, ...entryCreates]);
+      }
+
+      cursor += batch.length;
+
+      await prisma.reconciliation.update({
+        where: { id: reconciliationId },
+        data: {
+          rowsProcessed: cursor,
+          updatedCount,
+          totalUpdated,
+          unmatchedCount,
+          pendingNewAccountRows: JSON.stringify(pendingNewAccountRows),
+        },
+      });
+    }
+
+    const done = cursor >= allRows.length;
+    if (done) {
+      const newAccountsCount = pendingNewAccountRows.length > 0
+        ? await createAndDistributeNewAccounts(reconciliationId, r.clientId, pendingNewAccountRows, (paid) => { totalUpdated += paid; })
+        : 0;
+
+      const status: ProcessResult['status'] = updatedCount === 0 && newAccountsCount === 0 && allRows.length > 0 ? 'failed' : 'processed';
+      const errorSummary = unmatchedCount > 0
+        ? `${unmatchedCount} of ${allRows.length} record(s) could not be matched to a debtor or added as a new account (missing name/phone/amount owed).`
+        : null;
+
+      await prisma.reconciliation.update({
+        where: { id: reconciliationId },
+        data: { status, newAccountsCount, totalUpdated, errorSummary, processedAt: new Date(), pendingNewAccountRows: null },
+      });
+    }
+
+    return { processed: cursor - startCursor, done };
+  } catch (err) {
+    await prisma.reconciliation
+      .update({
+        where: { id: reconciliationId },
+        data: { status: 'failed', errorSummary: err instanceof Error ? err.message : 'Processing failed', processedAt: new Date() },
+      })
+      .catch(() => {});
+    return { processed: 0, done: true };
+  }
 }
 
 /**

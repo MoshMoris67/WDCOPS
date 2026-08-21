@@ -124,6 +124,7 @@ model Reconciliation {
   recordCount      Int
   updatedCount     Int       @default(0)
   newAccountsCount Int       @default(0)
+  unmatchedCount   Int       @default(0)
   totalUpdated     Float     @default(0)
   notes        String?
   errorSummary String?
@@ -138,6 +139,14 @@ model Reconciliation {
   rawFileName  String?
   mapping      String?
   rawRows      String?
+  // Processing (matching rawRows against debtors) is chunked and resumable across ticks,
+  // same idea as File.rowsProcessed — rowsProcessed is the cursor into rawRows,
+  // updatedCount/newAccountsCount/unmatchedCount/totalUpdated accumulate across chunks.
+  // A row that doesn't match an existing debtor but carries enough info to become a new
+  // account is held in pendingNewAccountRows (JSON) until the last chunk, rather than
+  // creating its own "new accounts" File once per chunk.
+  rowsProcessed         Int     @default(0)
+  pendingNewAccountRows String?
   status       String    @default("pending") // pending | processed | failed
   branch       String    @default("uganda")
   createdAt    DateTime  @default(now())

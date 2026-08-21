@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { processFileImportTick } from '@/lib/file-import';
-import { processReconciliation, parseReconciliationUpload } from '@/lib/reconciliation';
-import type { ReconciliationRow } from '@/lib/excel';
+import { processReconciliationTick, parseReconciliationUpload } from '@/lib/reconciliation';
 
 // Soft time budget for the insert loop specifically — comfortably inside any reasonable
 // request timeout on the host, regardless of file size; a 77,000-row file just takes
@@ -22,15 +21,13 @@ const TIME_BUDGET_MS = 20000;
  * bounded chunk at a time instead. No user session exists here to check, so this is
  * gated by a shared secret instead of requireRole().
  *
- * File imports are chunked and resumable across ticks (see processFileImportTick) since
- * that's the actual reported failure — a single tick just picks up wherever the last one
- * left off. Reconciliation processing is NOT chunked (see src/lib/reconciliation.ts) —
- * still a real gap for a genuinely huge reconciliation file, flagged when this was built
- * and not solved here; the file-import path is what was actually failing in practice.
- * Parsing a reconciliation's upload (parseReconciliationUpload), unlike processing it, is
- * a separate tick turn of its own for the same reason file-import parsing is: it can be
- * slow enough on its own that stacking it with processing in the same request risks the
- * exact same hang, just moved from the browser into this endpoint instead.
+ * File imports (processFileImportTick) and reconciliation processing (processReconciliationTick)
+ * are both chunked and resumable across ticks — a single tick just picks up wherever the
+ * last one left off, for either. Parsing a reconciliation's upload
+ * (parseReconciliationUpload), unlike processing it, is always its own tick turn rather
+ * than being chained into the same call as processing: parsing can't itself be
+ * interrupted and resumed partway through (see that function's comment), so keeping it
+ * separate means one tick never has two unbounded steps stacked into a single request.
  */
 export async function POST(req: Request) {
   const auth = req.headers.get('authorization');
@@ -62,32 +59,11 @@ export async function POST(req: Request) {
   const recon = await prisma.reconciliation.findFirst({
     where: { status: 'pending', rawRows: { not: null } },
     orderBy: { createdAt: 'asc' },
+    select: { id: true },
   });
-  if (recon && recon.rawRows) {
-    const rows: ReconciliationRow[] = JSON.parse(recon.rawRows);
-    try {
-      const result = await processReconciliation(recon.id, recon.clientId, recon.type as 'full' | 'partial', rows);
-      await prisma.reconciliation.update({
-        where: { id: recon.id },
-        data: {
-          status: result.status,
-          updatedCount: result.updatedCount,
-          newAccountsCount: result.newAccountsCount,
-          totalUpdated: result.totalUpdated,
-          errorSummary: result.errorSummary,
-          processedAt: new Date(),
-        },
-      });
-      return NextResponse.json({ ranReconciliation: { id: recon.id, status: result.status, updatedCount: result.updatedCount } });
-    } catch (err) {
-      await prisma.reconciliation
-        .update({
-          where: { id: recon.id },
-          data: { status: 'failed', errorSummary: err instanceof Error ? err.message : 'Processing failed', processedAt: new Date() },
-        })
-        .catch(() => {});
-      return NextResponse.json({ ranReconciliation: { id: recon.id, status: 'failed' } });
-    }
+  if (recon) {
+    const result = await processReconciliationTick(recon.id, TIME_BUDGET_MS);
+    return NextResponse.json({ ranReconciliation: { id: recon.id, ...result } });
   }
 
   return NextResponse.json({ idle: true });
