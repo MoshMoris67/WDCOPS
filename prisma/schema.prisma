@@ -65,6 +65,11 @@ model File {
   // duplicate parse of the same file. Stale (older than a few minutes, meaning the
   // process likely restarted mid-parse) is treated as abandoned and reclaimable.
   parsingStartedAt DateTime?
+  // Counts each claim attempt (not each tick — only when a tick actually starts running
+  // this file). A file too large for available memory crashes the exact same way every
+  // time it's retried, so past a small limit the tick gives up and marks it 'failed'
+  // instead of quietly re-crashing the instance on a fixed retry cadence forever.
+  importAttempts   Int     @default(0)
 
   debtors         Debtor[]
   reconciliations Reconciliation[]

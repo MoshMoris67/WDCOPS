@@ -8,7 +8,10 @@ import { requireRole, isSessionPayload } from '@/lib/rbac';
  *  is exactly the kind of work that must never run inside a request. Leaves rowsProcessed
  *  untouched deliberately — runFileImport (lib/file-import.ts) checks it on its own to
  *  decide whether a prior attempt left partial debtors behind that need clearing before
- *  it streams the file again from scratch. */
+ *  it streams the file again from scratch. Does reset importAttempts to 0 though — the
+ *  automatic-retry cap (see api/worker/tick/route.ts) exists to stop the tick quietly
+ *  re-crashing the instance forever on a file that's genuinely too large, not to permanently
+ *  block an admin who's deliberately asking for one more try. */
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireRole(['admin']);
   if (!isSessionPayload(session)) return session;
@@ -27,7 +30,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: 'Already in progress' }, { status: 400 });
   }
 
-  await prisma.file.update({ where: { id }, data: { importStatus: 'queued', importError: null } });
+  await prisma.file.update({ where: { id }, data: { importStatus: 'queued', importError: null, importAttempts: 0, parsingStartedAt: null } });
 
   return NextResponse.json({ file: { id, importStatus: 'queued' } });
 }

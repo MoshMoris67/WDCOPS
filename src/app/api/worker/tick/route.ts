@@ -15,6 +15,11 @@ const TIME_BUDGET_MS = 20000;
 // to wait too long before retrying than to have two ticks working the same one at once.
 const STALE_CLAIM_MS = 10 * 60 * 1000;
 
+// A file too large for available memory fails the exact same way every time it's retried
+// — past this many attempts, stop retrying and mark it 'failed' outright instead of
+// quietly re-crashing the instance on a fixed cadence forever.
+const MAX_FILE_IMPORT_ATTEMPTS = 3;
+
 /**
  * Called on a schedule by an external cron (see .github/workflows/worker-tick.yml), not
  * by anything in the app itself — Render's free web service has no background-worker
@@ -54,36 +59,59 @@ export async function POST(req: Request) {
   }
 
   const staleBefore = new Date(Date.now() - STALE_CLAIM_MS);
+  const claimable = { OR: [{ parsingStartedAt: null }, { parsingStartedAt: { lt: staleBefore } }] };
 
+  // Filtering for claimability *in the same query* that picks which file/reconciliation
+  // to work on — not just in the claim step after — matters: picking strictly "oldest
+  // queued" and only then checking whether it can be claimed means a file that's stuck
+  // claimed (a crash that never cleared parsingStartedAt — an out-of-memory kill isn't a
+  // catchable JS error, so runFileImport's own try/catch never runs) head-of-line-blocks
+  // every smaller file behind it in the queue for the entire STALE_CLAIM_MS window, tick
+  // after tick, even though those smaller ones are perfectly claimable right now.
+  // Confirmed happening in production: a large file OOM-crashed mid-run, and small files
+  // uploaded afterward sat at "Importing..." untouched because this handler kept picking
+  // the stuck large one first and giving up rather than trying the next.
   const file = await prisma.file.findFirst({
-    where: { importStatus: { in: ['queued', 'processing'] } },
+    where: { importStatus: { in: ['queued', 'processing'] }, ...claimable },
     orderBy: { createdAt: 'asc' },
-    select: { id: true },
+    select: { id: true, importAttempts: true },
   });
   if (file) {
+    if (file.importAttempts >= MAX_FILE_IMPORT_ATTEMPTS) {
+      await prisma.file.update({
+        where: { id: file.id },
+        data: {
+          importStatus: 'failed',
+          importError: `Failed after ${MAX_FILE_IMPORT_ATTEMPTS} attempts, most likely too large to fit in this host's available memory. Try splitting it into smaller files, or ask about more memory for this app.`,
+          parsingStartedAt: null,
+        },
+      });
+      return NextResponse.json({ gaveUpOnFile: file.id });
+    }
     const claim = await prisma.file.updateMany({
-      where: { id: file.id, importStatus: { in: ['queued', 'processing'] }, OR: [{ parsingStartedAt: null }, { parsingStartedAt: { lt: staleBefore } }] },
-      data: { parsingStartedAt: new Date() },
+      where: { id: file.id, importStatus: { in: ['queued', 'processing'] }, ...claimable },
+      data: { parsingStartedAt: new Date(), importAttempts: { increment: 1 } },
     });
     if (claim.count === 0) {
-      return NextResponse.json({ idle: true, note: 'a file import is already in progress' });
+      // Another tick claimed it in the gap between our find and our claim — rare, harmless.
+      return NextResponse.json({ idle: true, note: 'race — another tick just claimed this file' });
     }
     after(runFileImport(file.id).catch(() => {}));
     return NextResponse.json({ startedImportingFile: file.id });
   }
 
   const unparsedRecon = await prisma.reconciliation.findFirst({
-    where: { status: 'pending', rawRows: null, rawFile: { not: null } },
+    where: { status: 'pending', rawRows: null, rawFile: { not: null }, ...claimable },
     orderBy: { createdAt: 'asc' },
     select: { id: true },
   });
   if (unparsedRecon) {
     const claim = await prisma.reconciliation.updateMany({
-      where: { id: unparsedRecon.id, rawRows: null, OR: [{ parsingStartedAt: null }, { parsingStartedAt: { lt: staleBefore } }] },
+      where: { id: unparsedRecon.id, rawRows: null, ...claimable },
       data: { parsingStartedAt: new Date() },
     });
     if (claim.count === 0) {
-      return NextResponse.json({ idle: true, note: 'a reconciliation parse is already in progress' });
+      return NextResponse.json({ idle: true, note: 'race — another tick just claimed this reconciliation' });
     }
     after(parseReconciliationUpload(unparsedRecon.id).then(() => {}).catch(() => {}));
     return NextResponse.json({ startedParsingReconciliation: unparsedRecon.id });
