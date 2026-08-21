@@ -180,6 +180,7 @@ export default function FileManagementContent() {
   const [isDistributing, setIsDistributing] = useState(false);
   const [rebalanceAgentId, setRebalanceAgentId] = useState('');
   const [isRebalancing, setIsRebalancing] = useState(false);
+  const [isReassigning, setIsReassigning] = useState(false);
   const [isMidMonth, setIsMidMonth] = useState(false);
   const [selectedUploadFile, setSelectedUploadFile] = useState<globalThis.File | null>(null);
   const [preview, setPreview] = useState<FilePreview | null>(null);
@@ -356,6 +357,32 @@ export default function FileManagementContent() {
       toast.error('Could not reach the server — try again');
     } finally {
       setIsRebalancing(false);
+    }
+  }
+
+  async function runReassign(fileId: string) {
+    if (selectedAgentIds.length === 0) {
+      toast.error('Select at least one agent to reassign to');
+      return;
+    }
+    setIsReassigning(true);
+    try {
+      const res = await fetch(`/api/files/${fileId}/reassign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentIds: selectedAgentIds }),
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        toast.error(payload.error || 'Reassignment failed');
+        return;
+      }
+      refetchFiles();
+      toast.success(`${payload.movedCount} debtor(s) moved, ${payload.keptCount} left with their current agent`);
+    } catch {
+      toast.error('Could not reach the server — try again');
+    } finally {
+      setIsReassigning(false);
     }
   }
 
@@ -862,6 +889,57 @@ export default function FileManagementContent() {
                       {isRebalancing ? 'Adding…' : 'Add'}
                     </button>
                   </div>
+                </div>
+              )}
+
+              {selectedFile.status === 'recalled' && (
+                <div className="p-4 border-t border-border space-y-3">
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">Reassign this file</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Pick the new roster of agents for this file. Anyone staying on the list keeps what
+                      they already have; everyone else&apos;s debtors are split across the new roster by
+                      balance range, same as a fresh distribution.
+                    </p>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-xs font-semibold text-foreground">New agent roster</p>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => setSelectedAgentIds(agents.map((a) => a.id))} className="text-xs text-primary hover:underline">All</button>
+                        <button onClick={() => setSelectedAgentIds([])} className="text-xs text-muted-foreground hover:underline">None</button>
+                      </div>
+                    </div>
+                    <div className="max-h-40 overflow-y-auto scrollbar-thin border border-border rounded-lg divide-y divide-border">
+                      {agents.map((agent) => (
+                        <label key={agent.id} className="flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer hover:bg-secondary/40 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={selectedAgentIds.includes(agent.id)}
+                            onChange={() => toggleAgent(agent.id)}
+                            className="accent-primary"
+                          />
+                          <span className="flex-1 text-foreground truncate">{agent.name}</span>
+                          {agent.role === 'admin' && (
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-info bg-[var(--info-bg)] px-1.5 py-0.5 rounded-full">Admin</span>
+                          )}
+                        </label>
+                      ))}
+                      {agents.length === 0 && (
+                        <p className="px-3 py-3 text-xs text-muted-foreground text-center">No active agents yet — add one under Admin → Users.</p>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">{selectedAgentIds.length} of {agents.length} agents selected</p>
+                  </div>
+                  <button
+                    onClick={() => runReassign(selectedFile.id)}
+                    disabled={isReassigning || selectedAgentIds.length === 0 || offlineBlocked}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60"
+                  >
+                    <Users size={15} />
+                    {isReassigning ? 'Reassigning…' : 'Reassign File'}
+                  </button>
+                  <p className="text-xs text-muted-foreground text-center">Reactivate the file (Recall button) once you&apos;re done to let agents see it again</p>
                 </div>
               )}
             </div>
