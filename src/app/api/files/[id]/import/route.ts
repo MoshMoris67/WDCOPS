@@ -3,13 +3,12 @@ import { prisma } from '@/lib/db';
 import { requireRole, isSessionPayload } from '@/lib/rbac';
 
 /** Manual retry for a failed import — mirrors POST /api/reconciliations/[id]/process.
- *  Re-queues the already-stored upload (raw bytes if it failed before parsing, already-
- *  parsed rows in File.rawRows if it failed during insert — either way, no re-upload
- *  needed) for the next scheduled worker tick to pick up, rather than processing inline:
- *  a large import is exactly the kind of work that must never run inside a request.
- *  Deliberately leaves rowsProcessed untouched — a failure partway through insertion
- *  already has some rows safely inserted, and resuming from there (not restarting at 0)
- *  is what avoids reinserting them. */
+ *  Re-queues the already-stored raw upload (File.rawFile — no re-upload needed) for the
+ *  next scheduled worker tick to pick up, rather than processing inline: a large import
+ *  is exactly the kind of work that must never run inside a request. Leaves rowsProcessed
+ *  untouched deliberately — runFileImport (lib/file-import.ts) checks it on its own to
+ *  decide whether a prior attempt left partial debtors behind that need clearing before
+ *  it streams the file again from scratch. */
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireRole(['admin']);
   if (!isSessionPayload(session)) return session;
@@ -18,7 +17,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
   const file = await prisma.file.findUnique({ where: { id } });
   if (!file) return NextResponse.json({ error: 'File not found' }, { status: 404 });
-  if (!file.rawRows && !file.rawFile) {
+  if (!file.rawFile) {
     return NextResponse.json({ error: 'No stored data to reimport — re-upload the file instead' }, { status: 400 });
   }
   if (file.importStatus === 'complete') {

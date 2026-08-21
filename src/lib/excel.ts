@@ -385,7 +385,7 @@ function nameFromMapping(row: string[], mapping: ImportMapping): string {
   return parts.join(' ');
 }
 
-function requiredMappingError(mapping: ImportMapping): string | null {
+export function requiredMappingError(mapping: ImportMapping): string | null {
   const hasName = mapping.nameCol !== undefined || mapping.firstNameCol !== undefined || mapping.lastNameCol !== undefined;
   const missing: string[] = [];
   if (!hasName) missing.push('Name');
@@ -393,6 +393,36 @@ function requiredMappingError(mapping: ImportMapping): string | null {
   if (mapping.loanRefCol === undefined) missing.push('Loan Ref');
   if (mapping.amountOwedCol === undefined) missing.push('Amount Owed');
   return missing.length > 0 ? `Missing column(s) for: ${missing.join(', ')}.` : null;
+}
+
+export type MappedRow = { kind: 'row'; row: ImportRow } | { kind: 'blank' } | { kind: 'error'; message: string };
+
+/** One row's worth of parseImportRows' logic, pulled out so the streaming importer
+ * (lib/file-import.ts) can apply the exact same rules one row at a time without ever
+ * materializing the whole table into an ImportRow[] — see that file for why. */
+export function mapImportRow(row: string[], mapping: ImportMapping, rowNumber: number): MappedRow {
+  const name = nameFromMapping(row, mapping);
+  const phone1 = cellText(row, mapping.phone1Col);
+  const loanRef = cellText(row, mapping.loanRefCol);
+  const amountOwed = cellNumber(row, mapping.amountOwedCol);
+  if (!name && !phone1 && !loanRef) return { kind: 'blank' };
+
+  if (!name || !phone1 || !loanRef || amountOwed === null) {
+    return { kind: 'error', message: `Row ${rowNumber}: missing or invalid name/phone/loan ref/amount owed — skipped` };
+  }
+  const balance = mapping.balanceCol !== undefined ? cellNumber(row, mapping.balanceCol) : null;
+  return {
+    kind: 'row',
+    row: {
+      rowNumber,
+      name,
+      phone1,
+      phone2: mapping.phone2Col !== undefined ? cellText(row, mapping.phone2Col) || null : null,
+      loanRef,
+      amountOwed,
+      balance,
+    },
+  };
 }
 
 /**
@@ -408,28 +438,10 @@ export function parseImportRows(table: string[][], mapping: ImportMapping): Pars
   const errors: string[] = [];
   const rows: ImportRow[] = [];
   for (let i = 1; i < table.length; i++) {
-    const row = table[i];
-    const rowNumber = i + 1; // spreadsheet-style: row 1 is the header
-    const name = nameFromMapping(row, mapping);
-    const phone1 = cellText(row, mapping.phone1Col);
-    const loanRef = cellText(row, mapping.loanRefCol);
-    const amountOwed = cellNumber(row, mapping.amountOwedCol);
-    if (!name && !phone1 && !loanRef) continue; // blank row
-
-    if (!name || !phone1 || !loanRef || amountOwed === null) {
-      errors.push(`Row ${rowNumber}: missing or invalid name/phone/loan ref/amount owed — skipped`);
-      continue;
-    }
-    const balance = mapping.balanceCol !== undefined ? cellNumber(row, mapping.balanceCol) : null;
-    rows.push({
-      rowNumber,
-      name,
-      phone1,
-      phone2: mapping.phone2Col !== undefined ? cellText(row, mapping.phone2Col) || null : null,
-      loanRef,
-      amountOwed,
-      balance,
-    });
+    const mapped = mapImportRow(table[i], mapping, i + 1);
+    if (mapped.kind === 'blank') continue;
+    if (mapped.kind === 'error') { errors.push(mapped.message); continue; }
+    rows.push(mapped.row);
   }
 
   return { rows, errors };

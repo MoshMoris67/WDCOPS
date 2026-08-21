@@ -1,51 +1,50 @@
 import { NextResponse, after } from 'next/server';
 import { prisma } from '@/lib/db';
-import { processFileImportTick } from '@/lib/file-import';
+import { runFileImport } from '@/lib/file-import';
 import { processReconciliationTick, parseReconciliationUpload } from '@/lib/reconciliation';
 
-// Soft time budget for the insert/matching loops specifically — comfortably inside any
-// reasonable request timeout on the host, regardless of file size; a 77,000-row file just
-// takes several ticks instead of one. Doesn't bound the parse steps below at all — see
-// the claim-and-detach comment on that section for why.
+// Soft time budget for reconciliation's matching loop specifically — comfortably inside
+// any reasonable request timeout on the host. File import no longer needs a budget here:
+// it streams the whole file in one continuous after()-scheduled pass (see runFileImport),
+// not resumable ticks.
 const TIME_BUDGET_MS = 20000;
 
-// A claimed-but-unfinished parse older than this is treated as abandoned (the process
-// that claimed it most likely restarted mid-parse — a redeploy, a crash) and can be
-// re-claimed by the next tick. Generous on purpose: better to wait too long before
-// retrying than to have two ticks parsing the same file at once.
+// A claimed-but-unfinished import/parse older than this is treated as abandoned (the
+// process that claimed it most likely restarted mid-run — a redeploy, a crash, an
+// out-of-memory kill) and can be re-claimed by the next tick. Generous on purpose: better
+// to wait too long before retrying than to have two ticks working the same one at once.
 const STALE_CLAIM_MS = 10 * 60 * 1000;
 
 /**
  * Called on a schedule by an external cron (see .github/workflows/worker-tick.yml), not
  * by anything in the app itself — Render's free web service has no background-worker
- * tier, so this does the work that used to run in a separate always-on process, one
- * bounded chunk at a time instead. No user session exists here to check, so this is
- * gated by a shared secret instead of requireRole().
+ * tier, so this does the work that used to run in a separate always-on process instead.
+ * No user session exists here to check, so this is gated by a shared secret instead of
+ * requireRole().
  *
- * File imports (processFileImportTick) and reconciliation processing (processReconciliationTick)
- * are both chunked and resumable across ticks, budget-bounded, and safe to await directly
- * — a single tick just picks up wherever the last one left off.
+ * File import (runFileImport) streams the whole file — parse and insert together, row by
+ * row — in one continuous pass, so there's nothing to await here beyond claiming it (see
+ * that function's comment for why: a materialized rawRows array plus its JSON-stringified
+ * copy is what crashed the Render instance with an out-of-memory kill on a 77,000-row
+ * file). Reconciliation processing (processReconciliationTick) is chunked and
+ * budget-bounded and safe to await directly — a single tick just picks up wherever the
+ * last one left off. Reconciliation *parsing* (parseReconciliationUpload) still can't be
+ * split into bounded chunks, so like file import it's handed off rather than awaited.
  *
- * Parsing (processFileImportTick's own first-tick step, and parseReconciliationUpload) is
- * different: it can't be split into bounded chunks (no cheap way to resume a spreadsheet
- * parse partway through — confirmed by direct timing), so it has to run to completion in
- * one go. That's a problem if awaited here: a parse slow enough on this host's CPU can
- * outlast Render's own inbound request timeout, and Render kills the connection out from
- * under it — confirmed happening in production (a stuck 'queued' file, the workflow log
- * showing a 502 after 2+ minutes).
+ * Either way, the handoff has to go through Next's after(), not a bare unawaited promise:
+ * a plain "fire and forget" (call it, .catch() it, don't await it) is NOT guaranteed to
+ * keep running once a Route Handler's response is sent — Next.js makes no promise about
+ * that, which is exactly why after() exists. Confirmed this was a real gap here, not just
+ * theoretical: an earlier version of this handler used bare fire-and-forget and ticks kept
+ * reporting success while the actual background work never completed. after() does keep
+ * running it, on every deployment target including a self-hosted `next start`.
  *
- * The fix is to never await it as part of this response: atomically claim the
- * file/reconciliation first (so a second tick firing while this is still running doesn't
- * launch a duplicate parse of the same one), then hand the parse to Next's after() — not
- * a bare unawaited promise. A plain "fire and forget" (call it, .catch() it, don't await
- * it) is NOT guaranteed to keep running once a Route Handler's response is sent; Next.js
- * makes no promise about that, which is exactly why after() exists — confirmed this was
- * the actual gap: ticks were succeeding fast (the claim + kickoff), but the background
- * work never completed, because nothing here told Next.js the request wasn't really over
- * yet. after() does, on every deployment target including a self-hosted `next start`. A
- * crash mid-parse (redeploy) just leaves it claimed until STALE_CLAIM_MS passes, then the
- * next tick retries it from scratch (parsing was never partially applied — it writes
- * rawRows in one shot at the end, not incrementally).
+ * Claiming first (a parsingStartedAt timestamp, guarded so two ticks can't claim the same
+ * one at once) matters doubly here since crashes are now an expected, recoverable case
+ * rather than a rare edge: a claimed-but-never-finished file/reconciliation just sits
+ * until STALE_CLAIM_MS passes, then the next tick retries it — from scratch for a file
+ * (streaming means there's no cursor to resume into; runFileImport deletes any partial
+ * debtors a crashed attempt already inserted before restarting).
  */
 export async function POST(req: Request) {
   const auth = req.headers.get('authorization');
@@ -59,22 +58,18 @@ export async function POST(req: Request) {
   const file = await prisma.file.findFirst({
     where: { importStatus: { in: ['queued', 'processing'] } },
     orderBy: { createdAt: 'asc' },
-    select: { id: true, rawRows: true },
+    select: { id: true },
   });
   if (file) {
-    if (!file.rawRows) {
-      const claim = await prisma.file.updateMany({
-        where: { id: file.id, rawRows: null, OR: [{ parsingStartedAt: null }, { parsingStartedAt: { lt: staleBefore } }] },
-        data: { parsingStartedAt: new Date() },
-      });
-      if (claim.count === 0) {
-        return NextResponse.json({ idle: true, note: 'a file parse is already in progress' });
-      }
-      after(processFileImportTick(file.id, TIME_BUDGET_MS).then(() => {}).catch(() => {}));
-      return NextResponse.json({ startedParsingFile: file.id });
+    const claim = await prisma.file.updateMany({
+      where: { id: file.id, importStatus: { in: ['queued', 'processing'] }, OR: [{ parsingStartedAt: null }, { parsingStartedAt: { lt: staleBefore } }] },
+      data: { parsingStartedAt: new Date() },
+    });
+    if (claim.count === 0) {
+      return NextResponse.json({ idle: true, note: 'a file import is already in progress' });
     }
-    const result = await processFileImportTick(file.id, TIME_BUDGET_MS);
-    return NextResponse.json({ ranFile: result });
+    after(runFileImport(file.id).catch(() => {}));
+    return NextResponse.json({ startedImportingFile: file.id });
   }
 
   const unparsedRecon = await prisma.reconciliation.findFirst({
