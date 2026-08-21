@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { prisma } from '@/lib/db';
 import { processFileImportTick } from '@/lib/file-import';
 import { processReconciliationTick, parseReconciliationUpload } from '@/lib/reconciliation';
@@ -32,14 +32,20 @@ const STALE_CLAIM_MS = 10 * 60 * 1000;
  * one go. That's a problem if awaited here: a parse slow enough on this host's CPU can
  * outlast Render's own inbound request timeout, and Render kills the connection out from
  * under it — confirmed happening in production (a stuck 'queued' file, the workflow log
- * showing a 502 after 2+ minutes). The fix is to never await it from this handler at all:
- * atomically claim the file/reconciliation (so a second tick firing while this is still
- * running doesn't launch a duplicate parse of the same one), kick the parse off without
- * awaiting it, and return immediately. Node keeps running it against this same long-lived
- * process after the response has gone out — no request-level timeout applies to work that
- * isn't part of a request. A crash mid-parse just leaves it claimed until STALE_CLAIM_MS
- * passes, then the next tick retries it from scratch (parsing was never partially applied
- * — it writes rawRows in one shot at the end, not incrementally).
+ * showing a 502 after 2+ minutes).
+ *
+ * The fix is to never await it as part of this response: atomically claim the
+ * file/reconciliation first (so a second tick firing while this is still running doesn't
+ * launch a duplicate parse of the same one), then hand the parse to Next's after() — not
+ * a bare unawaited promise. A plain "fire and forget" (call it, .catch() it, don't await
+ * it) is NOT guaranteed to keep running once a Route Handler's response is sent; Next.js
+ * makes no promise about that, which is exactly why after() exists — confirmed this was
+ * the actual gap: ticks were succeeding fast (the claim + kickoff), but the background
+ * work never completed, because nothing here told Next.js the request wasn't really over
+ * yet. after() does, on every deployment target including a self-hosted `next start`. A
+ * crash mid-parse (redeploy) just leaves it claimed until STALE_CLAIM_MS passes, then the
+ * next tick retries it from scratch (parsing was never partially applied — it writes
+ * rawRows in one shot at the end, not incrementally).
  */
 export async function POST(req: Request) {
   const auth = req.headers.get('authorization');
@@ -64,7 +70,7 @@ export async function POST(req: Request) {
       if (claim.count === 0) {
         return NextResponse.json({ idle: true, note: 'a file parse is already in progress' });
       }
-      processFileImportTick(file.id, TIME_BUDGET_MS).catch(() => {});
+      after(processFileImportTick(file.id, TIME_BUDGET_MS).then(() => {}).catch(() => {}));
       return NextResponse.json({ startedParsingFile: file.id });
     }
     const result = await processFileImportTick(file.id, TIME_BUDGET_MS);
@@ -84,7 +90,7 @@ export async function POST(req: Request) {
     if (claim.count === 0) {
       return NextResponse.json({ idle: true, note: 'a reconciliation parse is already in progress' });
     }
-    parseReconciliationUpload(unparsedRecon.id).catch(() => {});
+    after(parseReconciliationUpload(unparsedRecon.id).then(() => {}).catch(() => {}));
     return NextResponse.json({ startedParsingReconciliation: unparsedRecon.id });
   }
 

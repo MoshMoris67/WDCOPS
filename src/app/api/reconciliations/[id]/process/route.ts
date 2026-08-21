@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireRole, isSessionPayload } from '@/lib/rbac';
 import { processReconciliationTick, parseReconciliationUpload } from '@/lib/reconciliation';
@@ -23,10 +23,12 @@ const STALE_CLAIM_MS = 10 * 60 * 1000;
  * request goes through the exact same Render proxy the cron tick does — a slow enough
  * parse can outlast that proxy's own timeout and get this request killed before it ever
  * responds (confirmed happening to the cron tick in production; the browser click would
- * fail the identical way). So when parsing is still needed, this claims it (same
- * atomic claim as the tick, so both can't parse it at once) and kicks it off
- * fire-and-forget, returning immediately with "still parsing" instead of trying to wait
- * it out.
+ * fail the identical way). So when parsing is still needed, this claims it (same atomic
+ * claim as the tick, so both can't parse it at once) and hands it to Next's after() —
+ * not a bare unawaited promise, which Next.js doesn't guarantee keeps running once this
+ * response is sent (see api/worker/tick/route.ts's comment; this was the actual gap that
+ * left files/reconciliations stuck at 0 progress even though ticks kept "succeeding") —
+ * then returns immediately with "still parsing" instead of trying to wait it out.
  */
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireRole(['admin']);
@@ -49,7 +51,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       data: { parsingStartedAt: new Date() },
     });
     if (claim.count > 0) {
-      parseReconciliationUpload(id).catch(() => {});
+      after(parseReconciliationUpload(id).then(() => {}).catch(() => {}));
     }
     return NextResponse.json({
       reconciliation: { id, status: 'pending', updatedCount: 0, newAccountsCount: 0 },
