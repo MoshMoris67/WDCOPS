@@ -95,6 +95,54 @@ export async function processReconciliation(
   return { updatedCount, totalUpdated, unmatchedCount, newAccountsCount, status, errorSummary };
 }
 
+/**
+ * Deletes a reconciliation and reverses the balance changes it made — see
+ * api/reconciliations/[id]/route.ts's DELETE handler for the full reasoning. The reversal
+ * is exact and order-independent: ReconciliationEntry.paidAmount is always the increment
+ * that reconciliation applied to cumulativePaid (true for both partial rows, incremental
+ * by definition, and full rows, where processReconciliation above already reduces the
+ * absolute figure to a delta before storing it), so subtracting it back out and
+ * recomputing balance from the result restores exactly what changed — even if another
+ * reconciliation has touched the same debtor since. Never deletes a debtor this
+ * reconciliation created as a new account; only reverses its recorded starting payment.
+ */
+export async function reverseAndDeleteReconciliation(reconciliationId: string): Promise<{ reversedCount: number }> {
+  const entries = await prisma.reconciliationEntry.findMany({
+    where: { reconciliationId },
+    select: { debtorId: true, paidAmount: true },
+  });
+
+  if (entries.length === 0) {
+    await prisma.reconciliation.delete({ where: { id: reconciliationId } });
+    return { reversedCount: 0 };
+  }
+
+  const reduceByDebtor = new Map<string, number>();
+  for (const e of entries) {
+    reduceByDebtor.set(e.debtorId, (reduceByDebtor.get(e.debtorId) ?? 0) + e.paidAmount);
+  }
+
+  const debtors = await prisma.debtor.findMany({
+    where: { id: { in: [...reduceByDebtor.keys()] } },
+    select: { id: true, cumulativePaid: true, amountOwed: true },
+  });
+
+  const updates = debtors.map((d) => {
+    const reduceBy = reduceByDebtor.get(d.id) ?? 0;
+    const newCumulativePaid = Math.max(0, d.cumulativePaid - reduceBy);
+    const newBalance = Math.max(0, d.amountOwed - newCumulativePaid);
+    return prisma.debtor.update({ where: { id: d.id }, data: { cumulativePaid: newCumulativePaid, balance: newBalance } });
+  });
+
+  await prisma.$transaction([
+    ...updates,
+    prisma.reconciliationEntry.deleteMany({ where: { reconciliationId } }),
+    prisma.reconciliation.delete({ where: { id: reconciliationId } }),
+  ]);
+
+  return { reversedCount: debtors.length };
+}
+
 async function createAndDistributeNewAccounts(
   reconciliationId: string,
   clientId: string,

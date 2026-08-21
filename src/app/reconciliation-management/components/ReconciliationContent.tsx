@@ -392,7 +392,13 @@ export default function ReconciliationContent() {
   }
 
   async function deleteRecon(r: ReconRow) {
-    if (!window.confirm(`Delete this reconciliation for ${r.client} (${r.batchLabel ?? 'no batch'})? This only works if it hasn't updated any debtor balances yet.`)) return;
+    const balanceNote = r.updatedCount > 0
+      ? ` This reverses the balance/amount-paid changes it made to ${r.updatedCount} debtor(s).`
+      : '';
+    const newAccountsNote = r.newAccountsCount > 0
+      ? ` The ${r.newAccountsCount} new account(s) it added stay — only their recorded starting payment is reversed.`
+      : '';
+    if (!window.confirm(`Permanently delete this reconciliation for ${r.client} (${r.batchLabel ?? 'no batch'})?${balanceNote}${newAccountsNote} There is no undo.`)) return;
     const res = await fetch(`/api/reconciliations/${r.id}`, { method: 'DELETE' });
     const payload = await res.json();
     if (!res.ok) {
@@ -654,16 +660,14 @@ export default function ReconciliationContent() {
                     >
                       <Pencil size={14} />
                     </button>
-                    {selectedRecon.updatedCount === 0 && selectedRecon.newAccountsCount === 0 && (
-                      <button
-                        onClick={() => deleteRecon(selectedRecon)}
-                        disabled={offlineBlocked}
-                        title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'}
-                        className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
+                    <button
+                      onClick={() => deleteRecon(selectedRecon)}
+                      disabled={offlineBlocked}
+                      title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete (reverses any balance changes it made)'}
+                      className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
                 {selectedRecon.notes && (

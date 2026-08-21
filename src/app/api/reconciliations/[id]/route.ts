@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { requireRole, isSessionPayload } from '@/lib/rbac';
+import { reverseAndDeleteReconciliation } from '@/lib/reconciliation';
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
@@ -64,16 +65,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   return NextResponse.json({ reconciliation: { id: updated.id, notes: updated.notes, receivedAt: updated.receivedAt } });
 }
 
-/** Only ever allowed before a reconciliation has actually changed any debtor's balance.
- *  Deliberately checks updatedCount/newAccountsCount, not status — rows are processed
- *  one at a time, each in its own small transaction, so a run that crashed partway
- *  through a large file can be status: 'failed' while having already updated hundreds of
- *  debtors before it died. ReconciliationEntry records each debtor's balance before/after
- *  but not their cumulativePaid before/after, so a 'full'-type run's effect can't always
- *  be reversed exactly, and deleting it would both erase the only record of what happened
- *  and orphan those entries (nothing here overrides the relation's default RESTRICT).
- *  Matches the existing precedent in api/files/[id]/route.ts, which already never deletes
- *  a reconciliation even when the file it's tied to is removed — it just unlinks it. */
+/**
+ * Deletes a reconciliation and reverses the balance changes it made — an admin-only,
+ * no-undo action (mirrors the same explicit choice already made for file deletion in
+ * api/files/[id]/route.ts: "delete it and its data" means the effect goes away too, not
+ * just the record). See lib/reconciliation.ts's reverseAndDeleteReconciliation for how
+ * the reversal itself works and why it's exact even if other reconciliations have since
+ * touched the same debtors, and why new accounts it created are never deleted.
+ */
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireRole(['admin']);
   if (!isSessionPayload(session)) return session;
@@ -82,13 +81,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   const r = await prisma.reconciliation.findUnique({ where: { id } });
   if (!r) return NextResponse.json({ error: 'Reconciliation not found' }, { status: 404 });
 
-  if (r.updatedCount > 0 || r.newAccountsCount > 0) {
-    return NextResponse.json(
-      { error: 'This reconciliation already updated debtor balances — it stays as a permanent audit record and cannot be deleted.' },
-      { status: 400 }
-    );
-  }
-
-  await prisma.reconciliation.delete({ where: { id } });
-  return NextResponse.json({ ok: true });
+  const { reversedCount } = await reverseAndDeleteReconciliation(id);
+  return NextResponse.json({ ok: true, reversedCount });
 }
