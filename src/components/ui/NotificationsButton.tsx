@@ -2,11 +2,11 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Bell, Clock, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import { Bell, Clock, AlertTriangle, CheckCircle, XCircle, UploadCloud } from 'lucide-react';
 
 interface Notification {
   id: string;
-  kind: 'ptp_due' | 'stale' | 'import_done' | 'import_failed';
+  kind: 'ptp_due' | 'stale' | 'import_done' | 'import_failed' | 'file_uploaded' | 'reconciliation_uploaded';
   message: string;
   href: string;
 }
@@ -16,6 +16,8 @@ const ICONS: Record<Notification['kind'], typeof Clock> = {
   stale: AlertTriangle,
   import_done: CheckCircle,
   import_failed: XCircle,
+  file_uploaded: UploadCloud,
+  reconciliation_uploaded: UploadCloud,
 };
 
 interface NotificationsButtonProps {
@@ -70,7 +72,11 @@ export default function NotificationsButton({ collapsed, scope = 'branch' }: Not
             ) : (
               notifications.map((n) => {
                 const Icon = ICONS[n.kind];
-                const tone = n.kind === 'import_failed' ? 'text-negative' : n.kind === 'import_done' ? 'text-positive' : n.kind === 'ptp_due' ? 'text-info' : 'text-warning';
+                const tone = n.kind === 'import_failed' ? 'text-negative'
+                  : n.kind === 'import_done' ? 'text-positive'
+                  : n.kind === 'ptp_due' ? 'text-info'
+                  : (n.kind === 'file_uploaded' || n.kind === 'reconciliation_uploaded') ? 'text-info'
+                  : 'text-warning';
                 return (
                   <Link
                     key={n.id}
