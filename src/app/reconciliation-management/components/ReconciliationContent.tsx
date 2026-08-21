@@ -152,6 +152,7 @@ export default function ReconciliationContent() {
   const [reconPreview, setReconPreview] = useState<ReconPreview | null>(null);
   const [reconMapping, setReconMapping] = useState<ReconMappingState>(EMPTY_RECON_MAPPING);
   const [isPreviewingRecon, setIsPreviewingRecon] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const [editingRecon, setEditingRecon] = useState<ReconRow | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
@@ -289,6 +290,13 @@ export default function ReconciliationContent() {
     } finally {
       setIsPreviewingRecon(false);
     }
+  }
+
+  function onDropReconFile(e: React.DragEvent<HTMLLabelElement>) {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) onReconFileSelected(file);
   }
 
   async function onUpload(data: UploadFormData) {
@@ -848,7 +856,12 @@ export default function ReconciliationContent() {
               match an existing debtor are added as new accounts if the row also has Name, Phone, and
               Amount Owed — so a client can send new accounts and reconciliation in one file.
             </p>
-            <label className="block border-2 border-dashed border-border rounded-xl p-6 text-center hover:border-primary/50 transition-colors cursor-pointer bg-secondary/20">
+            <label
+              className={`block border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${isDragOver ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/50 bg-secondary/20'}`}
+              onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={onDropReconFile}
+            >
               <input
                 type="file"
                 accept=".xlsx,.xlsb,.csv"
@@ -857,7 +870,7 @@ export default function ReconciliationContent() {
               />
               <Upload size={20} className="text-muted-foreground mx-auto mb-2" />
               <p className="text-sm font-medium text-foreground">
-                {selectedUploadFile ? selectedUploadFile.name : 'Click to browse for a reconciliation file'}
+                {selectedUploadFile ? selectedUploadFile.name : (isDragOver ? 'Drop the file here' : 'Click to browse, or drag a file here')}
               </p>
               <p className="text-xs text-muted-foreground mt-1">Accepts .xlsx, .xlsb, or .csv up to 20MB</p>
             </label>

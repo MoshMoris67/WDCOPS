@@ -185,6 +185,7 @@ export default function FileManagementContent() {
   const [selectedUploadFile, setSelectedUploadFile] = useState<globalThis.File | null>(null);
   const [preview, setPreview] = useState<FilePreview | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const [mapping, setMapping] = useState<MappingState>(EMPTY_MAPPING);
   const [editingFile, setEditingFile] = useState<FileRow | null>(null);
   const [isSavingFile, setIsSavingFile] = useState(false);
@@ -263,6 +264,13 @@ export default function FileManagementContent() {
     } finally {
       setIsPreviewing(false);
     }
+  }
+
+  function onDropUploadFile(e: React.DragEvent<HTMLLabelElement>) {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) onFileSelected(file);
   }
 
   async function onImport(data: ImportFormData) {
@@ -1002,7 +1010,12 @@ export default function FileManagementContent() {
               Excel File <span className="text-negative">*</span>
             </label>
             <p className="text-xs text-muted-foreground">Upload the file received from the client — any column headers are fine, you&apos;ll confirm what maps to what below.</p>
-            <label className="block border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/50 transition-colors cursor-pointer bg-secondary/20">
+            <label
+              className={`block border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${isDragOver ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/50 bg-secondary/20'}`}
+              onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={onDropUploadFile}
+            >
               <input
                 type="file"
                 accept=".xlsx,.xlsb,.csv"
@@ -1011,7 +1024,7 @@ export default function FileManagementContent() {
               />
               <Upload size={24} className="text-muted-foreground mx-auto mb-2" />
               <p className="text-sm font-medium text-foreground">
-                {selectedUploadFile ? selectedUploadFile.name : 'Click to browse for a file'}
+                {selectedUploadFile ? selectedUploadFile.name : (isDragOver ? 'Drop the file here' : 'Click to browse, or drag a file here')}
               </p>
               <p className="text-xs text-muted-foreground mt-1">Accepts .xlsx, .xlsb, or .csv files up to 50MB</p>
               <span className="inline-block mt-3 px-3 py-1.5 text-xs font-semibold text-primary border border-primary/30 rounded-lg hover:bg-primary/5 transition-colors">
