@@ -40,13 +40,18 @@ export async function processFileImportTick(fileId: string, timeBudgetMs = 20000
     // First tick for this file: nothing parsed yet. Unlike insertion below, parsing can't
     // be split across ticks — there's no cheap way to resume a spreadsheet parse partway
     // through (confirmed by direct timing: skipping rows costs as much as reading them) —
-    // so it runs to completion in one go here, off the browser request that used to hang
-    // on exactly this step for a large file.
+    // so it runs to completion in one go here. The caller (api/worker/tick/route.ts) calls
+    // this fire-and-forget rather than awaiting it specifically because of this step: even
+    // off the browser, a slow enough parse can outlast Render's own inbound request
+    // timeout and get the *tick's* response killed (confirmed in production — a stuck
+    // 'queued' file, tick logs showing a 502 after 2+ minutes). Not awaited means no
+    // timeout applies to it at all; it keeps running against this same long-lived process
+    // after the tick's HTTP response has already gone out.
     if (!rawRows) {
       if (!file.rawFile || !file.rawFileName) {
         await prisma.file.update({
           where: { id: fileId },
-          data: { importStatus: 'failed', importError: 'No stored file to import — the upload may have been interrupted, re-import the file' },
+          data: { importStatus: 'failed', importError: 'No stored file to import — the upload may have been interrupted, re-import the file', parsingStartedAt: null },
         });
         return { fileId, inserted: 0, done: true };
       }
@@ -57,7 +62,7 @@ export async function processFileImportTick(fileId: string, timeBudgetMs = 20000
       if (parsedRows.length === 0) {
         await prisma.file.update({
           where: { id: fileId },
-          data: { importStatus: 'failed', importError: errors[0] ?? 'No valid debtor rows found in the file' },
+          data: { importStatus: 'failed', importError: errors[0] ?? 'No valid debtor rows found in the file', parsingStartedAt: null },
         });
         return { fileId, inserted: 0, done: true };
       }
@@ -68,6 +73,7 @@ export async function processFileImportTick(fileId: string, timeBudgetMs = 20000
           rawRows,
           importWarnings: errors.length > 0 ? JSON.stringify(errors) : null,
           rawFile: null, // no longer needed once parsed — no reason to keep megabytes of base64 around
+          parsingStartedAt: null,
         },
       });
     }
@@ -109,7 +115,7 @@ export async function processFileImportTick(fileId: string, timeBudgetMs = 20000
     await prisma.file
       .update({
         where: { id: fileId },
-        data: { importStatus: 'failed', importError: err instanceof Error ? err.message : 'Import failed', rowsProcessed: cursor },
+        data: { importStatus: 'failed', importError: err instanceof Error ? err.message : 'Import failed', rowsProcessed: cursor, parsingStartedAt: null },
       })
       .catch(() => {});
     return { fileId, inserted, done: true };

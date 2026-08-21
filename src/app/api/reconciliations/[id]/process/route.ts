@@ -9,13 +9,25 @@ import { processReconciliationTick, parseReconciliationUpload } from '@/lib/reco
 // indefinitely. If it doesn't finish in one pass, it's already made real progress
 // (rowsProcessed persisted per batch) and the next cron tick picks up from there.
 const TIME_BUDGET_MS = 25000;
+const STALE_CLAIM_MS = 10 * 60 * 1000;
 
-/** "Process now" — admin explicitly asked for this to happen immediately rather than
- *  waiting for the next scheduled tick, so unlike the tick itself this parses (if the
- *  upload hasn't been parsed into rawRows yet — e.g. clicked right after uploading, before
- *  any tick ran) and processes in the same request. Processing itself is chunked/batched
- *  (see processReconciliationTick) — for anything but a very large file this finishes in
- *  one call same as before; for a huge one it reports partial progress instead of hanging. */
+/**
+ * "Process now" — admin explicitly asked for this to happen immediately rather than
+ * waiting for the next scheduled tick. Processing itself (matching rows against debtors)
+ * is chunked/budget-bounded (see processReconciliationTick), so it's safe to await
+ * directly here — for anything but a very large file this finishes in one call; for a
+ * huge one it reports partial progress instead of hanging.
+ *
+ * Parsing the raw upload (if a tick hasn't gotten to it yet — e.g. clicked right after
+ * uploading) is NOT safe to await here: it can't be split into bounded chunks, and this
+ * request goes through the exact same Render proxy the cron tick does — a slow enough
+ * parse can outlast that proxy's own timeout and get this request killed before it ever
+ * responds (confirmed happening to the cron tick in production; the browser click would
+ * fail the identical way). So when parsing is still needed, this claims it (same
+ * atomic claim as the tick, so both can't parse it at once) and kicks it off
+ * fire-and-forget, returning immediately with "still parsing" instead of trying to wait
+ * it out.
+ */
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireRole(['admin']);
   if (!isSessionPayload(session)) return session;
@@ -31,11 +43,21 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   }
 
   if (!reconciliation.rawRows) {
-    const parseResult = await parseReconciliationUpload(id);
-    if (!parseResult.parsed) {
-      const failed = await prisma.reconciliation.findUnique({ where: { id } });
-      return NextResponse.json({ error: failed?.errorSummary ?? 'Could not parse the uploaded file' }, { status: 400 });
+    const staleBefore = new Date(Date.now() - STALE_CLAIM_MS);
+    const claim = await prisma.reconciliation.updateMany({
+      where: { id, rawRows: null, OR: [{ parsingStartedAt: null }, { parsingStartedAt: { lt: staleBefore } }] },
+      data: { parsingStartedAt: new Date() },
+    });
+    if (claim.count > 0) {
+      parseReconciliationUpload(id).catch(() => {});
     }
+    return NextResponse.json({
+      reconciliation: { id, status: 'pending', updatedCount: 0, newAccountsCount: 0 },
+      inProgress: true,
+      message: claim.count > 0
+        ? "Parsing the file now — this can take a little while for a large upload. Check back shortly, or just click Process Now again once it's done."
+        : "Already parsing (started by an earlier click or the background tick) — check back shortly.",
+    });
   }
 
   const tickResult = await processReconciliationTick(id, TIME_BUDGET_MS);

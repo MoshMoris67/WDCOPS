@@ -68,16 +68,37 @@ function cellFromXlsxValue(value: ExcelJS.CellValue): string {
   return String(value).trim();
 }
 
-function sheetToRows(sheet: ExcelJS.Worksheet): string[][] {
-  const rows: string[][] = [];
-  sheet.eachRow((row) => {
-    const cells: string[] = [];
-    row.eachCell({ includeEmpty: true }, (cell) => {
-      cells.push(cellFromXlsxValue(cell.value));
-    });
-    rows.push(cells);
+/**
+ * Reads every sheet of an .xlsx workbook via exceljs's streaming reader rather than
+ * `workbook.xlsx.load()`'s full DOM build — confirmed ~2.3x faster on a real 77,217-row
+ * file (14.5s vs 34s locally), which matters because this is the path a background worker
+ * tick runs to parse a newly-uploaded file (see lib/file-import.ts): a slow enough parse
+ * here risks the tick itself running long enough for Render's own proxy to kill the
+ * connection before the parse ever finishes (confirmed happening in production — a 2m31s
+ * tick came back as a 502). `styles: 'cache'` matters and isn't the default: without it
+ * exceljs can't tell a date-formatted numeric cell from a plain number and returns the
+ * raw Excel serial instead — see previewXlsxFast below, where this was first verified
+ * correct against real data (zero mismatches vs. the old DOM approach on 77,217 rows).
+ */
+async function streamXlsxTable(buffer: ArrayBuffer): Promise<string[][][]> {
+  const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from([Buffer.from(buffer)]), {
+    styles: 'cache',
+    sharedStrings: 'cache',
+    hyperlinks: 'ignore',
+    worksheets: 'emit',
   });
-  return rows;
+
+  const sheets: string[][][] = [];
+  for await (const worksheetReader of workbookReader) {
+    const rows: string[][] = [];
+    for await (const row of worksheetReader) {
+      const cells: string[] = [];
+      row.eachCell({ includeEmpty: true }, (cell) => cells.push(cellFromXlsxValue(cell.value)));
+      rows.push(cells);
+    }
+    sheets.push(rows);
+  }
+  return sheets;
 }
 
 function rowsMatch(a: string[], b: string[]): boolean {
@@ -130,8 +151,8 @@ function loadXlsbTable(buffer: ArrayBuffer): string[][] {
 }
 
 /**
- * Loads any supported file into a plain table (row 0 = header) — .xlsx via exceljs,
- * .xlsb via SheetJS, .csv via the fast tokenizer above.
+ * Loads any supported file into a plain table (row 0 = header) — .xlsx via exceljs's
+ * streaming reader, .xlsb via SheetJS, .csv via the fast tokenizer above.
  */
 export async function loadTable(buffer: ArrayBuffer, filename: string): Promise<string[][]> {
   if (isCsv(filename)) {
@@ -140,11 +161,10 @@ export async function loadTable(buffer: ArrayBuffer, filename: string): Promise<
   if (isXlsb(filename)) {
     return loadXlsbTable(buffer);
   }
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
-  if (workbook.worksheets.length === 0) throw new Error('The workbook has no sheets');
+  const sheets = await streamXlsxTable(buffer);
+  if (sheets.length === 0) throw new Error('The workbook has no sheets');
 
-  return mergeSheets(workbook.worksheets.map(sheetToRows));
+  return mergeSheets(sheets);
 }
 
 /**

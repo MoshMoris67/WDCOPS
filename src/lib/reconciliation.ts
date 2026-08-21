@@ -19,43 +19,61 @@ export interface ParseUploadResult {
 }
 
 /**
- * Parses a reconciliation's stored raw upload into rawRows — the first worker tick for a
- * newly-uploaded reconciliation does this (see api/worker/tick/route.ts), mirroring
- * processFileImportTick's parse-if-needed step for the exact same reason: parsing a large
- * file synchronously in the upload request is what caused the browser-facing hang. Unlike
- * that function, this never falls through into processing in the same call — processing
- * a reconciliation isn't chunked/resumable (see processReconciliation below), so keeping
- * parse and process as separate tick turns, one potentially-slow step each, avoids
- * stacking two unbounded operations into a single request.
+ * Parses a reconciliation's stored raw upload into rawRows — a worker tick claims a
+ * pending, not-yet-parsed reconciliation and calls this fire-and-forget, not awaited (see
+ * api/worker/tick/route.ts): parsing a large file synchronously is what caused the
+ * browser-facing hang in the first place, and even off the browser, a slow enough parse
+ * can outlast Render's own inbound request timeout and get the *tick's* response killed
+ * (confirmed in production — a stuck 'pending' reconciliation, tick logs showing a 502
+ * after 2+ minutes). Not awaited means no timeout applies to it; it keeps running against
+ * this same long-lived process after the tick's response has already gone out. Wrapped in
+ * its own try/catch (rather than trusting the caller's fire-and-forget .catch(() => {}))
+ * so a thrown error still reliably marks the reconciliation 'failed' and clears the claim
+ * below, instead of leaving it silently stuck.
+ *
+ * Never falls through into processing in the same call — processing a reconciliation is
+ * its own chunked, budget-bounded tick turn (see processReconciliationTick below), so
+ * stacking it with this unbounded parse step would risk the exact same problem this is
+ * fixing.
  */
 export async function parseReconciliationUpload(reconciliationId: string): Promise<ParseUploadResult> {
-  const r = await prisma.reconciliation.findUnique({ where: { id: reconciliationId } });
-  if (!r?.rawFile || !r.rawFileName) {
+  try {
+    const r = await prisma.reconciliation.findUnique({ where: { id: reconciliationId } });
+    if (!r?.rawFile || !r.rawFileName) {
+      await prisma.reconciliation.update({
+        where: { id: reconciliationId },
+        data: { status: 'failed', errorSummary: 'No stored file to parse — the upload may have been interrupted, log a new reconciliation instead', parsingStartedAt: null },
+      });
+      return { parsed: false, rowCount: 0 };
+    }
+
+    const mapping: ReconciliationMapping = r.mapping ? JSON.parse(r.mapping) : {};
+    const raw = Buffer.from(r.rawFile, 'base64');
+    const table = await loadTable(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength), r.rawFileName);
+    const { rows, errors } = parseReconciliationRows(table, mapping, r.type as 'full' | 'partial');
+
+    if (rows.length === 0) {
+      await prisma.reconciliation.update({
+        where: { id: reconciliationId },
+        data: { status: 'failed', errorSummary: errors[0] ?? 'No valid rows found in the file', rawFile: null, parsingStartedAt: null },
+      });
+      return { parsed: false, rowCount: 0 };
+    }
+
     await prisma.reconciliation.update({
       where: { id: reconciliationId },
-      data: { status: 'failed', errorSummary: 'No stored file to parse — the upload may have been interrupted, log a new reconciliation instead' },
+      data: { rawRows: JSON.stringify(rows), recordCount: rows.length, rawFile: null, parsingStartedAt: null },
     });
+    return { parsed: true, rowCount: rows.length };
+  } catch (err) {
+    await prisma.reconciliation
+      .update({
+        where: { id: reconciliationId },
+        data: { status: 'failed', errorSummary: err instanceof Error ? err.message : 'Could not parse the uploaded file', parsingStartedAt: null },
+      })
+      .catch(() => {});
     return { parsed: false, rowCount: 0 };
   }
-
-  const mapping: ReconciliationMapping = r.mapping ? JSON.parse(r.mapping) : {};
-  const raw = Buffer.from(r.rawFile, 'base64');
-  const table = await loadTable(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength), r.rawFileName);
-  const { rows, errors } = parseReconciliationRows(table, mapping, r.type as 'full' | 'partial');
-
-  if (rows.length === 0) {
-    await prisma.reconciliation.update({
-      where: { id: reconciliationId },
-      data: { status: 'failed', errorSummary: errors[0] ?? 'No valid rows found in the file', rawFile: null },
-    });
-    return { parsed: false, rowCount: 0 };
-  }
-
-  await prisma.reconciliation.update({
-    where: { id: reconciliationId },
-    data: { rawRows: JSON.stringify(rows), recordCount: rows.length, rawFile: null },
-  });
-  return { parsed: true, rowCount: rows.length };
 }
 
 /**
