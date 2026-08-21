@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { processFileImportTick } from '@/lib/file-import';
-import { processReconciliation } from '@/lib/reconciliation';
+import { processReconciliation, parseReconciliationUpload } from '@/lib/reconciliation';
 import type { ReconciliationRow } from '@/lib/excel';
 
 // Soft time budget for the insert loop specifically — comfortably inside any reasonable
@@ -27,6 +27,10 @@ const TIME_BUDGET_MS = 20000;
  * left off. Reconciliation processing is NOT chunked (see src/lib/reconciliation.ts) —
  * still a real gap for a genuinely huge reconciliation file, flagged when this was built
  * and not solved here; the file-import path is what was actually failing in practice.
+ * Parsing a reconciliation's upload (parseReconciliationUpload), unlike processing it, is
+ * a separate tick turn of its own for the same reason file-import parsing is: it can be
+ * slow enough on its own that stacking it with processing in the same request risks the
+ * exact same hang, just moved from the browser into this endpoint instead.
  */
 export async function POST(req: Request) {
   const auth = req.headers.get('authorization');
@@ -43,6 +47,16 @@ export async function POST(req: Request) {
   if (file) {
     const result = await processFileImportTick(file.id, TIME_BUDGET_MS);
     return NextResponse.json({ ranFile: result });
+  }
+
+  const unparsedRecon = await prisma.reconciliation.findFirst({
+    where: { status: 'pending', rawRows: null, rawFile: { not: null } },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  });
+  if (unparsedRecon) {
+    const result = await parseReconciliationUpload(unparsedRecon.id);
+    return NextResponse.json({ parsedReconciliation: { id: unparsedRecon.id, ...result } });
   }
 
   const recon = await prisma.reconciliation.findFirst({

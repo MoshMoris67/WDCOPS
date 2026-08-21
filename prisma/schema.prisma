@@ -127,7 +127,17 @@ model Reconciliation {
   totalUpdated     Float     @default(0)
   notes        String?
   errorSummary String?
-  rawRows      String? // JSON-encoded parsed rows, kept so "process now" can retry without a re-upload
+  // Same two-stage design as File above: uploading only base64-stores the raw file +
+  // confirmed mapping (rawFile/rawFileName/mapping) and returns immediately — parsing a
+  // large file synchronously in the request is what caused the exact same "Could not
+  // reach the server" hang file imports had. The worker tick parses it into rawRows
+  // (JSON-encoded parsed rows) as its own step, clearing rawFile once done; rawRows is
+  // also what "process now" and the tick's processing step read from, kept so either can
+  // retry without a re-upload.
+  rawFile      String?
+  rawFileName  String?
+  mapping      String?
+  rawRows      String?
   status       String    @default("pending") // pending | processed | failed
   branch       String    @default("uganda")
   createdAt    DateTime  @default(now())

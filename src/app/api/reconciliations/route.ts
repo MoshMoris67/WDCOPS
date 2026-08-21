@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { requireRole, isSessionPayload } from '@/lib/rbac';
-import { loadTable, parseReconciliationRows, suggestReconciliationMapping, SUPPORTED_IMPORT_EXTENSIONS, type ReconciliationMapping } from '@/lib/excel';
+import { SUPPORTED_IMPORT_EXTENSIONS, type ReconciliationMapping } from '@/lib/excel';
 
 export async function GET() {
   const session = await getSession();
@@ -56,50 +56,43 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Unsupported file type — use ${SUPPORTED_IMPORT_EXTENSIONS.join(' or ')}` }, { status: 400 });
   }
 
-  const client = await prisma.client.findUnique({ where: { id: clientId } });
-  if (!client) return NextResponse.json({ error: 'Unknown client' }, { status: 400 });
-
-  const buffer = await file.arrayBuffer();
-  const table = await loadTable(buffer, file.name);
-  // A mapping confirmed in the upload modal's mapping step wins outright — auto-detection
-  // is only the fallback for a caller that skips that step entirely, same pattern as
-  // POST /api/files.
+  if (!mappingRaw) {
+    return NextResponse.json({ error: 'Column mapping is required — preview the file and confirm the mapping first' }, { status: 400 });
+  }
   let mapping: ReconciliationMapping;
   try {
-    mapping = mappingRaw ? (JSON.parse(mappingRaw) as ReconciliationMapping) : suggestReconciliationMapping(table[0] ?? [], type);
+    mapping = JSON.parse(mappingRaw) as ReconciliationMapping;
   } catch {
     return NextResponse.json({ error: 'Invalid column mapping' }, { status: 400 });
   }
-  const { rows, errors: parseErrors } = parseReconciliationRows(table, mapping, type);
 
-  if (rows.length === 0) {
-    return NextResponse.json({ error: 'No valid rows found in the file', details: parseErrors }, { status: 400 });
-  }
+  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  if (!client) return NextResponse.json({ error: 'Unknown client' }, { status: 400 });
 
+  // Parsing used to happen right here, synchronously — the same class of bug that made
+  // large file imports hang the browser (see src/lib/excel.ts / src/lib/file-import.ts).
+  // This route now does the minimum: store the raw upload + the mapping already confirmed
+  // in the preview step, and return immediately. The worker tick (POST /api/worker/tick)
+  // parses it into rawRows as its own step on its next run, then processes it exactly as
+  // before — see prisma/schema.prisma's Reconciliation comment for the full sequence.
+  const buffer = await file.arrayBuffer();
   const reconciliation = await prisma.reconciliation.create({
     data: {
       clientId,
       fileId,
       type,
       receivedAt: new Date(`${receivedDate}T${receivedTime}`),
-      recordCount: rows.length,
+      recordCount: 0,
       notes,
-      rawRows: JSON.stringify(rows),
+      rawFile: Buffer.from(buffer).toString('base64'),
+      rawFileName: file.name,
+      mapping: JSON.stringify(mapping),
       status: 'pending',
     },
   });
 
-  // Processing (row-by-row matching against debtors, which can be slow for a large file)
-  // is picked up by POST /api/worker/tick on its next scheduled run, not here — it looks
-  // for status: 'pending' rows with rawRows present, same idea as file imports. The row
-  // already carries status: 'pending' for the UI to show while that's in flight; it flips
-  // to processed/failed once a tick finishes it.
-
   return NextResponse.json(
-    {
-      reconciliation: { id: reconciliation.id, status: 'pending', recordCount: rows.length },
-      warnings: parseErrors,
-    },
+    { reconciliation: { id: reconciliation.id, status: 'pending' } },
     { status: 201 }
   );
 }

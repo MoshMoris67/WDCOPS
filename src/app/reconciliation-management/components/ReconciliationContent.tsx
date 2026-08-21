@@ -334,7 +334,7 @@ export default function ReconciliationContent() {
       refetchReconciliations();
       setSelectedReconId(payload.reconciliation.id);
       toast.success(
-        `${data.reconciliationType === 'full' ? 'Full' : 'Partial'} reconciliation logged — ${payload.reconciliation.recordCount} row(s) processing in the background, ready shortly`
+        `${data.reconciliationType === 'full' ? 'Full' : 'Partial'} reconciliation queued — processing in the background, ready shortly`
       );
     } catch {
       toast.error('Could not reach the server — try again');
