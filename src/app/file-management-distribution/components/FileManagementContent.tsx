@@ -289,9 +289,6 @@ export default function FileManagementContent() {
         toast.error(payload.error || 'Import failed');
         return;
       }
-      if (payload.warnings?.length) {
-        toast.warning(`Imported with ${payload.warnings.length} row warning(s) — check the file format`);
-      }
       setImportModalOpen(false);
       reset();
       setSelectedUploadFile(null);
@@ -300,7 +297,7 @@ export default function FileManagementContent() {
       setIsMidMonth(false);
       refetchFiles();
       setDistributionFileId(payload.file.id);
-      toast.success(`File "${data.batchLabel}" — ${payload.file.debtorCount} debtors importing in the background, ready shortly`);
+      toast.success(`File "${data.batchLabel}" queued — importing in the background, ready shortly`);
     } catch {
       toast.error('Could not reach the server — try again');
     } finally {
@@ -930,7 +927,7 @@ export default function FileManagementContent() {
             <label className="block border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/50 transition-colors cursor-pointer bg-secondary/20">
               <input
                 type="file"
-                accept=".xlsx,.csv"
+                accept=".xlsx,.xlsb,.csv"
                 className="sr-only"
                 onChange={(e) => onFileSelected(e.target.files?.[0] ?? null)}
               />
@@ -938,7 +935,7 @@ export default function FileManagementContent() {
               <p className="text-sm font-medium text-foreground">
                 {selectedUploadFile ? selectedUploadFile.name : 'Click to browse for a file'}
               </p>
-              <p className="text-xs text-muted-foreground mt-1">Accepts .xlsx or .csv files up to 50MB</p>
+              <p className="text-xs text-muted-foreground mt-1">Accepts .xlsx, .xlsb, or .csv files up to 50MB</p>
               <span className="inline-block mt-3 px-3 py-1.5 text-xs font-semibold text-primary border border-primary/30 rounded-lg hover:bg-primary/5 transition-colors">
                 Browse Files
               </span>

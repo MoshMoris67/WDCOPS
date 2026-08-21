@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { requireRole, isSessionPayload } from '@/lib/rbac';
-import { loadTable, parseImportRows, suggestImportMapping, SUPPORTED_IMPORT_EXTENSIONS, type ImportMapping } from '@/lib/excel';
+import { SUPPORTED_IMPORT_EXTENSIONS, type ImportMapping } from '@/lib/excel';
 import { getFileDebtorAggregates, getAgentsAllocatedCounts } from '@/lib/debtor-aggregates';
 
 function fileStatus(f: { isRecalled: boolean; debtorCount: number; assignedCount: number }) {
@@ -44,6 +44,7 @@ export async function GET() {
       status: fileStatus({ isRecalled: f.isRecalled, debtorCount, assignedCount }),
       importStatus: f.importStatus,
       importError: f.importError,
+      importWarningCount: f.importWarnings ? (JSON.parse(f.importWarnings) as string[]).length : 0,
     };
   });
 
@@ -71,33 +72,28 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Unsupported file type — use ${SUPPORTED_IMPORT_EXTENSIONS.join(' or ')}` }, { status: 400 });
   }
 
-  const client = await prisma.client.findUnique({ where: { id: clientId } });
-  if (!client) return NextResponse.json({ error: 'Unknown client' }, { status: 400 });
-
-  const buffer = await file.arrayBuffer();
-  const table = await loadTable(buffer, file.name);
-  // A mapping confirmed in the import modal (or sent by any other caller) wins outright —
-  // auto-detection is only the fallback for a caller that skips that step entirely.
+  if (!mappingRaw) {
+    return NextResponse.json({ error: 'Column mapping is required — preview the file and confirm the mapping first' }, { status: 400 });
+  }
   let mapping: ImportMapping;
   try {
-    mapping = mappingRaw ? (JSON.parse(mappingRaw) as ImportMapping) : suggestImportMapping(table[0] ?? []);
+    mapping = JSON.parse(mappingRaw) as ImportMapping;
   } catch {
     return NextResponse.json({ error: 'Invalid column mapping' }, { status: 400 });
   }
-  const { rows, errors } = parseImportRows(table, mapping);
 
-  if (rows.length === 0) {
-    return NextResponse.json({ error: 'No valid debtor rows found in the file', details: errors }, { status: 400 });
-  }
+  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  if (!client) return NextResponse.json({ error: 'Unknown client' }, { status: 400 });
 
-  // The insert used to be what timed out on a slow host for a large file — even one
-  // batched INSERT over tens of thousands of rows can take longer than a request is
-  // allowed to run, and a fire-and-forget promise left running in this same process
-  // would silently die if it ever restarted mid-import. So this route now does the
-  // minimum: persist the already-parsed rows and mark the file 'queued'. An external
-  // cron calls POST /api/worker/tick on a schedule (see .github/workflows/worker-tick.yml)
-  // to insert it a chunk at a time, resuming across ticks — see prisma/schema.prisma's
-  // File.rawRows/rowsProcessed comment for why no single tick tries to finish it all.
+  // Parsing used to happen right here, synchronously — that's what actually timed out a
+  // large file: even the *preview* of a 77,217-row .xlsx took minutes on a slow host (see
+  // src/lib/excel.ts), and this route was doing a full parse on top of that. So this route
+  // now does the minimum: store the raw upload + the mapping already confirmed in the
+  // preview step, and mark the file 'queued'. An external cron calls POST /api/worker/tick
+  // on a schedule (see .github/workflows/worker-tick.yml), whose first tick for this file
+  // does the actual parse, then inserts a chunk at a time exactly as before — see
+  // prisma/schema.prisma's File comment for the full sequence.
+  const buffer = await file.arrayBuffer();
   const created = await prisma.file.create({
     data: {
       clientId,
@@ -105,15 +101,14 @@ export async function POST(req: Request) {
       receivedDate: new Date(receivedDateRaw),
       isMidMonthTopup,
       importStatus: 'queued',
-      rawRows: JSON.stringify(rows),
+      rawFile: Buffer.from(buffer).toString('base64'),
+      rawFileName: file.name,
+      importMapping: JSON.stringify(mapping),
     },
   });
 
   return NextResponse.json(
-    {
-      file: { id: created.id, batchLabel: created.batchLabel, debtorCount: rows.length, importStatus: 'queued' },
-      warnings: errors,
-    },
+    { file: { id: created.id, batchLabel: created.batchLabel, importStatus: 'queued' } },
     { status: 201 }
   );
 }

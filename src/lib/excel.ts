@@ -1,14 +1,19 @@
 import ExcelJS from 'exceljs';
 import { Readable } from 'stream';
+import * as XLSX from 'xlsx';
 
 function normalizeHeader(raw: string): string {
   return raw.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-export const SUPPORTED_IMPORT_EXTENSIONS = ['.xlsx', '.csv'];
+export const SUPPORTED_IMPORT_EXTENSIONS = ['.xlsx', '.xlsb', '.csv'];
 
 function isCsv(filename: string): boolean {
   return filename.toLowerCase().endsWith('.csv');
+}
+
+function isXlsb(filename: string): boolean {
+  return filename.toLowerCase().endsWith('.xlsb');
 }
 
 /**
@@ -80,34 +85,66 @@ function rowsMatch(a: string[], b: string[]): boolean {
   return a.every((cell, i) => cell.trim().toLowerCase() === (b[i] ?? '').trim().toLowerCase());
 }
 
-/**
- * Loads any supported file into a plain table (row 0 = header) — .xlsx via exceljs,
- * .csv via the fast tokenizer above. A workbook with multiple sheets (e.g. a client
- * splitting one large roster across tabs to work around a row limit in whatever
- * tool produced it) has every sheet's rows appended after the first, using the
- * first sheet's header as canonical — if a later sheet repeats that same header
- * row verbatim, it's dropped as a duplicate rather than imported as a debtor.
- */
-export async function loadTable(buffer: ArrayBuffer, filename: string): Promise<string[][]> {
-  if (isCsv(filename)) {
-    return parseCsvText(Buffer.from(buffer).toString('utf8'));
-  }
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
-  if (workbook.worksheets.length === 0) throw new Error('The workbook has no sheets');
-
-  const [firstSheet, ...restSheets] = workbook.worksheets;
-  const rows = sheetToRows(firstSheet);
+/** Appends every sheet's rows after the first, using the first sheet's header as
+ * canonical — a later sheet that repeats that header verbatim has it dropped as a
+ * duplicate rather than imported as a debtor. Shared by both the .xlsx and .xlsb
+ * loaders below: a client splitting one roster across tabs (row-limit workaround)
+ * and a client splitting one roster into aging-bucket tabs (30-59 days, 60-89, ...,
+ * seen in a real .xlsb reconciliation file) both want the same flattened result. */
+function mergeSheets(sheets: string[][][]): string[][] {
+  const [firstSheet, ...restSheets] = sheets;
+  if (!firstSheet) return [];
+  const rows = [...firstSheet];
   const headerRow = rows[0];
 
-  for (const sheet of restSheets) {
-    const sheetRows = sheetToRows(sheet);
+  for (const sheetRows of restSheets) {
     if (sheetRows.length === 0) continue;
     const startsWithRepeatedHeader = headerRow && rowsMatch(sheetRows[0], headerRow);
     rows.push(...sheetRows.slice(startsWithRepeatedHeader ? 1 : 0));
   }
 
   return rows;
+}
+
+function cellFromXlsbValue(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (value instanceof Date) return String(value);
+  return String(value).trim();
+}
+
+/** .xlsb (Excel Binary Workbook) isn't a zip/XML format like .xlsx — exceljs can't read
+ * it at all — so this goes through SheetJS instead, which supports both. `raw: true` +
+ * `cellDates: true` and manual string conversion (matching cellFromXlsxValue's approach
+ * for the .xlsx path) keeps numeric precision exact rather than trusting a locale-aware
+ * display-formatted string, which matters for financial columns. */
+function loadXlsbTable(buffer: ArrayBuffer): string[][] {
+  const workbook = XLSX.read(Buffer.from(buffer), { type: 'buffer', cellDates: true, raw: true });
+  if (workbook.SheetNames.length === 0) throw new Error('The workbook has no sheets');
+
+  const sheets = workbook.SheetNames.map((name) => {
+    const json = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[name], { header: 1, raw: true, defval: '' });
+    return json.map((row) => row.map(cellFromXlsbValue));
+  });
+
+  return mergeSheets(sheets);
+}
+
+/**
+ * Loads any supported file into a plain table (row 0 = header) — .xlsx via exceljs,
+ * .xlsb via SheetJS, .csv via the fast tokenizer above.
+ */
+export async function loadTable(buffer: ArrayBuffer, filename: string): Promise<string[][]> {
+  if (isCsv(filename)) {
+    return parseCsvText(Buffer.from(buffer).toString('utf8'));
+  }
+  if (isXlsb(filename)) {
+    return loadXlsbTable(buffer);
+  }
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  if (workbook.worksheets.length === 0) throw new Error('The workbook has no sheets');
+
+  return mergeSheets(workbook.worksheets.map(sheetToRows));
 }
 
 /**
@@ -276,8 +313,21 @@ export interface FilePreview {
   totalRows: number | null;
 }
 
-/** Parses just enough of the file to show a mapping-confirmation step — headers, a few sample rows, and a best-guess mapping. */
+/** Parses just enough of the file to show a mapping-confirmation step — headers, a few sample rows, and a best-guess mapping.
+ * .xlsx uses the early-stopping streaming path (see previewXlsxFast). .csv and .xlsb both already parse a real
+ * multi-tens-of-thousands-row file in well under a second (the tokenizer, and SheetJS's binary decoder,
+ * respectively — confirmed by direct testing), so there's no equivalent early-stop path built for either. */
 export async function previewImportFile(buffer: ArrayBuffer, filename: string): Promise<FilePreview> {
+  if (isXlsb(filename)) {
+    const table = loadXlsbTable(buffer);
+    const headers = table[0] ?? [];
+    return {
+      headers,
+      sampleRows: table.slice(1, 6),
+      suggested: suggestImportMapping(headers),
+      totalRows: Math.max(0, table.length - 1),
+    };
+  }
   if (isCsv(filename)) {
     const table = await loadTable(buffer, filename);
     const headers = table[0] ?? [];
@@ -419,6 +469,16 @@ export interface ReconciliationPreview {
 
 /** Parses just enough of the file to show a mapping-confirmation step — mirrors previewImportFile. */
 export async function previewReconciliationFile(buffer: ArrayBuffer, filename: string, type: 'full' | 'partial'): Promise<ReconciliationPreview> {
+  if (isXlsb(filename)) {
+    const table = loadXlsbTable(buffer);
+    const headers = table[0] ?? [];
+    return {
+      headers,
+      sampleRows: table.slice(1, 6),
+      suggested: suggestReconciliationMapping(headers, type),
+      totalRows: Math.max(0, table.length - 1),
+    };
+  }
   if (isCsv(filename)) {
     const table = await loadTable(buffer, filename);
     const headers = table[0] ?? [];

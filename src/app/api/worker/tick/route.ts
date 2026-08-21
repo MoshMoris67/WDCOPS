@@ -4,10 +4,15 @@ import { processFileImportTick } from '@/lib/file-import';
 import { processReconciliation } from '@/lib/reconciliation';
 import type { ReconciliationRow } from '@/lib/excel';
 
-// Soft time budget per tick — comfortably inside any reasonable request timeout on the
-// host, regardless of file size. A 77,000-row file just takes several ticks instead of
-// one; each individual request stays fast either way. Tune down if the host's own
-// timeout turns out to be tighter than this in practice.
+// Soft time budget for the insert loop specifically — comfortably inside any reasonable
+// request timeout on the host, regardless of file size; a 77,000-row file just takes
+// several ticks instead of one. Doesn't cover the parse step processFileImportTick does
+// before that loop on a file's first tick — parsing can't be interrupted and resumed
+// partway through (see that function's comment), so it always runs to completion; if it's
+// slow enough on this host to run past the insert loop's own budget, that tick just ends
+// having parsed but inserted nothing, and the next tick 5 minutes later picks up the
+// (already-parsed, now-fast) insert from a cold start. Tune down if the host's own
+// request timeout turns out to be tighter than this in practice.
 const TIME_BUDGET_MS = 20000;
 
 /**

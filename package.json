@@ -68,7 +68,8 @@
     "react-dom": "19.0.3",
     "react-hook-form": "^7.85.0",
     "recharts": "^2.15.2",
-    "sonner": "^1.7.4"
+    "sonner": "^1.7.4",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

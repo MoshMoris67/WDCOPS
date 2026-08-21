@@ -1,5 +1,5 @@
 import { prisma } from './db';
-import type { ImportRow } from './excel';
+import { loadTable, parseImportRows, type ImportRow, type ImportMapping } from './excel';
 
 // One INSERT per this many rows, not one giant statement for the whole file — keeps any
 // single query lightweight regardless of file size, and means File.debtorCount (already
@@ -14,33 +14,66 @@ export interface ImportTickResult {
 }
 
 /**
- * Inserts as many rows as fit in the given time budget, resuming from wherever the file
- * left off (File.rowsProcessed) rather than starting over — called once per scheduled
- * cron tick (see POST /api/worker/tick), repeatedly, until the whole file is done. Never
- * tries to finish a large file in a single call: that's exactly what used to time out a
- * request regardless of who triggers it — a browser upload or a cron hitting this same
- * web service, since both ultimately run inside the same request-response cycle on the
- * same host. Progress is written back after every batch, not just at the end, so a tick
- * that gets cut off mid-way (e.g. the host itself enforces a hard timeout shorter than
- * the soft budget below) leaves rowsProcessed accurate — the next tick just continues,
- * never re-inserting or losing rows.
+ * Parses the file if that hasn't happened yet, then inserts as many rows as fit in the
+ * given time budget, resuming from wherever the file left off (File.rowsProcessed) rather
+ * than starting over — called once per scheduled cron tick (see POST /api/worker/tick),
+ * repeatedly, until the whole file is done. Never tries to finish a large file in a
+ * single call: that's exactly what used to time out a request regardless of who triggers
+ * it — a browser upload or a cron hitting this same web service, since both ultimately
+ * run inside the same request-response cycle on the same host. Insert progress is written
+ * back after every batch, not just at the end, so a tick that gets cut off mid-way (e.g.
+ * the host itself enforces a hard timeout shorter than the soft budget below) leaves
+ * rowsProcessed accurate — the next tick just continues, never re-inserting or losing
+ * rows.
  */
 export async function processFileImportTick(fileId: string, timeBudgetMs = 20000): Promise<ImportTickResult> {
   const started = Date.now();
   const file = await prisma.file.findUnique({ where: { id: fileId } });
-  if (!file?.rawRows) {
-    await prisma.file.update({
-      where: { id: fileId },
-      data: { importStatus: 'failed', importError: 'No stored rows to import — the upload may have been interrupted, re-import the file' },
-    });
-    return { fileId, inserted: 0, done: true };
-  }
+  if (!file) return { fileId, inserted: 0, done: true };
 
-  const rows: ImportRow[] = JSON.parse(file.rawRows);
   let cursor = file.rowsProcessed;
   let inserted = 0;
 
   try {
+    let rawRows = file.rawRows;
+
+    // First tick for this file: nothing parsed yet. Unlike insertion below, parsing can't
+    // be split across ticks — there's no cheap way to resume a spreadsheet parse partway
+    // through (confirmed by direct timing: skipping rows costs as much as reading them) —
+    // so it runs to completion in one go here, off the browser request that used to hang
+    // on exactly this step for a large file.
+    if (!rawRows) {
+      if (!file.rawFile || !file.rawFileName) {
+        await prisma.file.update({
+          where: { id: fileId },
+          data: { importStatus: 'failed', importError: 'No stored file to import — the upload may have been interrupted, re-import the file' },
+        });
+        return { fileId, inserted: 0, done: true };
+      }
+      const mapping: ImportMapping = file.importMapping ? JSON.parse(file.importMapping) : {};
+      const raw = Buffer.from(file.rawFile, 'base64');
+      const table = await loadTable(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength), file.rawFileName);
+      const { rows: parsedRows, errors } = parseImportRows(table, mapping);
+      if (parsedRows.length === 0) {
+        await prisma.file.update({
+          where: { id: fileId },
+          data: { importStatus: 'failed', importError: errors[0] ?? 'No valid debtor rows found in the file' },
+        });
+        return { fileId, inserted: 0, done: true };
+      }
+      rawRows = JSON.stringify(parsedRows);
+      await prisma.file.update({
+        where: { id: fileId },
+        data: {
+          rawRows,
+          importWarnings: errors.length > 0 ? JSON.stringify(errors) : null,
+          rawFile: null, // no longer needed once parsed — no reason to keep megabytes of base64 around
+        },
+      });
+    }
+
+    const rows: ImportRow[] = JSON.parse(rawRows);
+
     while (cursor < rows.length && Date.now() - started < timeBudgetMs) {
       const batch = rows.slice(cursor, cursor + BATCH_SIZE);
       await prisma.debtor.createMany({

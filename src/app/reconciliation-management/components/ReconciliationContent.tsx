@@ -847,7 +847,7 @@ export default function ReconciliationContent() {
             <label className="block border-2 border-dashed border-border rounded-xl p-6 text-center hover:border-primary/50 transition-colors cursor-pointer bg-secondary/20">
               <input
                 type="file"
-                accept=".xlsx,.csv"
+                accept=".xlsx,.xlsb,.csv"
                 className="sr-only"
                 onChange={(e) => onReconFileSelected(e.target.files?.[0] ?? null)}
               />
@@ -855,7 +855,7 @@ export default function ReconciliationContent() {
               <p className="text-sm font-medium text-foreground">
                 {selectedUploadFile ? selectedUploadFile.name : 'Click to browse for a reconciliation file'}
               </p>
-              <p className="text-xs text-muted-foreground mt-1">Accepts .xlsx or .csv up to 20MB</p>
+              <p className="text-xs text-muted-foreground mt-1">Accepts .xlsx, .xlsb, or .csv up to 20MB</p>
             </label>
           </div>
 
