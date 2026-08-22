@@ -125,9 +125,26 @@ async function streamXlsxSheets(buffer: ArrayBuffer): Promise<NamedSheet[]> {
   return sheets;
 }
 
+function trimTrailingBlanks(row: string[]): string[] {
+  const trimmed = [...row];
+  while (trimmed.length > 0 && trimmed[trimmed.length - 1].trim() === '') trimmed.pop();
+  return trimmed;
+}
+
+/** Used only to detect a repeated header row on a later sheet (see mergeNamedSheets) — a
+ * strict length + trim/lowercase check missed two real cases in the same real file: one
+ * sheet's header had a trailing blank column the others didn't, and another sheet spelled
+ * a header "MATURITY DATE" where the rest spelled it "MATURITYDATE". Neither was
+ * recognized as the same header, so those rows got imported as three garbage debtor rows
+ * (harmlessly skipped later for failing validation, but noisy and inflated the "rows
+ * detected" count shown before import). Trailing blanks are dropped and every cell is run
+ * through normalizeHeader (same normalization already used for column-mapping detection)
+ * before comparing, so formatting/spacing differences no longer defeat the match. */
 function rowsMatch(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  return a.every((cell, i) => cell.trim().toLowerCase() === (b[i] ?? '').trim().toLowerCase());
+  const ta = trimTrailingBlanks(a);
+  const tb = trimTrailingBlanks(b);
+  if (ta.length !== tb.length) return false;
+  return ta.every((cell, i) => normalizeHeader(cell) === normalizeHeader(tb[i] ?? ''));
 }
 
 /** Appends every sheet's rows after the first, using the first sheet's header as
