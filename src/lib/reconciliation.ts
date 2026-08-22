@@ -1,8 +1,9 @@
 import { prisma } from './db';
-import { loadTable, parseReconciliationRows, type ReconciliationRow, type ReconciliationMapping } from './excel';
+import { loadTable, loadTableWithSheetTags, parseReconciliationRows, type ReconciliationRow, type ReconciliationMapping } from './excel';
 import { assignByCoverageWeight } from './distribution';
 import { agentCoverageWeights } from './coverage';
 import { applyAssignment } from './assignment';
+import { loadClientCommissionConfig, priceRow, type ClientCommissionConfig } from './commission';
 
 export interface ProcessResult {
   updatedCount: number;
@@ -49,8 +50,23 @@ export async function parseReconciliationUpload(reconciliationId: string): Promi
 
     const mapping: ReconciliationMapping = r.mapping ? JSON.parse(r.mapping) : {};
     const raw = Buffer.from(r.rawFile, 'base64');
-    const table = await loadTable(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength), r.rawFileName);
-    const { rows, errors } = parseReconciliationRows(table, mapping, r.type as 'full' | 'partial');
+    const buffer = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+    const type = r.type as 'full' | 'partial';
+
+    // Sheet-tagged parsing only for clients with commission tracking configured (see
+    // lib/commission.ts) — everyone else gets exactly the same loadTable call as before
+    // this feature existed. KCB Mopesa's files use the sheet itself as the aging bucket,
+    // no BUCKET column at all, so bucketRaw comes from sheetTags, not from `mapping`.
+    const commissionConfig = await loadClientCommissionConfig(r.clientId);
+    let rows: ReconciliationRow[];
+    let errors: string[];
+    if (commissionConfig) {
+      const { table, sheetTags } = await loadTableWithSheetTags(buffer, r.rawFileName);
+      ({ rows, errors } = parseReconciliationRows(table, mapping, type, sheetTags));
+    } else {
+      const table = await loadTable(buffer, r.rawFileName);
+      ({ rows, errors } = parseReconciliationRows(table, mapping, type));
+    }
 
     if (rows.length === 0) {
       await prisma.reconciliation.update({
@@ -105,6 +121,7 @@ export async function processReconciliation(
   let totalUpdated = 0;
   let unmatchedCount = 0;
   const newAccountRows: ReconciliationRow[] = [];
+  const commissionConfig = await loadClientCommissionConfig(clientId);
 
   for (const row of rows) {
     const debtor = await prisma.debtor.findFirst({
@@ -130,6 +147,8 @@ export async function processReconciliation(
     const newBalance = Math.max(0, debtor.amountOwed - newCumulativePaid);
     const paidAmount = Math.max(0, newCumulativePaid - debtor.cumulativePaid);
 
+    const priced = priceRow(commissionConfig, row.bucketRaw, paidAmount, !!debtor.assignedAgentId);
+
     await prisma.$transaction([
       prisma.debtor.update({
         where: { id: debtor.id },
@@ -142,6 +161,9 @@ export async function processReconciliation(
           oldBalance: debtor.balance,
           newBalance,
           paidAmount,
+          bucket: priced.bucket,
+          companyCommission: priced.companyCommission,
+          agentCommission: priced.agentCommission,
         },
       }),
     ]);
@@ -151,7 +173,7 @@ export async function processReconciliation(
   }
 
   const newAccountsCount = newAccountRows.length > 0
-    ? await createAndDistributeNewAccounts(reconciliationId, clientId, newAccountRows, (paid) => { totalUpdated += paid; })
+    ? await createAndDistributeNewAccounts(reconciliationId, clientId, newAccountRows, (paid) => { totalUpdated += paid; }, commissionConfig)
     : 0;
 
   const status: ProcessResult['status'] = updatedCount === 0 && newAccountsCount === 0 && rows.length > 0 ? 'failed' : 'processed';
@@ -209,6 +231,10 @@ export async function processReconciliationTick(reconciliationId: string, timeBu
   try {
     const allRows: ReconciliationRow[] = JSON.parse(r.rawRows);
     const type = r.type as 'full' | 'partial';
+    // Loaded once per tick, not per row/batch — rates don't change mid-run, and this is
+    // null (no commission math at all) for every client without CommissionRate rows
+    // configured, same as before this feature existed.
+    const commissionConfig = await loadClientCommissionConfig(r.clientId);
     let cursor = r.rowsProcessed;
     let updatedCount = r.updatedCount;
     let totalUpdated = r.totalUpdated;
@@ -271,8 +297,14 @@ export async function processReconciliationTick(reconciliationId: string, timeBu
         debtorUpdates.push(
           prisma.debtor.update({ where: { id: debtor.id }, data: { cumulativePaid: newCumulativePaid, balance: newBalance } })
         );
+        const priced = priceRow(commissionConfig, row.bucketRaw, paidAmount, !!debtor.assignedAgentId);
         entryCreates.push(
-          prisma.reconciliationEntry.create({ data: { reconciliationId, debtorId: debtor.id, oldBalance, newBalance, paidAmount } })
+          prisma.reconciliationEntry.create({
+            data: {
+              reconciliationId, debtorId: debtor.id, oldBalance, newBalance, paidAmount,
+              bucket: priced.bucket, companyCommission: priced.companyCommission, agentCommission: priced.agentCommission,
+            },
+          })
         );
 
         updatedCount++;
@@ -300,7 +332,7 @@ export async function processReconciliationTick(reconciliationId: string, timeBu
     const done = cursor >= allRows.length;
     if (done) {
       const newAccountsCount = pendingNewAccountRows.length > 0
-        ? await createAndDistributeNewAccounts(reconciliationId, r.clientId, pendingNewAccountRows, (paid) => { totalUpdated += paid; })
+        ? await createAndDistributeNewAccounts(reconciliationId, r.clientId, pendingNewAccountRows, (paid) => { totalUpdated += paid; }, commissionConfig)
         : 0;
 
       const status: ProcessResult['status'] = updatedCount === 0 && newAccountsCount === 0 && allRows.length > 0 ? 'failed' : 'processed';
@@ -378,7 +410,8 @@ async function createAndDistributeNewAccounts(
   reconciliationId: string,
   clientId: string,
   newAccountRows: ReconciliationRow[],
-  onPaid: (amount: number) => void
+  onPaid: (amount: number) => void,
+  commissionConfig: ClientCommissionConfig | null
 ): Promise<number> {
   const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
 
@@ -418,9 +451,10 @@ async function createAndDistributeNewAccounts(
     })
     .then((rows) => rows.map((r) => r.assignedAgentId!));
 
+  let assignment = new Map<string, string>();
   if (activeAgentIds.length > 0) {
     const weights = await agentCoverageWeights(clientId, activeAgentIds);
-    const assignment = assignByCoverageWeight(
+    assignment = assignByCoverageWeight(
       created.map((d) => ({ id: d.id, balance: d.balance })),
       weights
     );
@@ -429,8 +463,13 @@ async function createAndDistributeNewAccounts(
 
   // A new account that arrived already partly paid is a real recovery — log it
   // the same way an ordinary reconciliation entry would, so reports pick it up.
-  for (const debtor of created) {
+  // Priced off the source row's own bucket, not the new debtor's freshly-assigned agent's
+  // usual bucket — `created[i]` and `newAccountRows[i]` stay in step because
+  // createManyAndReturn preserves input order.
+  for (let i = 0; i < created.length; i++) {
+    const debtor = created[i];
     if (debtor.cumulativePaid > 0) {
+      const priced = priceRow(commissionConfig, newAccountRows[i].bucketRaw, debtor.cumulativePaid, assignment.has(debtor.id));
       await prisma.reconciliationEntry.create({
         data: {
           reconciliationId,
@@ -438,6 +477,9 @@ async function createAndDistributeNewAccounts(
           oldBalance: debtor.amountOwed,
           newBalance: debtor.balance,
           paidAmount: debtor.cumulativePaid,
+          bucket: priced.bucket,
+          companyCommission: priced.companyCommission,
+          agentCommission: priced.agentCommission,
         },
       });
       onPaid(debtor.cumulativePaid);

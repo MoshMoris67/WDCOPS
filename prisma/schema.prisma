@@ -20,8 +20,32 @@ model Client {
   branch             String   @default("uganda")
   createdAt          DateTime @default(now())
 
+  // Only set for a client whose reconciliation files carry commission-relevant aging
+  // buckets (currently just KCB Mopesa, where each sheet in the file IS a bucket — see
+  // lib/commission.ts). A client with no CommissionRate rows behaves exactly as before;
+  // this is opt-in per client, never a default. agentCommissionShare is per-client since
+  // a future client's split could differ from KCB Mopesa's 20%.
+  commissionRates      CommissionRate[]
+  agentCommissionShare Float            @default(0.20)
+
   files           File[]
   reconciliations Reconciliation[]
+}
+
+// Bucket → commission rate for one client. Admin-managed (see api/commission-rates),
+// same simple pattern as DispositionCode. "bucket" is a canonical key (B30/B60/B90/B120/WO
+// — see lib/commission.ts's canonicalizeBucket), not a raw sheet/column label, so the rate
+// table stays stable even though a client's raw sheet names vary ("90-120" vs "Before 120"
+// both canonicalize to buckets that already have a configured rate here).
+model CommissionRate {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+  bucket   String // B30 | B60 | B90 | B120 | WO
+  rate     Float  // e.g. 0.04 for 4%
+
+  @@unique([clientId, bucket])
+  @@index([clientId])
 }
 
 model File {
@@ -183,6 +207,13 @@ model ReconciliationEntry {
   newBalance       Float
   paidAmount       Float
   createdAt        DateTime       @default(now())
+
+  // Set only when this row's client has commission rates configured (see Client.commissionRates)
+  // — null for every other client's entries, unchanged from before this feature existed.
+  // bucket is the canonical key (see lib/commission.ts) this row's amount was priced at.
+  bucket            String?
+  companyCommission Float?
+  agentCommission   Float?
 
   @@index([reconciliationId])
   @@index([debtorId])

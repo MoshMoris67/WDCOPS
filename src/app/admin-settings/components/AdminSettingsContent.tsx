@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
-import { Building2, Tags, Server, ShieldCheck, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Building2, Tags, Server, ShieldCheck, Percent, Plus, Pencil, Trash2 } from 'lucide-react';
 import Badge from '@/components/ui/Badge';
 import DispositionBadge from '@/components/ui/DispositionBadge';
 import Modal from '@/components/ui/Modal';
@@ -42,6 +42,30 @@ interface CodeForm {
   requiresPtp: boolean;
 }
 
+interface CommissionRateRow {
+  id: string;
+  clientId: string;
+  bucket: string;
+  rate: number; // fraction, e.g. 0.07 for 7%
+}
+
+interface RateForm {
+  bucket: string;
+  ratePercent: string; // entered as a whole percent (e.g. "7"), converted to a fraction on submit
+}
+
+// Mirrors src/lib/commission.ts's BUCKET_ORDER/BUCKET_LABELS — duplicated rather than
+// imported because that module also imports the Prisma client (server-only) and this is
+// a 'use client' component.
+const BUCKET_OPTIONS = [
+  { value: 'B30', label: '30–59' },
+  { value: 'B60', label: '60–89' },
+  { value: 'B90', label: '90–120' },
+  { value: 'B120', label: 'Above 120' },
+  { value: 'WO', label: 'Written off' },
+] as const;
+const BUCKET_LABEL_BY_KEY: Record<string, string> = Object.fromEntries(BUCKET_OPTIONS.map((b) => [b.value, b.label]));
+
 export default function AdminSettingsContent() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState<boolean | null>(null);
@@ -55,8 +79,17 @@ export default function AdminSettingsContent() {
   const [editingCode, setEditingCode] = useState<DispositionCode | null>(null);
   const [codeModalOpen, setCodeModalOpen] = useState(false);
 
+  // Commission rates are per-client (unlike disposition codes, which are global), so this
+  // needs its own client selector rather than one flat list — see lib/commission.ts for
+  // why this exists at all (KCB Mopesa's per-aging-bucket commission structure).
+  const [rateClientId, setRateClientId] = useState('');
+  const [rates, setRates] = useState<CommissionRateRow[]>([]);
+  const [editingRate, setEditingRate] = useState<CommissionRateRow | null>(null);
+  const [rateModalOpen, setRateModalOpen] = useState(false);
+
   const clientForm = useForm<ClientForm>({ defaultValues: { name: '', reconciliationType: 'partial', reportingFrequency: 'weekly' } });
   const codeForm = useForm<CodeForm>({ defaultValues: { code: '', label: '', description: '', color: '#64748B', requiresCallback: false, requiresPtp: false } });
+  const rateForm = useForm<RateForm>({ defaultValues: { bucket: 'B30', ratePercent: '' } });
   const { blocked: offlineBlocked } = useOfflineGuard();
 
   // Bespoke, not useCachedQuery — "not authorized" (wrong role) must never be confused
@@ -98,6 +131,23 @@ export default function AdminSettingsContent() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (authorized === false) router.replace('/agent-dashboard'); }, [authorized, router]);
+
+  // Not cache-first like `load` above — this is parameterized by whichever client is
+  // selected, so there's no single stable cache key for it, and it's an admin-only config
+  // screen that already requires being online to edit anyway.
+  const loadRates = useCallback(async (clientId: string) => {
+    if (!clientId) { setRates([]); return; }
+    try {
+      const res = await fetch(`/api/commission-rates?clientId=${clientId}`);
+      const payload = await res.json();
+      setRates(payload.rates ?? []);
+    } catch {
+      setRates([]);
+    }
+  }, []);
+
+  useEffect(() => { loadRates(rateClientId); }, [rateClientId, loadRates]);
+  useEffect(() => { if (!rateClientId && clients.length > 0) setRateClientId(clients[0].id); }, [clients, rateClientId]);
 
   function openAddClient() {
     setEditingClient(null);
@@ -191,6 +241,55 @@ export default function AdminSettingsContent() {
     }
     toast.success(`${c.code} deleted`);
     await load();
+  }
+
+  function openAddRate() {
+    setEditingRate(null);
+    const nextBucket = BUCKET_OPTIONS.find((b) => !rates.some((r) => r.bucket === b.value))?.value ?? 'B30';
+    rateForm.reset({ bucket: nextBucket, ratePercent: '' });
+    setRateModalOpen(true);
+  }
+
+  function openEditRate(r: CommissionRateRow) {
+    setEditingRate(r);
+    rateForm.reset({ bucket: r.bucket, ratePercent: String(Math.round(r.rate * 1000) / 10) });
+    setRateModalOpen(true);
+  }
+
+  async function onSubmitRate(data: RateForm) {
+    setIsSaving(true);
+    try {
+      const rate = Number(data.ratePercent) / 100;
+      const res = await fetch(editingRate ? `/api/commission-rates/${editingRate.id}` : '/api/commission-rates', {
+        method: editingRate ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingRate ? { rate } : { clientId: rateClientId, bucket: data.bucket, rate }),
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        toast.error(payload.error || 'Could not save commission rate');
+        return;
+      }
+      toast.success(editingRate ? 'Rate updated' : 'Rate added');
+      setRateModalOpen(false);
+      await loadRates(rateClientId);
+    } catch {
+      toast.error('Could not reach the server — try again');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function deleteRate(r: CommissionRateRow) {
+    if (!window.confirm(`Delete the ${BUCKET_LABEL_BY_KEY[r.bucket] ?? r.bucket} commission rate for this client?`)) return;
+    const res = await fetch(`/api/commission-rates/${r.id}`, { method: 'DELETE' });
+    const payload = await res.json();
+    if (!res.ok) {
+      toast.error(payload.error || 'Could not delete rate');
+      return;
+    }
+    toast.success('Rate deleted');
+    await loadRates(rateClientId);
   }
 
   if (authorized === null) {
@@ -326,6 +425,74 @@ export default function AdminSettingsContent() {
                   </td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="bg-card rounded-xl shadow-card border border-border">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Percent size={16} className="text-primary" />
+            <h2 className="text-section-header text-foreground">Commission Rates</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={rateClientId}
+              onChange={(e) => setRateClientId(e.target.value)}
+              className="text-sm bg-input border border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/50"
+            >
+              {clients.length === 0 && <option value="">No clients yet</option>}
+              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <button
+              onClick={openAddRate}
+              disabled={offlineBlocked || !rateClientId || rates.length >= BUCKET_OPTIONS.length}
+              title={!rateClientId ? 'Select a client first' : rates.length >= BUCKET_OPTIONS.length ? 'Every bucket already has a rate' : offlineBlocked ? 'Offline — reconnect to add a rate' : undefined}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <Plus size={14} />
+              Add Rate
+            </button>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground px-5 pt-3">
+          Only applies to a client whose reconciliation files carry aging buckets by sheet (currently
+          KCB Mopesa) — a client with no rates configured here is completely unaffected. A bucket left
+          unconfigured falls back to a standard rate (4/7/9/10/10%) rather than earning nothing.
+        </p>
+        <div className="overflow-x-auto scrollbar-thin">
+          <table className="w-full text-table-cell">
+            <thead>
+              <tr className="border-b border-border bg-secondary/30">
+                {['Aging Band', 'Rate', ''].map((col) => (
+                  <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{col}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rates.map((r) => (
+                <tr key={r.id} className="border-b border-border/60 hover:bg-secondary/30 transition-colors group">
+                  <td className="px-4 py-2.5 text-sm text-foreground">{BUCKET_LABEL_BY_KEY[r.bucket] ?? r.bucket}</td>
+                  <td className="px-4 py-2.5 text-sm font-tabular text-foreground">{(r.rate * 100).toFixed(1)}%</td>
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => openEditRate(r)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit'}>
+                        <Pencil size={14} />
+                      </button>
+                      <button onClick={() => deleteRate(r)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {rateClientId && rates.length === 0 && (
+                <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-muted-foreground">No commission rates set for this client — standard rates (4/7/9/10/10%) apply until you add some.</td></tr>
+              )}
+              {!rateClientId && (
+                <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-muted-foreground">Add a client first.</td></tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -468,6 +635,66 @@ export default function AdminSettingsContent() {
               <input type="checkbox" className="accent-primary" {...codeForm.register('requiresPtp')} />
               Prompts for PTP amount/date
             </label>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Commission rate add/edit modal */}
+      <Modal
+        open={rateModalOpen}
+        onClose={() => setRateModalOpen(false)}
+        title={editingRate ? 'Edit Commission Rate' : 'Add Commission Rate'}
+        subtitle="Applies to reconciliations processed after this is saved — already-processed entries keep whatever rate applied at the time"
+        footer={
+          <>
+            <button
+              onClick={() => setRateModalOpen(false)}
+              className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              form="rate-form"
+              type="submit"
+              disabled={isSaving || offlineBlocked}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60"
+            >
+              <Plus size={15} />
+              {isSaving ? 'Saving…' : editingRate ? 'Save Changes' : 'Add Rate'}
+            </button>
+          </>
+        }
+      >
+        <form id="rate-form" onSubmit={rateForm.handleSubmit(onSubmitRate)} className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-foreground">Aging Band</label>
+            <select
+              disabled={!!editingRate}
+              className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:opacity-60"
+              {...rateForm.register('bucket')}
+            >
+              {BUCKET_OPTIONS.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+            </select>
+            {editingRate && <p className="text-xs text-muted-foreground">The band can&apos;t be changed after it&apos;s created — delete and re-add instead.</p>}
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-foreground">Commission Rate (%) <span className="text-negative">*</span></label>
+            <input
+              type="number"
+              step="0.1"
+              min="0.1"
+              max="100"
+              placeholder="e.g. 7"
+              className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${rateForm.formState.errors.ratePercent ? 'border-negative' : 'border-border'}`}
+              {...rateForm.register('ratePercent', {
+                required: 'Enter a commission rate',
+                validate: (v) => {
+                  const n = Number(v);
+                  return (Number.isFinite(n) && n > 0 && n <= 100) || 'Enter a percentage between 0 and 100';
+                },
+              })}
+            />
+            {rateForm.formState.errors.ratePercent && <p className="text-xs text-negative">{rateForm.formState.errors.ratePercent.message}</p>}
           </div>
         </form>
       </Modal>

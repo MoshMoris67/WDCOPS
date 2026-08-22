@@ -36,7 +36,7 @@ export async function POST(req: Request) {
   if (!debtor) return NextResponse.json({ error: 'Debtor not found' }, { status: 404 });
 
   const rows: ReconciliationRow[] = [
-    { rowNumber: 1, loanRef: debtor.loanRef, phone: null, amount, name: null, amountOwed: null },
+    { rowNumber: 1, loanRef: debtor.loanRef, phone: null, amount, name: null, amountOwed: null, bucketRaw: null },
   ];
 
   const reconciliation = await prisma.reconciliation.create({

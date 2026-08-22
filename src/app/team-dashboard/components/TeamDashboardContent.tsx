@@ -69,6 +69,31 @@ interface AgentPerfRow {
   recovered: number;
 }
 
+interface CommissionBucketRow {
+  bucket: string;
+  label: string;
+  loans: number;
+  collections: number;
+  companyCommission: number;
+  agentCommission: number;
+}
+
+interface CommissionAgentRow {
+  agentId: string;
+  agentName: string;
+  loans: number;
+  collections: number;
+  companyCommission: number;
+  agentCommission: number;
+}
+
+interface CommissionCard {
+  clientId: string;
+  clientName: string;
+  buckets: CommissionBucketRow[];
+  agents: CommissionAgentRow[];
+}
+
 const dispositionVariantMap: Record<string, 'cb' | 'ptp' | 'np' | 'na' | 'hu' | 'nb' | 'db' | 'so' | 'os'> = {
   CB: 'cb', PTP: 'ptp', NP: 'np', NA: 'na', HU: 'hu', NB: 'nb', DB: 'db', SO: 'so', OS: 'os',
 };
@@ -99,6 +124,7 @@ export default function TeamDashboardContent() {
   const [perfClientId, setPerfClientId] = useState('All');
   const [perfFileId, setPerfFileId] = useState('All');
   const [perfAgentId, setPerfAgentId] = useState('All');
+  const [commissionCards, setCommissionCards] = useState<CommissionCard[]>([]);
 
   const { blocked: mutationsBlocked, reason: offlineReason } = useOfflineGuard();
 
@@ -138,6 +164,29 @@ export default function TeamDashboardContent() {
   useEffect(() => {
     if (authorized === false) router.replace('/agent-dashboard');
   }, [authorized, router]);
+
+  // One request per client (small, fixed-size list) rather than a single combined
+  // endpoint — /api/team/commission itself decides per client whether commission
+  // tracking is even on (any CommissionRate rows configured; see lib/commission.ts), so
+  // most clients resolve to `enabled: false` and are simply left out of the result here.
+  useEffect(() => {
+    if (!authorized || clients.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const results = await Promise.all(clients.map(async (c) => {
+        try {
+          const res = await fetch(`/api/team/commission?clientId=${c.id}`);
+          const payload = await res.json();
+          if (!payload.enabled) return null;
+          return { clientId: c.id, clientName: c.name, buckets: payload.buckets ?? [], agents: payload.agents ?? [] } as CommissionCard;
+        } catch {
+          return null;
+        }
+      }));
+      if (!cancelled) setCommissionCards(results.filter((r): r is CommissionCard => r !== null));
+    })();
+    return () => { cancelled = true; };
+  }, [authorized, clients]);
 
   const { data: filesData } = useCachedQuery<{ files: FileOption[] }>(authorized ? '/api/files' : null);
   const files = filesData?.files ?? [];
@@ -516,6 +565,74 @@ export default function TeamDashboardContent() {
           </table>
         </div>
       </div>
+
+      {/* Commission — one card per client with commission tracking configured */}
+      {commissionCards.map((card) => {
+        const totalCompany = card.buckets.reduce((s, b) => s + b.companyCommission, 0);
+        const totalAgent = card.buckets.reduce((s, b) => s + b.agentCommission, 0);
+        return (
+          <div key={card.clientId} className="bg-card rounded-xl shadow-card border border-border">
+            <div className="px-5 py-4 border-b border-border">
+              <h2 className="text-section-header text-foreground">Commission — {card.clientName}</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {formatUGX(totalCompany)} company commission · {formatUGX(totalAgent)} agent commission (20% share)
+              </p>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border bg-secondary/30">
+                      {['Band', 'Loans', 'Collections', 'Company', 'Agent (20%)'].map((col) => (
+                        <th key={col} className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {card.buckets.map((b) => (
+                      <tr key={b.bucket} className="border-b border-border/60">
+                        <td className="px-3 py-2 whitespace-nowrap text-sm text-foreground">{b.label}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{b.loans}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{formatUGX(b.collections)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm font-semibold text-positive">{formatUGX(b.companyCommission)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{formatUGX(b.agentCommission)}</td>
+                      </tr>
+                    ))}
+                    {card.buckets.length === 0 && (
+                      <tr><td colSpan={5} className="px-3 py-6 text-center text-sm text-muted-foreground">No priced collections yet.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border bg-secondary/30">
+                      {['Agent', 'Loans', 'Collections', 'Company', 'Agent (20%)'].map((col) => (
+                        <th key={col} className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {card.agents.map((a) => (
+                      <tr key={a.agentId} className="border-b border-border/60">
+                        <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-foreground">{a.agentName}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{a.loans}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{formatUGX(a.collections)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm font-semibold text-positive">{formatUGX(a.companyCommission)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm font-semibold text-foreground">{formatUGX(a.agentCommission)}</td>
+                      </tr>
+                    ))}
+                    {card.agents.length === 0 && (
+                      <tr><td colSpan={5} className="px-3 py-6 text-center text-sm text-muted-foreground">No agent has collections priced yet.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+      })}
       </div>
     </div>
   );

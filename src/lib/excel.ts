@@ -80,7 +80,30 @@ function cellFromXlsxValue(value: ExcelJS.CellValue): string {
  * raw Excel serial instead — see previewXlsxFast below, where this was first verified
  * correct against real data (zero mismatches vs. the old DOM approach on 77,217 rows).
  */
-async function streamXlsxTable(buffer: ArrayBuffer): Promise<string[][][]> {
+interface NamedSheet {
+  name: string;
+  rows: string[][];
+}
+
+/**
+ * Reads every sheet of an .xlsx workbook via exceljs's streaming reader rather than
+ * `workbook.xlsx.load()`'s full DOM build — confirmed ~2.3x faster on a real 77,217-row
+ * file (14.5s vs 34s locally), which matters because this is the path a background worker
+ * tick runs to parse a newly-uploaded file (see lib/file-import.ts): a slow enough parse
+ * here risks the tick itself running long enough for Render's own proxy to kill the
+ * connection before the parse ever finishes (confirmed happening in production — a 2m31s
+ * tick came back as a 502). `styles: 'cache'` matters and isn't the default: without it
+ * exceljs can't tell a date-formatted numeric cell from a plain number and returns the
+ * raw Excel serial instead — see previewXlsxFast below, where this was first verified
+ * correct against real data (zero mismatches vs. the old DOM approach on 77,217 rows).
+ *
+ * Sheet names are kept (not just rows) because some clients' files use the sheet itself
+ * as a data field — e.g. KCB Mopesa's reconciliation exports have one sheet per aging
+ * bucket ("30-59", "60-89", ...) with no bucket column at all. `worksheetReader.name` isn't
+ * in exceljs's own .d.ts but is genuinely set at runtime (confirmed by reading
+ * node_modules/exceljs/lib/stream/xlsx/workbook-reader.js) — hence the cast.
+ */
+async function streamXlsxSheets(buffer: ArrayBuffer): Promise<NamedSheet[]> {
   const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from([Buffer.from(buffer)]), {
     styles: 'cache',
     sharedStrings: 'cache',
@@ -88,7 +111,7 @@ async function streamXlsxTable(buffer: ArrayBuffer): Promise<string[][][]> {
     worksheets: 'emit',
   });
 
-  const sheets: string[][][] = [];
+  const sheets: NamedSheet[] = [];
   for await (const worksheetReader of workbookReader) {
     const rows: string[][] = [];
     for await (const row of worksheetReader) {
@@ -96,7 +119,8 @@ async function streamXlsxTable(buffer: ArrayBuffer): Promise<string[][][]> {
       row.eachCell({ includeEmpty: true }, (cell) => cells.push(cellFromXlsxValue(cell.value)));
       rows.push(cells);
     }
-    sheets.push(rows);
+    const name = (worksheetReader as unknown as { name?: string }).name ?? `Sheet${sheets.length + 1}`;
+    sheets.push({ name, rows });
   }
   return sheets;
 }
@@ -111,20 +135,37 @@ function rowsMatch(a: string[], b: string[]): boolean {
  * duplicate rather than imported as a debtor. Shared by both the .xlsx and .xlsb
  * loaders below: a client splitting one roster across tabs (row-limit workaround)
  * and a client splitting one roster into aging-bucket tabs (30-59 days, 60-89, ...,
- * seen in a real .xlsb reconciliation file) both want the same flattened result. */
-function mergeSheets(sheets: string[][][]): string[][] {
+ * seen in a real .xlsb reconciliation file) both want the same flattened result.
+ * sheetTags[i] names which sheet table[i] came from — only consumed when a caller
+ * actually needs it (loadTableWithSheetTags); loadTable just takes .table. */
+function mergeNamedSheets(sheets: NamedSheet[]): { table: string[][]; sheetTags: string[] } {
+  const table: string[][] = [];
+  const sheetTags: string[] = [];
   const [firstSheet, ...restSheets] = sheets;
-  if (!firstSheet) return [];
-  const rows = [...firstSheet];
-  const headerRow = rows[0];
+  if (!firstSheet) return { table, sheetTags };
 
-  for (const sheetRows of restSheets) {
-    if (sheetRows.length === 0) continue;
-    const startsWithRepeatedHeader = headerRow && rowsMatch(sheetRows[0], headerRow);
-    rows.push(...sheetRows.slice(startsWithRepeatedHeader ? 1 : 0));
+  // Loop-appended, not `arr.push(...rows)` — a real client file had a sheet with over a
+  // million rows (a phantom "used range" bloated far past its actual data, confirmed
+  // separately), and spreading that many arguments into push() blows JS's call-stack
+  // argument limit (RangeError: Maximum call stack size exceeded, confirmed by direct
+  // testing against that exact file).
+  for (const row of firstSheet.rows) {
+    table.push(row);
+    sheetTags.push(firstSheet.name);
+  }
+  const headerRow = firstSheet.rows[0];
+
+  for (const sheet of restSheets) {
+    if (sheet.rows.length === 0) continue;
+    const startsWithRepeatedHeader = headerRow && rowsMatch(sheet.rows[0], headerRow);
+    const start = startsWithRepeatedHeader ? 1 : 0;
+    for (let i = start; i < sheet.rows.length; i++) {
+      table.push(sheet.rows[i]);
+      sheetTags.push(sheet.name);
+    }
   }
 
-  return rows;
+  return { table, sheetTags };
 }
 
 function cellFromXlsbValue(value: unknown): string {
@@ -138,16 +179,29 @@ function cellFromXlsbValue(value: unknown): string {
  * `cellDates: true` and manual string conversion (matching cellFromXlsxValue's approach
  * for the .xlsx path) keeps numeric precision exact rather than trusting a locale-aware
  * display-formatted string, which matters for financial columns. */
-function loadXlsbTable(buffer: ArrayBuffer): string[][] {
+function loadXlsbSheets(buffer: ArrayBuffer): NamedSheet[] {
   const workbook = XLSX.read(Buffer.from(buffer), { type: 'buffer', cellDates: true, raw: true });
   if (workbook.SheetNames.length === 0) throw new Error('The workbook has no sheets');
 
-  const sheets = workbook.SheetNames.map((name) => {
+  return workbook.SheetNames.map((name) => {
     const json = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[name], { header: 1, raw: true, defval: '' });
-    return json.map((row) => row.map(cellFromXlsbValue));
+    return { name, rows: json.map((row) => row.map(cellFromXlsbValue)) };
   });
+}
 
-  return mergeSheets(sheets);
+/** Loads a file's sheets, tagged by name, for every supported format — .csv has no
+ * concept of multiple sheets, so it's wrapped as a single pseudo-sheet named after the
+ * file for interface consistency (a caller asking for sheet tags on a .csv just gets the
+ * filename repeated for every row, which correctly canonicalizes to no bucket rather than
+ * mispricing anything). */
+async function loadNamedSheets(buffer: ArrayBuffer, filename: string): Promise<NamedSheet[]> {
+  if (isCsv(filename)) {
+    return [{ name: filename, rows: parseCsvText(Buffer.from(buffer).toString('utf8')) }];
+  }
+  if (isXlsb(filename)) {
+    return loadXlsbSheets(buffer);
+  }
+  return streamXlsxSheets(buffer);
 }
 
 /**
@@ -155,16 +209,22 @@ function loadXlsbTable(buffer: ArrayBuffer): string[][] {
  * streaming reader, .xlsb via SheetJS, .csv via the fast tokenizer above.
  */
 export async function loadTable(buffer: ArrayBuffer, filename: string): Promise<string[][]> {
-  if (isCsv(filename)) {
-    return parseCsvText(Buffer.from(buffer).toString('utf8'));
-  }
-  if (isXlsb(filename)) {
-    return loadXlsbTable(buffer);
-  }
-  const sheets = await streamXlsxTable(buffer);
+  const sheets = await loadNamedSheets(buffer, filename);
   if (sheets.length === 0) throw new Error('The workbook has no sheets');
+  return mergeNamedSheets(sheets).table;
+}
 
-  return mergeSheets(sheets);
+/**
+ * Same as loadTable, but also returns which sheet each row came from (sheetTags[i] is the
+ * origin sheet name of table[i]) — for clients whose files use the sheet itself as a data
+ * field (see lib/commission.ts: KCB Mopesa's reconciliation exports are one sheet per
+ * aging bucket, no bucket column). Only worth the extra bookkeeping for callers that
+ * actually need it, so loadTable stays the default for everything else.
+ */
+export async function loadTableWithSheetTags(buffer: ArrayBuffer, filename: string): Promise<{ table: string[][]; sheetTags: string[] }> {
+  const sheets = await loadNamedSheets(buffer, filename);
+  if (sheets.length === 0) throw new Error('The workbook has no sheets');
+  return mergeNamedSheets(sheets);
 }
 
 /**
@@ -301,6 +361,8 @@ function findColumnFuzzy(cols: Map<string, number>, substrings: readonly string[
   return undefined;
 }
 
+const AMOUNT_PAID_FUZZY = ['paid', 'repay', 'collect', 'received', 'rept', 'cum'] as const;
+
 /** Best-effort auto-detect from a header row — a starting point for the admin to confirm/adjust, not a guarantee. */
 export function suggestImportMapping(headers: string[]): ImportMapping {
   const cols = headerColumnMap(headers);
@@ -339,7 +401,7 @@ export interface FilePreview {
  * respectively — confirmed by direct testing), so there's no equivalent early-stop path built for either. */
 export async function previewImportFile(buffer: ArrayBuffer, filename: string): Promise<FilePreview> {
   if (isXlsb(filename)) {
-    const table = loadXlsbTable(buffer);
+    const table = mergeNamedSheets(loadXlsbSheets(buffer)).table;
     const headers = table[0] ?? [];
     return {
       headers,
@@ -464,6 +526,10 @@ export interface ReconciliationRow {
    * existing debtor but has these becomes a new account instead of an unmatched-row warning. */
   name: string | null;
   amountOwed: number | null;
+  /** The raw sheet name this row came from, when the caller loaded the file with
+   * loadTableWithSheetTags — set for clients whose files use the sheet itself as a bucket
+   * (see lib/commission.ts), null otherwise. Not a column value; independent of `mapping`. */
+  bucketRaw: string | null;
 }
 
 export interface ReconciliationMapping {
@@ -482,9 +548,16 @@ export function suggestReconciliationMapping(headers: string[], type: 'full' | '
 
   const loanRefCol = findColumn(cols, SYNONYMS.loanRef);
   const phoneCol = findColumn(cols, SYNONYMS.phone) ?? findColumnFuzzy(cols, ['phone', 'mobile', 'tel', 'msisdn', 'contact']);
+  // Exact-synonym match first, same as everywhere else; the fuzzy fallback exists because
+  // "amount paid" headers vary more than most — confirmed against a real client file whose
+  // column was "Cumm. Rep'ts" (Cumulative Repayments, abbreviated), which doesn't match any
+  // exact synonym and was silently left unmapped, letting every matched row through with a
+  // $0 payment instead of what the file actually said. Kept narrow (not e.g. 'amount' alone,
+  // which would collide with amountOwed/balance-style columns) — still just a suggestion the
+  // admin confirms before anything is submitted.
   const amountCol = type === 'full'
-    ? findColumn(cols, SYNONYMS.cumulativePaid) ?? findColumn(cols, SYNONYMS.amountPaid)
-    : findColumn(cols, SYNONYMS.amountPaid) ?? findColumn(cols, SYNONYMS.cumulativePaid);
+    ? findColumn(cols, SYNONYMS.cumulativePaid) ?? findColumn(cols, SYNONYMS.amountPaid) ?? findColumnFuzzy(cols, AMOUNT_PAID_FUZZY)
+    : findColumn(cols, SYNONYMS.amountPaid) ?? findColumn(cols, SYNONYMS.cumulativePaid) ?? findColumnFuzzy(cols, AMOUNT_PAID_FUZZY);
   const nameCol = findColumn(cols, SYNONYMS.name) ?? findColumnFuzzy(cols, ['name']);
   const amountOwedCol = findColumn(cols, SYNONYMS.amountOwed);
 
@@ -502,7 +575,7 @@ export interface ReconciliationPreview {
 /** Parses just enough of the file to show a mapping-confirmation step — mirrors previewImportFile. */
 export async function previewReconciliationFile(buffer: ArrayBuffer, filename: string, type: 'full' | 'partial'): Promise<ReconciliationPreview> {
   if (isXlsb(filename)) {
-    const table = loadXlsbTable(buffer);
+    const table = mergeNamedSheets(loadXlsbSheets(buffer)).table;
     const headers = table[0] ?? [];
     return {
       headers,
@@ -531,7 +604,12 @@ export async function previewReconciliationFile(buffer: ArrayBuffer, filename: s
  * a preview, the same pattern parseImportRows uses so a reconciliation file with unfamiliar
  * headers doesn't just fail with "no valid rows found."
  */
-export function parseReconciliationRows(table: string[][], mapping: ReconciliationMapping, type: 'full' | 'partial'): ParseResult<ReconciliationRow> {
+export function parseReconciliationRows(
+  table: string[][],
+  mapping: ReconciliationMapping,
+  type: 'full' | 'partial',
+  sheetTags?: string[]
+): ParseResult<ReconciliationRow> {
   const { loanRefCol, phoneCol, amountCol, nameCol, amountOwedCol } = mapping;
 
   const errors: string[] = [];
@@ -562,7 +640,7 @@ export function parseReconciliationRows(table: string[][], mapping: Reconciliati
       errors.push(`Row ${rowNumber}: no payment amount, and not enough info (name, phone, amount owed) to add as a new account — skipped`);
       continue;
     }
-    rows.push({ rowNumber, loanRef, phone, amount: amount ?? 0, name, amountOwed });
+    rows.push({ rowNumber, loanRef, phone, amount: amount ?? 0, name, amountOwed, bucketRaw: sheetTags?.[i] ?? null });
   }
 
   return { rows, errors };
