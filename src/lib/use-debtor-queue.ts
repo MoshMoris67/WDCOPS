@@ -10,6 +10,7 @@ interface UseDebtorQueueResult {
   isFromCache: boolean;
   cachedAt: string | null;
   error: string | null;
+  refetch: () => void;
 }
 
 /** The agent's full assigned queue — same data `/api/debtors?scope=mine` returns, mirrored
@@ -21,9 +22,12 @@ export function useDebtorQueue(): UseDebtorQueueResult {
   const [isFromCache, setIsFromCache] = useState(false);
   const [cachedAt, setCachedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refetchTick, setRefetchTick] = useState(0);
+  const refetch = () => setRefetchTick((n) => n + 1);
 
   useEffect(() => {
     let cancelled = false;
+    setError(null);
 
     (async () => {
       const cached = await getCachedDebtors();
@@ -61,7 +65,7 @@ export function useDebtorQueue(): UseDebtorQueueResult {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refetchTick]);
 
   useEffect(() => {
     const onChanged = () => {
@@ -73,7 +77,7 @@ export function useDebtorQueue(): UseDebtorQueueResult {
     return () => window.removeEventListener(CACHE_CHANGED_EVENT, onChanged);
   }, []);
 
-  return { debtors, isLoading, isFromCache, cachedAt, error };
+  return { debtors, isLoading, isFromCache, cachedAt, error, refetch };
 }
 
 /** A single queue row, for the debtor-detail page to fall back to when the full detail

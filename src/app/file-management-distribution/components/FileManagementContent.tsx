@@ -229,7 +229,7 @@ export default function FileManagementContent() {
   }
 
   const distributionUrl = distributionFileId ? `/api/files/${distributionFileId}/distribution` : null;
-  const { data: distributionPayload } = useCachedQuery<{ distribution: DistributionRow[] }>(distributionUrl);
+  const { data: distributionPayload, refetch: refetchDistribution } = useCachedQuery<{ distribution: DistributionRow[] }>(distributionUrl);
   const distributionData = distributionPayload?.distribution ?? [];
 
   const filtered = files.filter(f => {
@@ -332,6 +332,7 @@ export default function FileManagementContent() {
         return;
       }
       refetchFiles();
+      refetchDistribution();
       toast.success(`Distribution triggered — ${payload.assignedCount} debtors split across ${payload.agentsUsed} agents`);
     } catch {
       toast.error('Could not reach the server — try again');
@@ -356,10 +357,14 @@ export default function FileManagementContent() {
       }
       setRebalanceAgentId('');
       refetchFiles();
+      refetchDistribution();
       if (payload.reassignedCount > 0) {
         toast.success(payload.message);
       } else {
-        toast.info(payload.message);
+        // Genuinely zero debtors moved — worth flagging loudly rather than as a passable
+        // info toast, since to the admin this looks identical to "the add worked" unless
+        // they read the message closely.
+        toast.error(payload.message);
       }
     } catch {
       toast.error('Could not reach the server — try again');
@@ -386,6 +391,7 @@ export default function FileManagementContent() {
         return;
       }
       refetchFiles();
+      refetchDistribution();
       toast.success(`${payload.movedCount} debtor(s) moved, ${payload.keptCount} left with their current agent`);
     } catch {
       toast.error('Could not reach the server — try again');

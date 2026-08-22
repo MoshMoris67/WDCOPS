@@ -37,7 +37,7 @@ export default function AgentQueueContent() {
   const searchParams = useSearchParams();
   const selectedId = searchParams.get('selected');
   const isWide = useIsWide();
-  const { debtors: debtorQueue, isLoading } = useDebtorQueue();
+  const { debtors: debtorQueue, isLoading, error: queueError, refetch: refetchQueue } = useDebtorQueue();
   const [search, setSearch] = useState('');
   const [filterClient, setFilterClient] = useState('All');
   const [sortField, setSortField] = useState<string | null>(null);
@@ -134,6 +134,25 @@ export default function AgentQueueContent() {
             </p>
             <p className="text-xs text-warning/80">Your logs are saved locally. They will sync automatically when you reconnect.</p>
           </div>
+        </div>
+      )}
+
+      {/* A failed fetch used to look identical to "no debtors assigned" — same empty
+          table, no indication anything went wrong. This makes that failure visible
+          instead of silently showing 0. */}
+      {queueError && (
+        <div className="flex items-center gap-3 bg-[var(--warning-bg)] border border-[#FDE68A] rounded-lg px-4 py-3">
+          <AlertTriangle size={16} className="text-warning shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-warning">Could not load your queue — showing what&apos;s saved on this device.</p>
+            <p className="text-xs text-warning/80">{queueError}. Your actual assigned list may be different from what&apos;s shown below.</p>
+          </div>
+          <button
+            onClick={refetchQueue}
+            className="text-xs font-semibold text-warning hover:underline shrink-0"
+          >
+            Retry
+          </button>
         </div>
       )}
 

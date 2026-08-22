@@ -93,12 +93,20 @@ export async function rebalanceFileForNewAgent(fileId: string, newAgentId: strin
     // Every move here lands on the same newAgentId, so this is one updateMany — not
     // one update per debtor (see lib/assignment.ts for the multi-target version used
     // by initial distribution, where different debtors go to different agents).
-    await prisma.$transaction([
-      prisma.debtor.updateMany({ where: { id: { in: allMoves.map((m) => m.debtorId) } }, data: { assignedAgentId: newAgentId } }),
-      prisma.assignment.createMany({
-        data: allMoves.map((m) => ({ debtorId: m.debtorId, agentId: newAgentId, reassignedFromId: m.fromAgentId })),
-      }),
-    ]);
+    // Custom timeout for the same reason as applyAssignment (lib/assignment.ts) — a big
+    // file's worth of moves can outrun Prisma's 5s default on a resource-constrained
+    // self-hosted Postgres, rolling everything back silently. The array (batch) form of
+    // $transaction only accepts isolationLevel, not timeout, so this uses the interactive
+    // callback form instead.
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.debtor.updateMany({ where: { id: { in: allMoves.map((m) => m.debtorId) } }, data: { assignedAgentId: newAgentId } });
+        await tx.assignment.createMany({
+          data: allMoves.map((m) => ({ debtorId: m.debtorId, agentId: newAgentId, reassignedFromId: m.fromAgentId })),
+        });
+      },
+      { timeout: 60_000 }
+    );
   }
 
   return {

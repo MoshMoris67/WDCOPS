@@ -20,16 +20,26 @@ export async function applyAssignment(
     debtorIdsByAgent.get(agentId)!.push(debtorId);
   }
 
-  await prisma.$transaction([
-    ...[...debtorIdsByAgent.entries()].map(([agentId, debtorIds]) =>
-      prisma.debtor.updateMany({ where: { id: { in: debtorIds } }, data: { assignedAgentId: agentId } })
-    ),
-    prisma.assignment.createMany({
-      data: [...assignment.entries()].map(([debtorId, agentId]) => ({
-        debtorId,
-        agentId,
-        reassignedFromId: reassignedFrom?.get(debtorId) ?? null,
-      })),
-    }),
-  ]);
+  // Prisma's default transaction timeout is 5s — comfortably enough for a small file, but
+  // a full-file distribution across tens of thousands of debtors on a resource-constrained
+  // self-hosted Postgres can exceed that, rolling back every updateMany and every
+  // Assignment row silently: the caller sees a network/500 error, but if that error isn't
+  // clearly surfaced, admin and agent alike can be left thinking a distribution "took" when
+  // nothing was persisted. The array (batch) form of $transaction only accepts
+  // isolationLevel, not timeout, so this uses the interactive callback form instead.
+  await prisma.$transaction(
+    async (tx) => {
+      for (const [agentId, debtorIds] of debtorIdsByAgent) {
+        await tx.debtor.updateMany({ where: { id: { in: debtorIds } }, data: { assignedAgentId: agentId } });
+      }
+      await tx.assignment.createMany({
+        data: [...assignment.entries()].map(([debtorId, agentId]) => ({
+          debtorId,
+          agentId,
+          reassignedFromId: reassignedFrom?.get(debtorId) ?? null,
+        })),
+      });
+    },
+    { timeout: 60_000 }
+  );
 }

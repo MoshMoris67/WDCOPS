@@ -1,36 +1,56 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
-import { bandForBalance, BALANCE_BANDS } from '@/lib/distribution';
+import { BALANCE_BANDS, type BandKey } from '@/lib/distribution';
+
+// One numeric range per band — kept in sync with lib/distribution.ts's bandForBalance,
+// which this route used to replicate in JS after fetching every debtor row (including the
+// full joined agent row) for the file. For a file with tens of thousands of assigned
+// debtors that's the same unbounded-fetch anti-pattern already fixed for file import and
+// reconciliation processing elsewhere this session — counting per band in the database via
+// groupBy avoids ever materializing more than a handful of rows per agent.
+const BAND_RANGE: Record<BandKey, { gt?: number; lte?: number }> = {
+  band0_500k: { lte: 500_000 },
+  band500k_2m: { gt: 500_000, lte: 2_000_000 },
+  band2m_5m: { gt: 2_000_000, lte: 5_000_000 },
+  band5m_plus: { gt: 5_000_000 },
+};
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
   const { id } = await params;
-  const debtors = await prisma.debtor.findMany({
-    where: { fileId: id, assignedAgentId: { not: null } },
-    include: { assignedAgent: true },
-  });
 
-  const byAgent = new Map<string, { agentId: string; agentName: string; counts: Record<string, number> }>();
-  for (const d of debtors) {
-    const agentId = d.assignedAgentId!;
-    if (!byAgent.has(agentId)) {
-      byAgent.set(agentId, {
-        agentId,
-        agentName: d.assignedAgent!.name,
-        counts: Object.fromEntries(BALANCE_BANDS.map((b) => [b.key, 0])),
+  const byAgent = new Map<string, Record<BandKey, number>>();
+  await Promise.all(
+    BALANCE_BANDS.map(async (band) => {
+      const rows = await prisma.debtor.groupBy({
+        by: ['assignedAgentId'],
+        where: { fileId: id, assignedAgentId: { not: null }, balance: BAND_RANGE[band.key] },
+        _count: { _all: true },
       });
-    }
-    byAgent.get(agentId)!.counts[bandForBalance(d.balance)]++;
-  }
+      for (const r of rows) {
+        const agentId = r.assignedAgentId!;
+        if (!byAgent.has(agentId)) {
+          byAgent.set(agentId, Object.fromEntries(BALANCE_BANDS.map((b) => [b.key, 0])) as Record<BandKey, number>);
+        }
+        byAgent.get(agentId)![band.key] = r._count._all;
+      }
+    })
+  );
 
-  const rows = [...byAgent.values()].map((row) => ({
-    agentId: row.agentId,
-    agentName: row.agentName,
-    ...row.counts,
-    total: Object.values(row.counts).reduce((s, n) => s + n, 0),
+  const agentIds = [...byAgent.keys()];
+  const agents = agentIds.length > 0
+    ? await prisma.user.findMany({ where: { id: { in: agentIds } }, select: { id: true, name: true } })
+    : [];
+  const nameById = new Map(agents.map((a) => [a.id, a.name]));
+
+  const rows = [...byAgent.entries()].map(([agentId, counts]) => ({
+    agentId,
+    agentName: nameById.get(agentId) ?? 'Unknown',
+    ...counts,
+    total: Object.values(counts).reduce((s, n) => s + n, 0),
   }));
 
   return NextResponse.json({ distribution: rows });
