@@ -37,15 +37,14 @@ export async function GET(req: Request) {
 
   const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
   const requestedPageSize = Number(url.searchParams.get('pageSize'));
-  // The admin/unscoped path genuinely needs the 100 cap — it's paginating against a
-  // table that can be 85,000+ rows. An agent's own queue (scope=mine) is bounded by
-  // however many debtors got distributed to one person — capping it at the same 100
-  // was the actual bug here: a real 600+-debtor queue was silently truncated to the
-  // first 100 (ordered by createdAt), with nothing telling the agent or admin the rest
-  // were missing.
-  const pageSize = mineOnly
-    ? (requestedPageSize > 0 ? Math.min(5000, requestedPageSize) : 5000)
-    : Math.min(100, requestedPageSize > 0 ? requestedPageSize : 25);
+  // The admin/unscoped path genuinely needs a cap — it's paginating against a table that
+  // can be 85,000+ rows. An agent's own queue (scope=mine) gets no cap at all: it's
+  // bounded by however many debtors got distributed to one person, and a fixed number
+  // here has already been the actual bug twice — first at 100 (a 600+-debtor queue
+  // silently truncated), then again once real queues grew past the 5000 that replaced
+  // it. No number picked today stays safely ahead of queue sizes as the roster and
+  // client base keep growing, so this path just returns everything, always.
+  const pageSize = mineOnly ? undefined : Math.min(100, requestedPageSize > 0 ? requestedPageSize : 25);
 
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
@@ -59,8 +58,7 @@ export async function GET(req: Request) {
         reconciliationEntries: { where: { createdAt: { gte: sevenDaysAgo } }, take: 1 },
       },
       orderBy: { createdAt: 'asc' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      ...(mineOnly ? {} : { skip: (page - 1) * (pageSize as number), take: pageSize }),
     }),
   ]);
 
@@ -76,5 +74,5 @@ export async function GET(req: Request) {
     ...computeDebtorStatus(d.callLogs),
   }));
 
-  return NextResponse.json({ debtors: result, total, page, pageSize });
+  return NextResponse.json({ debtors: result, total, page, pageSize: pageSize ?? total });
 }
