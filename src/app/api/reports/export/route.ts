@@ -24,26 +24,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unknown client' }, { status: 404 });
   }
 
-  const recoveryPct = summary.totalOwed > 0 ? Math.round((summary.recovered / summary.totalOwed) * 100) : 0;
-  const contactRate = summary.totalDebtors > 0 ? Math.round((summary.contacted / summary.totalDebtors) * 100) : 0;
-
   const buffer = await buildReportWorkbook({
     clientName: summary.clientName,
     frequency,
     from,
     to,
-    summary: [
-      { label: 'Total Debtors', value: summary.totalDebtors },
-      { label: 'Contacted', value: summary.contacted },
-      { label: 'Contact Rate', value: `${contactRate}%` },
-      { label: 'PTP Count', value: summary.ptpCount },
-      { label: 'PTP Amount (UGX)', value: summary.ptpAmount },
-      { label: 'Total Owed (UGX)', value: summary.totalOwed },
-      { label: 'Recovered (UGX)', value: summary.recovered },
-      { label: 'Recovery Rate', value: `${recoveryPct}%` },
-      { label: 'Stale Accounts (5+ NA)', value: summary.staleCount },
-    ],
-    dispositions: summary.dispositions,
+    commentSummary: summary.commentSummary,
+    debtorReport: summary.debtorReport,
     agents: summary.agentSummary,
   });
 

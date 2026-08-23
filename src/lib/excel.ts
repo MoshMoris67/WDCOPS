@@ -679,34 +679,38 @@ export async function buildReportWorkbook(input: {
   frequency: string;
   from: string;
   to: string;
-  summary: { label: string; value: string | number }[];
-  dispositions: { code: string; label: string; count: number }[];
+  commentSummary: { label: string; count: number }[];
+  debtorReport: { name: string; phone: string; loanRef: string; balance: number; comment: string }[];
   agents: { name: string; calls: number; ptps: number; recovered: number }[];
 }): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'WellcashOps';
   workbook.created = new Date();
 
+  // Matches a client-provided reference format exactly: two columns, one row per comment
+  // (the debtor's current disposition) with its count, then a Total row whose value always
+  // equals the Debtor Report sheet's row count — every debtor contributes exactly one
+  // comment, "No calls yet" if they have none.
   const summarySheet = workbook.addWorksheet('Summary');
   summarySheet.columns = [
-    { header: 'Metric', key: 'label', width: 28 },
-    { header: 'Value', key: 'value', width: 20 },
+    { header: 'Comments', key: 'label', width: 28 },
+    { header: 'Count of comments', key: 'count', width: 18 },
   ];
   summarySheet.getRow(1).font = { bold: true };
-  summarySheet.addRow({ label: 'Client', value: input.clientName });
-  summarySheet.addRow({ label: 'Frequency', value: input.frequency });
-  summarySheet.addRow({ label: 'Date range', value: `${input.from} to ${input.to}` });
-  summarySheet.addRow({});
-  input.summary.forEach((row) => summarySheet.addRow(row));
+  input.commentSummary.forEach((row) => summarySheet.addRow(row));
+  const total = input.commentSummary.reduce((s, r) => s + r.count, 0);
+  summarySheet.addRow({ label: 'Total', count: total }).font = { bold: true };
 
-  const dispoSheet = workbook.addWorksheet('Dispositions');
-  dispoSheet.columns = [
-    { header: 'Code', key: 'code', width: 10 },
-    { header: 'Disposition', key: 'label', width: 26 },
-    { header: 'Count', key: 'count', width: 12 },
+  const debtorSheet = workbook.addWorksheet('Debtor Report');
+  debtorSheet.columns = [
+    { header: 'Name', key: 'name', width: 26 },
+    { header: 'Phone', key: 'phone', width: 16 },
+    { header: 'Loan Ref', key: 'loanRef', width: 18 },
+    { header: 'Balance', key: 'balance', width: 16 },
+    { header: 'Comments', key: 'comment', width: 24 },
   ];
-  dispoSheet.getRow(1).font = { bold: true };
-  input.dispositions.forEach((row) => dispoSheet.addRow(row));
+  debtorSheet.getRow(1).font = { bold: true };
+  input.debtorReport.forEach((row) => debtorSheet.addRow(row));
 
   const agentSheet = workbook.addWorksheet('Agent Performance');
   agentSheet.columns = [

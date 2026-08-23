@@ -63,7 +63,8 @@ export default function LoginContent() {
       // never inherits a stale trace of whoever was signed in before.
       await clearReadCache();
       toast.success(`Welcome back, ${payload.user.name}!`);
-      const next = searchParams.get('next') || '/agent-dashboard';
+      const defaultLanding = payload.user.role === 'admin' ? '/team-dashboard' : '/agent-dashboard';
+      const next = searchParams.get('next') || defaultLanding;
       router.push(next);
       router.refresh();
     } catch {

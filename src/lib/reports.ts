@@ -1,5 +1,8 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from './db';
 import { getContactedCountsByFile, getStaleCountsByFile } from './debtor-aggregates';
+
+const NO_CALLS_LABEL = 'No calls yet';
 
 export interface ReportSummary {
   clientName: string;
@@ -12,6 +15,14 @@ export interface ReportSummary {
   staleCount: number;
   dispositions: { code: string; label: string; count: number }[];
   agentSummary: { agentId: string; name: string; calls: number; ptps: number; recovered: number }[];
+  // Used only by the exported workbook (api/reports/export), not the on-screen preview
+  // (api/reports/summary) — mirror a client-provided reference format: one row per debtor
+  // with their most recent call disposition as "comments", and a tally of those same
+  // comments where the total always equals the debtor report's row count (every debtor
+  // contributes exactly one comment, "No calls yet" if they have none) — a different
+  // question from `dispositions` above, which counts calls logged within the date range.
+  commentSummary: { label: string; count: number }[];
+  debtorReport: { name: string; phone: string; loanRef: string; balance: number; comment: string }[];
 }
 
 export async function buildReportSummary(clientId: string, from: Date, to: Date): Promise<ReportSummary> {
@@ -21,8 +32,9 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date)
     prisma.dispositionCode.findMany(),
   ]);
   const fileIds = files.map((f) => f.id);
+  const labelByCode = new Map(dispositionCodes.map((d) => [d.code, d.label]));
 
-  const [debtorAgg, contactedCounts, staleCounts, logsInRange, assignedAgentsOnClient] = await Promise.all([
+  const [debtorAgg, contactedCounts, staleCounts, logsInRange, assignedAgentsOnClient, debtorsForReport] = await Promise.all([
     prisma.debtor.aggregate({ where: { fileId: { in: fileIds } }, _count: { _all: true }, _sum: { amountOwed: true } }),
     // Contacted is date-scoped for a report (calls within the window), unlike team/overview's "ever contacted".
     getContactedCountsByFile(fileIds, { from, to }),
@@ -40,6 +52,22 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date)
       where: { fileId: { in: fileIds }, assignedAgentId: { not: null } },
       select: { id: true, assignedAgentId: true, assignedAgent: { select: { name: true } } },
     }),
+    // Raw SQL, not a nested Prisma `include` — tested directly against KCB Mopesa's real
+    // 47,928-debtor file first, where the Prisma-relation version (findMany with a nested
+    // callLogs orderBy+take:1) reliably crashed the query engine outright ("no entry found
+    // for key", a real panic, not a timeout) at that scale, while working fine at take:100.
+    // DISTINCT ON is the same "latest row per group" pattern already used for staleness in
+    // getStaleCountsByFile below, just returning full debtor fields instead of a count —
+    // 0.3s for the same 47,928 rows in testing, no crash.
+    prisma.$queryRaw<{ name: string; phone: string; loanRef: string; balance: number; dispositionCode: string | null }[]>(
+      Prisma.sql`
+        SELECT DISTINCT ON (d.id) d.name, d.phone1 AS phone, d."loanRef" AS "loanRef", d.balance, cl."dispositionCode" AS "dispositionCode"
+        FROM "Debtor" d
+        LEFT JOIN "CallLog" cl ON cl."debtorId" = d.id
+        WHERE d."fileId" IN (${Prisma.join(fileIds)})
+        ORDER BY d.id, cl."createdAt" DESC NULLS LAST
+      `
+    ),
   ]);
 
   const totalDebtors = debtorAgg._count._all;
@@ -61,9 +89,18 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date)
 
   const dispoCounts = new Map<string, number>();
   for (const log of logsInRange) dispoCounts.set(log.dispositionCode, (dispoCounts.get(log.dispositionCode) ?? 0) + 1);
-  const labelByCode = new Map(dispositionCodes.map((d) => [d.code, d.label]));
   const dispositions = [...dispoCounts.entries()]
     .map(([code, count]) => ({ code, label: labelByCode.get(code) ?? code, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const debtorReport = debtorsForReport.map((d) => {
+    const comment = d.dispositionCode ? (labelByCode.get(d.dispositionCode) ?? d.dispositionCode) : NO_CALLS_LABEL;
+    return { name: d.name, phone: d.phone, loanRef: d.loanRef, balance: d.balance, comment };
+  });
+  const commentCounts = new Map<string, number>();
+  for (const d of debtorReport) commentCounts.set(d.comment, (commentCounts.get(d.comment) ?? 0) + 1);
+  const commentSummary = [...commentCounts.entries()]
+    .map(([label, count]) => ({ label, count }))
     .sort((a, b) => b.count - a.count);
 
   const recoveredByAgentRows = await prisma.reconciliationEntry.groupBy({
@@ -109,5 +146,7 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date)
     staleCount,
     dispositions,
     agentSummary,
+    commentSummary,
+    debtorReport,
   };
 }
