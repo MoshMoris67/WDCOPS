@@ -56,18 +56,34 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
 
   const debtorIds = (await prisma.debtor.findMany({ where: { fileId: id }, select: { id: true } })).map((d) => d.id);
 
-  await prisma.$transaction([
-    // Reconciliations referencing this file stay (they're a client-facing audit log in their own
-    // right) — just unlink the file so deleting it doesn't leave a dangling reference.
-    prisma.reconciliation.updateMany({ where: { fileId: id }, data: { fileId: null } }),
-    prisma.reconciliationEntry.deleteMany({ where: { debtorId: { in: debtorIds } } }),
-    prisma.assignment.deleteMany({ where: { debtorId: { in: debtorIds } } }),
-    // Must run before debtor.deleteMany — CallLog.debtorId has no cascade, so a debtor
-    // with logged calls would otherwise fail to delete on the foreign key.
-    prisma.callLog.deleteMany({ where: { debtorId: { in: debtorIds } } }),
-    prisma.debtor.deleteMany({ where: { fileId: id } }),
-    prisma.file.delete({ where: { id } }),
-  ]);
+  // Postgres rejects a single query with more than 32,767 bind parameters — a file with
+  // tens of thousands of debtors blew straight through that in one `IN (...debtorIds)`
+  // clause (a real one hit this at 38,317), failing every deleteMany below outright and
+  // rolling back the whole transaction, silently leaving the file undeleted no matter how
+  // many times delete was retried. Chunking keeps each statement well under that ceiling.
+  const CHUNK_SIZE = 5000;
+  const chunks: string[][] = [];
+  for (let i = 0; i < debtorIds.length; i += CHUNK_SIZE) chunks.push(debtorIds.slice(i, i + CHUNK_SIZE));
+
+  // Interactive transaction (not the array/batch form) so a 120s timeout can be set — a
+  // file this size, chunked into many statements, can outrun Prisma's 5s default.
+  await prisma.$transaction(
+    async (tx) => {
+      // Reconciliations referencing this file stay (they're a client-facing audit log in
+      // their own right) — just unlink the file so deleting it doesn't leave a dangling reference.
+      await tx.reconciliation.updateMany({ where: { fileId: id }, data: { fileId: null } });
+      for (const chunk of chunks) {
+        await tx.reconciliationEntry.deleteMany({ where: { debtorId: { in: chunk } } });
+        await tx.assignment.deleteMany({ where: { debtorId: { in: chunk } } });
+        // Must run before debtor.deleteMany — CallLog.debtorId has no cascade, so a debtor
+        // with logged calls would otherwise fail to delete on the foreign key.
+        await tx.callLog.deleteMany({ where: { debtorId: { in: chunk } } });
+      }
+      await tx.debtor.deleteMany({ where: { fileId: id } });
+      await tx.file.delete({ where: { id } });
+    },
+    { timeout: 120_000 }
+  );
 
   return NextResponse.json({ ok: true });
 }
