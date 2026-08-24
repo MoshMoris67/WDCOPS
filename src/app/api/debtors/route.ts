@@ -35,6 +35,14 @@ export async function GET(req: Request) {
   const agentId = url.searchParams.get('agentId');
   if (agentId) where.assignedAgentId = agentId;
 
+  // Lean, unpaginated id-only mode — backs "select all N matching this filter" for bulk
+  // reassignment, which needs every matching id (potentially thousands), not a page of
+  // full debtor objects. Cheap even at scale since it's a single indexed column, no joins.
+  if (url.searchParams.get('idsOnly') === 'true') {
+    const ids = await prisma.debtor.findMany({ where, select: { id: true } });
+    return NextResponse.json({ ids: ids.map((d) => d.id) });
+  }
+
   const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
   const requestedPageSize = Number(url.searchParams.get('pageSize'));
   // The admin/unscoped path genuinely needs a cap — it's paginating against a table that

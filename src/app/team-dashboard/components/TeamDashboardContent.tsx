@@ -195,6 +195,27 @@ export default function TeamDashboardContent() {
     setPage(1);
   }, [debouncedSearch, filterClient, filterAgent, filterFile]);
 
+  // Bulk-reassign selection — a Set of debtor ids, deliberately kept across page turns
+  // (so "select all on this page" across several pages accumulates into one big
+  // selection) but cleared whenever the underlying filter/search changes, since a
+  // previously-selected debtor may no longer even be part of the new result set.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isSelectingAllMatching, setIsSelectingAllMatching] = useState(false);
+  const [bulkTargetAgentId, setBulkTargetAgentId] = useState('');
+  const [isBulkReassigning, setIsBulkReassigning] = useState(false);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [debouncedSearch, filterClient, filterAgent, filterFile]);
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
   // Changing the client filter can orphan a previously-selected file that belongs to a
   // different client — clear it rather than silently keeping a mismatched filter applied.
   useEffect(() => {
@@ -258,6 +279,65 @@ export default function TeamDashboardContent() {
     await loadOverview();
     refetchDebtors();
     refetchPerf();
+  }
+
+  // Fetches every debtor id matching the current filters (not just the current page) —
+  // a lean id-only query (see api/debtors/route.ts's idsOnly mode), so this stays cheap
+  // even when "matching filters" means thousands of debtors in one file.
+  async function selectAllMatching() {
+    setIsSelectingAllMatching(true);
+    try {
+      const params = new URLSearchParams({ idsOnly: 'true' });
+      if (debouncedSearch) params.set('search', debouncedSearch);
+      if (filterClient !== 'All') params.set('clientId', filterClient);
+      if (filterAgent !== 'All') params.set('agentId', filterAgent);
+      if (filterFile !== 'All') params.set('fileId', filterFile);
+      const res = await fetch(`/api/debtors?${params.toString()}`);
+      const payload = await res.json();
+      if (!res.ok) {
+        toast.error(payload.error || 'Could not select all matching debtors');
+        return;
+      }
+      setSelectedIds(new Set(payload.ids as string[]));
+    } catch {
+      toast.error('Could not reach the server — try again');
+    } finally {
+      setIsSelectingAllMatching(false);
+    }
+  }
+
+  async function bulkReassign() {
+    if (selectedIds.size === 0 || !bulkTargetAgentId) return;
+    const targetAgent = agents.find((a) => a.id === bulkTargetAgentId);
+    if (!window.confirm(`Reassign ${selectedIds.size} debtor(s) to ${targetAgent?.name ?? 'this agent'}? Call history stays with each debtor.`)) return;
+
+    setIsBulkReassigning(true);
+    try {
+      const res = await fetch('/api/debtors/bulk-reassign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ debtorIds: [...selectedIds], assignedAgentId: bulkTargetAgentId }),
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        toast.error(payload.error || 'Bulk reassignment failed');
+        return;
+      }
+      toast.success(
+        payload.alreadyAssignedCount > 0
+          ? `${payload.movedCount} debtor(s) reassigned — ${payload.alreadyAssignedCount} were already with that agent`
+          : `${payload.movedCount} debtor(s) reassigned to ${targetAgent?.name ?? 'the selected agent'}`
+      );
+      setSelectedIds(new Set());
+      setBulkTargetAgentId('');
+      await loadOverview();
+      refetchDebtors();
+      refetchPerf();
+    } catch {
+      toast.error('Could not reach the server — try again');
+    } finally {
+      setIsBulkReassigning(false);
+    }
   }
 
   if (authorized === null) {
@@ -366,6 +446,15 @@ export default function TeamDashboardContent() {
               <p className="text-xs text-muted-foreground mt-0.5">
                 {debtors.length} of {total.toLocaleString()} debtors
                 {mutationsBlocked && <span className="ml-2 text-warning">· {offlineReason.replace('make this change', 'reassign')}</span>}
+                {total > debtors.length && (
+                  <button
+                    onClick={selectAllMatching}
+                    disabled={isSelectingAllMatching || mutationsBlocked}
+                    className="ml-2 text-primary hover:underline disabled:opacity-50 disabled:no-underline"
+                  >
+                    {isSelectingAllMatching ? 'Selecting…' : `Select all ${total.toLocaleString()} matching your filters`}
+                  </button>
+                )}
               </p>
             </div>
             <ListToolbar
@@ -393,6 +482,39 @@ export default function TeamDashboardContent() {
               action={<ViewToggle value={viewMode} onChange={setViewMode} />}
             />
           </div>
+
+          {selectedIds.size > 0 && (
+            <div className="px-5 py-3 border-b border-border bg-primary/5 flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-sm font-medium text-foreground">{selectedIds.size.toLocaleString()} debtor(s) selected</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <select
+                  value={bulkTargetAgentId}
+                  onChange={(e) => setBulkTargetAgentId(e.target.value)}
+                  disabled={mutationsBlocked}
+                  className="text-sm bg-input border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:opacity-50"
+                >
+                  <option value="">Reassign to…</option>
+                  {agents.filter((a) => a.status === 'active').map((a) => (
+                    <option key={a.id} value={a.id}>{a.name}{a.role === 'admin' ? ' (Admin)' : ''} — {a.assignedCount} assigned</option>
+                  ))}
+                </select>
+                <button
+                  onClick={bulkReassign}
+                  disabled={!bulkTargetAgentId || isBulkReassigning || mutationsBlocked}
+                  className="px-3 py-1.5 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60"
+                >
+                  {isBulkReassigning ? 'Reassigning…' : `Reassign ${selectedIds.size.toLocaleString()}`}
+                </button>
+                <button
+                  onClick={() => { setSelectedIds(new Set()); setBulkTargetAgentId(''); }}
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className={viewMode === 'deck' ? 'p-4' : 'p-4 md:p-0'}>
             <ResponsiveList
               items={debtors}
@@ -407,13 +529,36 @@ export default function TeamDashboardContent() {
               }
               renderTableHead={() => (
                 <tr className="border-b border-border bg-secondary/30">
+                  <th className="px-4 py-2.5 w-8">
+                    <input
+                      type="checkbox"
+                      className="accent-primary"
+                      checked={debtors.length > 0 && debtors.every((d) => selectedIds.has(d.id))}
+                      onChange={(e) => {
+                        setSelectedIds((prev) => {
+                          const next = new Set(prev);
+                          debtors.forEach((d) => (e.target.checked ? next.add(d.id) : next.delete(d.id)));
+                          return next;
+                        });
+                      }}
+                      title="Select all on this page"
+                    />
+                  </th>
                   {['Debtor', 'Client', 'Balance', 'Last Disp.', 'Last Call', 'Reassign'].map((col) => (
                     <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
                   ))}
                 </tr>
               )}
               renderTableRow={(d) => (
-                <tr className={`border-b border-border/60 hover:bg-secondary/40 transition-colors ${debtorRowTint({ isStale: d.isStale, balance: d.balance })}`}>
+                <tr className={`border-b border-border/60 hover:bg-secondary/40 transition-colors ${selectedIds.has(d.id) ? 'bg-primary/5' : ''} ${debtorRowTint({ isStale: d.isStale, balance: d.balance })}`}>
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      className="accent-primary"
+                      checked={selectedIds.has(d.id)}
+                      onChange={() => toggleSelected(d.id)}
+                    />
+                  </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <div className="flex items-center gap-1.5">
                       {d.isStale && <AlertTriangle size={12} className="text-negative shrink-0" />}
@@ -441,14 +586,22 @@ export default function TeamDashboardContent() {
                 </tr>
               )}
               renderCard={(d) => (
-                <div className={`bg-card border border-border rounded-xl p-4 shadow-card ${debtorRowTint({ isStale: d.isStale, balance: d.balance })}`}>
+                <div className={`bg-card border border-border rounded-xl p-4 shadow-card ${selectedIds.has(d.id) ? 'ring-2 ring-primary/40' : ''} ${debtorRowTint({ isStale: d.isStale, balance: d.balance })}`}>
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        {d.isStale && <AlertTriangle size={12} className="text-negative shrink-0" />}
-                        <span className="font-medium text-foreground text-sm truncate">{d.name}</span>
+                    <div className="flex items-start gap-2 min-w-0">
+                      <input
+                        type="checkbox"
+                        className="accent-primary mt-0.5 shrink-0"
+                        checked={selectedIds.has(d.id)}
+                        onChange={() => toggleSelected(d.id)}
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          {d.isStale && <AlertTriangle size={12} className="text-negative shrink-0" />}
+                          <span className="font-medium text-foreground text-sm truncate">{d.name}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{d.loanRef}</p>
                       </div>
-                      <p className="text-xs text-muted-foreground">{d.loanRef}</p>
                     </div>
                     <Badge variant={clientBadgeVariant(d.client)}>{d.client}</Badge>
                   </div>
