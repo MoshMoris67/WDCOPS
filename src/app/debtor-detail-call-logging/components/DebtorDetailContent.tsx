@@ -294,7 +294,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
               Disposition Code <span className="text-negative">*</span>
             </label>
             <p className="text-xs text-muted-foreground">Select the outcome of this call attempt</p>
-            <div className="grid grid-cols-3 gap-1.5">
+            <div className={`grid gap-1.5 ${embedded ? 'grid-cols-2 @lg:grid-cols-3' : 'grid-cols-3'}`}>
               {dispositionCodes.map((d) => (
                 <label
                   key={`disp-${d.code}`}
@@ -677,9 +677,15 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 2xl:grid-cols-3 gap-6">
+      {/* embedded uses container queries (the panel's own rendered width) instead of
+          viewport breakpoints — a fixed-width side panel can be much narrower than the
+          browser viewport, so xl:/2xl: here used to force this 2:1 split (and the
+          disposition grid inside it) into far less room than they actually needed,
+          reading as cramped. Standalone (a full page) keeps the original viewport-based
+          classes, unaffected. */}
+      <div className={`grid grid-cols-1 gap-6 ${embedded ? '@4xl:grid-cols-3' : 'xl:grid-cols-3 2xl:grid-cols-3'}`}>
         {/* Left: tabs */}
-        <div className="xl:col-span-2 2xl:col-span-2">
+        <div className={embedded ? '@4xl:col-span-2' : 'xl:col-span-2 2xl:col-span-2'}>
           {/* Tab bar */}
           <div className="flex border-b border-border mb-4 gap-1">
             {tabs.map((tab) => (
@@ -819,8 +825,12 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
           )}
         </div>
 
-        {/* Right: Call Logging Form */}
-        <div className="xl:col-span-1 2xl:col-span-1">
+        {/* Right: Call Logging Form. Its own @container — once the 2:1 split above is
+            active, this column is much narrower than the panel as a whole, so the
+            disposition grid needs to measure against this column's width, not the outer
+            panel's (the nearest @container ancestor otherwise, which would be wide even
+            when this column itself is not). */}
+        <div className={`@container ${embedded ? '@4xl:col-span-1' : 'xl:col-span-1 2xl:col-span-1'}`}>
           <div className="bg-card rounded-xl shadow-card border border-border sticky top-6">
             <div className="px-5 py-4 border-b border-border flex items-center justify-between">
               <div>

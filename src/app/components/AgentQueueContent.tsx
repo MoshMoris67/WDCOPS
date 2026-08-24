@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Phone, AlertTriangle, WifiOff, ChevronRight, ChevronLeft, Search, ArrowUpDown, Wifi } from 'lucide-react';
+import { Phone, AlertTriangle, WifiOff, ChevronRight, ChevronLeft, Search, ArrowUpDown, Wifi, Maximize2, Minimize2, GripVertical } from 'lucide-react';
 import Badge from '@/components/ui/Badge';
 import DispositionBadge from '@/components/ui/DispositionBadge';
 import { TableRowSkeleton } from '@/components/ui/LoadingSkeleton';
@@ -47,6 +47,45 @@ export default function AgentQueueContent() {
   const dispositionCodes = codesData?.codes ?? [];
   const isOnline = useOnlineStatus();
   const pendingSync = usePendingSyncCount();
+
+  // Desktop split-panel resizing — the detail panel used to be a fixed 50/50 split with
+  // the queue table, which left the disposition grid and call-notes box cramped on real
+  // laptop-width screens even though there was room to spare. Dragged width is in px;
+  // maximized overrides it with a much wider fixed size. Not persisted across reloads —
+  // this is a per-session convenience, not a saved preference.
+  const DEFAULT_PANEL_WIDTH = 640;
+  const MIN_PANEL_WIDTH = 420;
+  const MAX_PANEL_WIDTH = 1100;
+  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
+  const [isMaximized, setIsMaximized] = useState(false);
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      if (!dragRef.current) return;
+      // Handle sits on the panel's left edge — dragging left (negative delta) widens it.
+      const delta = dragRef.current.startX - e.clientX;
+      setPanelWidth(Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, dragRef.current.startWidth + delta)));
+    }
+    function onUp() {
+      dragRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
+  function startResize(e: React.MouseEvent) {
+    if (isMaximized) return;
+    dragRef.current = { startX: e.clientX, startWidth: panelWidth };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }
 
   const dispositionColor = (code: string) => dispositionCodes.find((d) => d.code === code)?.color ?? '#64748B';
 
@@ -156,9 +195,9 @@ export default function AgentQueueContent() {
         </div>
       )}
 
-      <div className={`grid grid-cols-1 gap-6 ${isWide && selectedId ? 'xl:grid-cols-2' : ''}`}>
+      <div className={`flex flex-col gap-6 ${isWide && selectedId ? 'xl:flex-row xl:items-start' : ''}`}>
         {/* Debtor queue table */}
-        <div className="bg-card rounded-xl shadow-card border border-border">
+        <div className={`bg-card rounded-xl shadow-card border border-border min-w-0 ${isWide && selectedId ? 'xl:flex-1' : ''}`}>
           <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h2 className="text-section-header text-foreground">My Debtor Queue</h2>
@@ -337,17 +376,44 @@ export default function AgentQueueContent() {
         </div>
 
         {isWide && selectedId && (
-          /* Detail split panel — same DebtorDetailContent the standalone page renders,
-             embedded inline instead of navigated to. */
-          <div className="xl:sticky xl:top-6 xl:self-start xl:max-h-[calc(100vh-3rem)] xl:overflow-y-auto bg-card rounded-xl shadow-card border border-border p-5">
-            <DebtorDetailContent
-              embedded
-              debtorId={selectedId}
-              onClose={() => router.push('/my-queue')}
-              onPrev={prevId ? () => router.push(`/my-queue?selected=${prevId}`, { scroll: false }) : undefined}
-              onNext={nextId ? () => router.push(`/my-queue?selected=${nextId}`, { scroll: false }) : undefined}
-            />
-          </div>
+          <>
+            {!isMaximized && (
+              <div
+                onMouseDown={startResize}
+                title="Drag to resize"
+                className="hidden xl:flex w-2.5 shrink-0 self-stretch items-center justify-center cursor-col-resize rounded-full hover:bg-primary/15 transition-colors group"
+              >
+                <GripVertical size={14} className="text-muted-foreground/60 group-hover:text-primary transition-colors" />
+              </div>
+            )}
+            {/* Detail split panel — same DebtorDetailContent the standalone page renders,
+                embedded inline instead of navigated to. @container lets the panel's own
+                internal layout (see DebtorDetailContent) respond to its actual rendered
+                width instead of the browser viewport — the fixed 50/50 split used to leave
+                the disposition grid and call-notes box cramped even on wide screens, since
+                Tailwind's xl:/2xl: breakpoints only ever look at viewport width. */}
+            <div
+              className="@container xl:sticky xl:top-6 xl:self-start xl:max-h-[calc(100vh-3rem)] xl:overflow-y-auto bg-card rounded-xl shadow-card border border-border p-5 shrink-0 xl:w-auto"
+              style={isWide ? { width: isMaximized ? 'min(1400px, 92vw)' : `${panelWidth}px` } : undefined}
+            >
+              <div className="flex justify-end mb-1">
+                <button
+                  onClick={() => setIsMaximized((m) => !m)}
+                  title={isMaximized ? 'Restore panel size' : 'Maximize panel'}
+                  className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {isMaximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                </button>
+              </div>
+              <DebtorDetailContent
+                embedded
+                debtorId={selectedId}
+                onClose={() => router.push('/my-queue')}
+                onPrev={prevId ? () => router.push(`/my-queue?selected=${prevId}`, { scroll: false }) : undefined}
+                onNext={nextId ? () => router.push(`/my-queue?selected=${nextId}`, { scroll: false }) : undefined}
+              />
+            </div>
+          </>
         )}
       </div>
     </div>
