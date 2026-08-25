@@ -14,6 +14,7 @@ import { queueCallLog, syncOneNow, QUEUE_CHANGED_EVENT } from '@/lib/offline-syn
 import { useCachedQuery } from '@/lib/use-cached-query';
 import { useCachedDebtorLite } from '@/lib/use-debtor-queue';
 import { clientBadgeVariant } from '@/lib/client-badge';
+import { toDialFormat } from '@/lib/phone';
 
 interface CallLogFormData {
   dispositionCode: string;
@@ -279,7 +280,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
       <>
         <div className="px-5 pt-4">
           <a
-            href={`tel:${phone}`}
+            href={`tel:${toDialFormat(phone)}`}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-positive text-white text-sm font-semibold rounded-lg hover:bg-positive/90 active:scale-95 transition-all"
           >
             <Phone size={15} />
@@ -508,7 +509,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                 <div>
                   <h1 className="text-xl font-bold text-foreground">{liteRow.name}</h1>
                   <div className="flex items-center gap-3 mt-1 flex-wrap text-sm text-muted-foreground">
-                    <a href={`tel:${liteRow.phone}`} className="flex items-center gap-1 hover:text-primary hover:underline">
+                    <a href={`tel:${toDialFormat(liteRow.phone)}`} className="flex items-center gap-1 hover:text-primary hover:underline">
                       <Phone size={13} />{liteRow.phone}
                     </a>
                     <Badge variant={clientBadgeVariant(liteRow.client)}>{liteRow.client}</Badge>
@@ -626,11 +627,11 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                 )}
               </div>
               <div className="flex items-center gap-3 mt-1 flex-wrap text-sm text-muted-foreground">
-                <a href={`tel:${debtor.phone1}`} className="flex items-center gap-1 hover:text-primary hover:underline">
+                <a href={`tel:${toDialFormat(debtor.phone1)}`} className="flex items-center gap-1 hover:text-primary hover:underline">
                   <Phone size={13} />{debtor.phone1}
                 </a>
                 {debtor.phone2 && (
-                  <a href={`tel:${debtor.phone2}`} className="flex items-center gap-1 hover:text-primary hover:underline">
+                  <a href={`tel:${toDialFormat(debtor.phone2)}`} className="flex items-center gap-1 hover:text-primary hover:underline">
                     <Phone size={13} />{debtor.phone2}
                   </a>
                 )}

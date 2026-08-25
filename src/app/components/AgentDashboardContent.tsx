@@ -7,6 +7,7 @@ import KPICard from './KPICard';
 import { useOnlineStatus, usePendingSyncCount } from '@/lib/use-offline';
 import { useDebtorQueue } from '@/lib/use-debtor-queue';
 import { useCachedQuery } from '@/lib/use-cached-query';
+import { toDialFormat } from '@/lib/phone';
 
 const DispositionChart = dynamic(() => import('./DispositionChart'), { ssr: false });
 const DailyCallsTrend = dynamic(() => import('./DailyCallsTrend'), { ssr: false });
@@ -205,7 +206,7 @@ export default function AgentDashboardContent() {
                   <p className="text-xs text-muted-foreground">{cb.client} · {cb.phone}</p>
                 </div>
                 <a
-                  href={`tel:${cb.phone}`}
+                  href={`tel:${toDialFormat(cb.phone)}`}
                   className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-primary/10 text-primary transition-all"
                   title="Call now"
                 >

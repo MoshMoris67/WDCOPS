@@ -9,6 +9,7 @@ import { TableRowSkeleton } from '@/components/ui/LoadingSkeleton';
 import { useOnlineStatus, usePendingSyncCount } from '@/lib/use-offline';
 import { clientBadgeVariant } from '@/lib/client-badge';
 import { useClients } from '@/lib/use-clients';
+import { toDialFormat } from '@/lib/phone';
 import { useDebtorQueue } from '@/lib/use-debtor-queue';
 import { useCachedQuery } from '@/lib/use-cached-query';
 import { useIsWide } from '@/lib/use-media-query';
@@ -270,7 +271,7 @@ export default function AgentQueueContent() {
                           <span className="font-medium text-foreground">{debtor.name}</span>
                         </div>
                         <a
-                          href={`tel:${debtor.phone}`}
+                          href={`tel:${toDialFormat(debtor.phone)}`}
                           onClick={(e) => e.stopPropagation()}
                           className="text-xs text-muted-foreground mt-0.5 hover:text-primary hover:underline block w-fit"
                         >
@@ -302,7 +303,7 @@ export default function AgentQueueContent() {
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <a
-                            href={`tel:${debtor.phone}`}
+                            href={`tel:${toDialFormat(debtor.phone)}`}
                             onClick={(e) => e.stopPropagation()}
                             className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground"
                             title="Call this debtor"
