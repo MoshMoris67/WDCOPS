@@ -143,6 +143,64 @@ export async function getStaleCountsByFile(fileIds: string[]): Promise<Map<strin
   return result;
 }
 
+export interface CallLogLite {
+  dispositionCode: string;
+  createdAt: Date;
+  promisedAmount: number | null;
+  promisedDate: Date | null;
+}
+
+// The debtor-status.ts inputs a queue needs (dispositionCode/createdAt/promisedAmount/
+// promisedDate for the 5 most recent calls), for many debtors in one query instead of
+// Prisma's per-parent-row relation fetch (`debtor.findMany({ include: { callLogs: {
+// take: 5 } } })`) — fine at normal queue sizes, but a genuinely expensive query shape
+// once one agent's queue reaches into the thousands (found via a real agent with 10,000+
+// assigned debtors timing out the client's 8s fetch). Same ranked-window-function
+// technique as getStaleCountsByFile, just returning the actual rows instead of a count.
+export async function getRecentCallLogsByDebtor(debtorIds: string[], take = 5): Promise<Map<string, CallLogLite[]>> {
+  const result = new Map<string, CallLogLite[]>();
+  if (debtorIds.length === 0) return result;
+
+  const rows = await prisma.$queryRaw<
+    { debtorId: string; dispositionCode: string; createdAt: Date; promisedAmount: number | null; promisedDate: Date | null }[]
+  >`
+    WITH ranked AS (
+      SELECT cl."debtorId" AS "debtorId", cl."dispositionCode" AS "dispositionCode",
+             cl."createdAt" AS "createdAt", cl."promisedAmount" AS "promisedAmount",
+             cl."promisedDate" AS "promisedDate",
+             ROW_NUMBER() OVER (PARTITION BY cl."debtorId" ORDER BY cl."createdAt" DESC) AS rn
+      FROM "CallLog" cl
+      WHERE cl."debtorId" IN (${Prisma.join(debtorIds)})
+    )
+    SELECT "debtorId", "dispositionCode", "createdAt", "promisedAmount", "promisedDate"
+    FROM ranked
+    WHERE rn <= ${take}
+    ORDER BY "debtorId", "createdAt" DESC
+  `;
+
+  for (const r of rows) {
+    const existing = result.get(r.debtorId);
+    const entry = { dispositionCode: r.dispositionCode, createdAt: r.createdAt, promisedAmount: r.promisedAmount, promisedDate: r.promisedDate };
+    if (existing) existing.push(entry);
+    else result.set(r.debtorId, [entry]);
+  }
+  return result;
+}
+
+// "Recently paid" badge source — has a ReconciliationEntry within the window, for many
+// debtors at once instead of one `take: 1` relation fetch per debtor.
+export async function getRecentlyPaidDebtorIds(debtorIds: string[], since: Date): Promise<Set<string>> {
+  const result = new Set<string>();
+  if (debtorIds.length === 0) return result;
+
+  const rows = await prisma.reconciliationEntry.groupBy({
+    by: ['debtorId'],
+    where: { debtorId: { in: debtorIds }, createdAt: { gte: since } },
+  });
+  for (const r of rows) result.add(r.debtorId);
+  return result;
+}
+
 // dashboard/summary's own "contacted" definition — the most recent call log isn't NA —
 // which is a different question from getContactedCountsByFile ("has ever been called").
 // Kept separate on purpose so the two never get merged.

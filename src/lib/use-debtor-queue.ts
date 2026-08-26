@@ -40,7 +40,13 @@ export function useDebtorQueue(): UseDebtorQueueResult {
       }
 
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
+      // A normal queue answers in well under a second, but this endpoint is
+      // deliberately unpaginated (see api/debtors/route.ts) — an outlier-large queue
+      // (thousands of debtors) is a legitimately bigger payload to transfer, especially
+      // over a slow mobile connection, not a hung request. 8s was tuned for a normal
+      // queue and was aborting real, still-in-flight responses for a real 10,000+-debtor
+      // agent even after the query itself got fast — this is headroom, not a mask.
+      const timeout = setTimeout(() => controller.abort(), 25000);
       try {
         const res = await fetch('/api/debtors?scope=mine', { signal: controller.signal });
         if (!res.ok) throw new Error(`Request failed (${res.status})`);

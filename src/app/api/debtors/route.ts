@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { computeDebtorStatus } from '@/lib/debtor-status';
+import { getRecentCallLogsByDebtor, getRecentlyPaidDebtorIds } from '@/lib/debtor-aggregates';
 
 export async function GET(req: Request) {
   const session = await getSession();
@@ -56,18 +57,27 @@ export async function GET(req: Request) {
 
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
+  // Fetching each debtor's status used to nest `callLogs: { take: 5 }` and
+  // `reconciliationEntries: { take: 1 }` right in this query — fine at normal queue
+  // sizes, but a genuinely expensive relation-per-row fetch once one agent's queue
+  // reaches into the thousands (found via a real 10,000+-debtor queue timing out the
+  // client's fetch). Fetch the flat debtor rows first, then both status inputs for the
+  // whole batch in two DB-aggregated queries (debtor-aggregates.ts) instead of one
+  // per debtor — same fix pattern already applied to the admin-side views.
   const [total, debtors] = await Promise.all([
     prisma.debtor.count({ where }),
     prisma.debtor.findMany({
       where,
-      include: {
-        file: { include: { client: true } },
-        callLogs: { orderBy: { createdAt: 'desc' }, take: 5 },
-        reconciliationEntries: { where: { createdAt: { gte: sevenDaysAgo } }, take: 1 },
-      },
+      include: { file: { include: { client: true } } },
       orderBy: { createdAt: 'asc' },
       ...(mineOnly ? {} : { skip: (page - 1) * (pageSize as number), take: pageSize }),
     }),
+  ]);
+
+  const debtorIds = debtors.map((d) => d.id);
+  const [callLogsByDebtor, recentlyPaidIds] = await Promise.all([
+    getRecentCallLogsByDebtor(debtorIds),
+    getRecentlyPaidDebtorIds(debtorIds, sevenDaysAgo),
   ]);
 
   const result = debtors.map((d) => ({
@@ -78,8 +88,8 @@ export async function GET(req: Request) {
     amountOwed: d.amountOwed,
     balance: d.balance,
     client: d.file.client.name,
-    recentlyPaid: d.reconciliationEntries.length > 0,
-    ...computeDebtorStatus(d.callLogs),
+    recentlyPaid: recentlyPaidIds.has(d.id),
+    ...computeDebtorStatus(callLogsByDebtor.get(d.id) ?? []),
   }));
 
   return NextResponse.json({ debtors: result, total, page, pageSize: pageSize ?? total });
