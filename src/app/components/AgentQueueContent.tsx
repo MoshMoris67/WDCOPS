@@ -91,9 +91,14 @@ export default function AgentQueueContent() {
   const dispositionColor = (code: string) => dispositionCodes.find((d) => d.code === code)?.color ?? '#64748B';
 
   const filtered = debtorQueue.filter((d) => {
-    const matchSearch = d.name.toLowerCase().includes(search.toLowerCase()) ||
-      d.loanRef.toLowerCase().includes(search.toLowerCase()) ||
-      d.phone.includes(search);
+    // Phone-only, by prefix (not "contains anywhere") — e.g. typing "077" is meant to
+    // isolate debtors on that carrier's number block (for dialing through the matching
+    // SIM), not pull in unrelated name/loan-ref substring matches. Normalized through the
+    // same toDialFormat() used for the Call buttons so a prefix search matches correctly
+    // regardless of which raw format ("077...", "77...", "25677...") the number was
+    // originally imported in.
+    const trimmedSearch = search.trim();
+    const matchSearch = !trimmedSearch || toDialFormat(d.phone).startsWith(trimmedSearch);
     const matchClient = filterClient === 'All' || d.client === filterClient;
     return matchSearch && matchClient;
   });
@@ -208,7 +213,7 @@ export default function AgentQueueContent() {
                 <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
-                  placeholder="Search name, ref, phone…"
+                  placeholder="Search phone (e.g. 077…)"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-8 pr-3 py-1.5 text-sm bg-input border border-border rounded-lg w-52 focus:outline-none focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground"
