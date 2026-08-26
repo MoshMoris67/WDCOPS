@@ -6,6 +6,7 @@ import {
   Users,
   Settings,
   Phone,
+  CalendarClock,
 } from 'lucide-react';
 
 export interface CurrentUser {
@@ -30,6 +31,7 @@ export function getNavGroups(role: CurrentUser['role']): NavGroup[] {
       { label: 'Operations', items: [
         { href: '/agent-dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { href: '/my-queue', label: 'My Queue', icon: Phone },
+        { href: '/ptp-tracker', label: 'Promises', icon: CalendarClock },
       ] },
     ];
   }
@@ -40,6 +42,7 @@ export function getNavGroups(role: CurrentUser['role']): NavGroup[] {
     { label: 'Admin', items: [
       { href: '/team-dashboard', label: 'Team Overview', icon: LayoutDashboard },
       { href: '/my-queue', label: 'My Queue', icon: Phone },
+      { href: '/ptp-tracker', label: 'Promises', icon: CalendarClock },
       { href: '/file-management-distribution', label: 'Files', icon: FolderOpen },
       { href: '/reconciliation-management', label: 'Reconciliations', icon: RefreshCcw },
       { href: '/reports-client-export', label: 'Reports', icon: BarChart2 },
