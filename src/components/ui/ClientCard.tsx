@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, FileText } from 'lucide-react';
+import { FileText } from 'lucide-react';
 
 interface RecentFile {
   id: string;
@@ -14,7 +14,7 @@ interface ClientCardProps {
   contactRate: number;
   recovered: number;
   totalOwed: number;
-  staleCount: number;
+  totalBalance: number;
   recentFiles?: RecentFile[];
   onClick?: () => void;
 }
@@ -48,7 +48,7 @@ function formatUGX(amount: number) {
   return 'UGX ' + amount.toLocaleString('en-UG');
 }
 
-export default function ClientCard({ name, categoryLabel, debtorCount, contactRate, recovered, totalOwed, staleCount, recentFiles, onClick }: ClientCardProps) {
+export default function ClientCard({ name, categoryLabel, debtorCount, contactRate, recovered, totalOwed, totalBalance, recentFiles, onClick }: ClientCardProps) {
   const accent = accentFor(name);
   const recoveryPct = totalOwed > 0 ? Math.round((recovered / totalOwed) * 100) : 0;
 
@@ -59,25 +59,21 @@ export default function ClientCard({ name, categoryLabel, debtorCount, contactRa
     >
       <div className="absolute top-0 left-0 w-1.5 h-full" style={{ background: `linear-gradient(180deg, ${accent.light}, ${accent.bar})` }} />
       <div className="p-5 pl-6">
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <span
-            className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full"
-            style={{ color: accent.text, backgroundColor: accent.soft }}
-          >
-            {categoryLabel}
-          </span>
-          {staleCount > 0 && (
-            <span className="flex items-center gap-1 text-[11px] font-semibold text-negative shrink-0">
-              <AlertTriangle size={11} />
-              {staleCount} stale
-            </span>
-          )}
-        </div>
+        <span
+          className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mb-2"
+          style={{ color: accent.text, backgroundColor: accent.soft }}
+        >
+          {categoryLabel}
+        </span>
 
         <h3 className="text-lg font-bold text-foreground group-hover:text-primary transition-colors truncate">{name}</h3>
         <p className="text-xs text-muted-foreground mt-0.5">{debtorCount.toLocaleString()} debtor{debtorCount === 1 ? '' : 's'} on file</p>
 
-        <div className="grid grid-cols-2 gap-3 my-4 rounded-lg p-3.5 border border-border/60" style={{ background: 'linear-gradient(135deg, var(--secondary), transparent)' }}>
+        <div className="grid grid-cols-3 gap-3 my-4 rounded-lg p-3.5 border border-border/60" style={{ background: 'linear-gradient(135deg, var(--secondary), transparent)' }}>
+          <div>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">Book Value</span>
+            <span className="text-sm font-bold text-foreground font-tabular">{formatUGX(totalBalance)}</span>
+          </div>
           <div>
             <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">Contact Rate</span>
             <span className="text-sm font-bold text-foreground font-tabular">{contactRate}%</span>

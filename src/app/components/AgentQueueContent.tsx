@@ -241,7 +241,6 @@ export default function AgentQueueContent() {
                     { key: 'balance', label: 'Balance' },
                     { key: 'lastDisposition', label: 'Last Disp.' },
                     { key: 'lastCallDate', label: 'Last Call' },
-                    { key: 'naCount', label: 'NA Count' },
                     { key: 'actions', label: '' },
                   ].map((col) => (
                     <th
@@ -259,7 +258,7 @@ export default function AgentQueueContent() {
               </thead>
               <tbody>
                 {isLoading
-                  ? Array.from({ length: 8 }).map((_, i) => <TableRowSkeleton key={`skel-${i}`} cols={8} />)
+                  ? Array.from({ length: 7 }).map((_, i) => <TableRowSkeleton key={`skel-${i}`} cols={7} />)
                   : paged.map((debtor) => (
                     <tr
                       key={debtor.id}
@@ -267,9 +266,6 @@ export default function AgentQueueContent() {
                     >
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-2">
-                          {debtor.isStale && (
-                            <AlertTriangle size={13} className="text-negative shrink-0" title="Stale — 5+ consecutive NA" />
-                          )}
                           {debtor.isPTP && (
                             <span className="w-1.5 h-1.5 rounded-full bg-positive shrink-0" title="Active PTP" />
                           )}
@@ -300,11 +296,6 @@ export default function AgentQueueContent() {
                         )}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-muted-foreground">{formatDate(debtor.lastCallDate)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`font-tabular text-sm font-semibold ${debtor.naCount >= 5 ? 'text-negative' : debtor.naCount >= 3 ? 'text-warning' : 'text-muted-foreground'}`}>
-                          {debtor.naCount} / 5
-                        </span>
-                      </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <a

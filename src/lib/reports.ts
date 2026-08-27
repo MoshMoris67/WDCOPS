@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from './db';
-import { getContactedCountsByFile, getStaleCountsByFile } from './debtor-aggregates';
+import { getContactedCountsByFile } from './debtor-aggregates';
 
 const NO_CALLS_LABEL = 'No calls yet';
 
@@ -12,7 +12,6 @@ export interface ReportSummary {
   ptpAmount: number;
   recovered: number;
   totalOwed: number;
-  staleCount: number;
   dispositions: { code: string; label: string; count: number }[];
   agentSummary: { agentId: string; name: string; calls: number; ptps: number; recovered: number }[];
   // Used only by the exported workbook (api/reports/export), not the on-screen preview
@@ -34,13 +33,10 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date)
   const fileIds = files.map((f) => f.id);
   const labelByCode = new Map(dispositionCodes.map((d) => [d.code, d.label]));
 
-  const [debtorAgg, contactedCounts, staleCounts, logsInRange, assignedAgentsOnClient, debtorsForReport] = await Promise.all([
+  const [debtorAgg, contactedCounts, logsInRange, assignedAgentsOnClient, debtorsForReport] = await Promise.all([
     prisma.debtor.aggregate({ where: { fileId: { in: fileIds } }, _count: { _all: true }, _sum: { amountOwed: true } }),
     // Contacted is date-scoped for a report (calls within the window), unlike team/overview's "ever contacted".
     getContactedCountsByFile(fileIds, { from, to }),
-    // Stale = 5+ consecutive NA as of now, regardless of the report's date range (a current-state flag) —
-    // same shared definition as team/overview, so the two screens can never disagree on what "stale" means.
-    getStaleCountsByFile(fileIds),
     prisma.callLog.findMany({
       where: { debtor: { fileId: { in: fileIds } }, createdAt: { gte: from, lte: to } },
       select: { debtorId: true, agentId: true, dispositionCode: true, promisedAmount: true },
@@ -56,8 +52,8 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date)
     // 47,928-debtor file first, where the Prisma-relation version (findMany with a nested
     // callLogs orderBy+take:1) reliably crashed the query engine outright ("no entry found
     // for key", a real panic, not a timeout) at that scale, while working fine at take:100.
-    // DISTINCT ON is the same "latest row per group" pattern already used for staleness in
-    // getStaleCountsByFile below, just returning full debtor fields instead of a count —
+    // DISTINCT ON is the "latest row per group" pattern used elsewhere in this codebase for
+    // similar per-debtor aggregation, just returning full debtor fields instead of a count —
     // 0.3s for the same 47,928 rows in testing, no crash.
     prisma.$queryRaw<{ name: string; phone: string; loanRef: string; balance: number; dispositionCode: string | null }[]>(
       Prisma.sql`
@@ -73,7 +69,6 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date)
   const totalDebtors = debtorAgg._count._all;
   const totalOwed = debtorAgg._sum.amountOwed ?? 0;
   const contacted = [...contactedCounts.values()].reduce((s, n) => s + n, 0);
-  const staleCount = [...staleCounts.values()].reduce((s, n) => s + n, 0);
 
   const agentNameByDebtorId = new Map(assignedAgentsOnClient.map((d) => [d.id, d.assignedAgent?.name ?? 'Unassigned']));
   const agentIdByDebtorId = new Map(assignedAgentsOnClient.map((d) => [d.id, d.assignedAgentId!]));
@@ -143,7 +138,6 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date)
     ptpAmount,
     recovered: recoveredAgg._sum.paidAmount ?? 0,
     totalOwed,
-    staleCount,
     dispositions,
     agentSummary,
     commentSummary,

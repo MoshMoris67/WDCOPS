@@ -110,39 +110,6 @@ export async function getContactedCountsByFile(fileIds: string[], range?: DateRa
   return result;
 }
 
-// A debtor is stale when it has 5+ call logs AND the 5 most-recent are all dispositionCode
-// 'NA' — matches src/lib/debtor-status.ts's computeDebtorStatus (naCount >= 5) exactly:
-// that function walks call logs newest-first and stops counting at the first non-NA row,
-// so naCount can only reach 5 if the top 5 rows are all NA. rn<=5 + COUNT(*)=5 requires the
-// debtor to actually have 5 logs (the window isn't padded); SUM(non-NA)=0 requires all 5 to
-// be NA. Same condition, computed at the database instead of per-debtor in Node.
-export async function getStaleCountsByFile(fileIds: string[]): Promise<Map<string, number>> {
-  const result = new Map<string, number>();
-  if (fileIds.length === 0) return result;
-
-  const rows = await prisma.$queryRaw<{ fileId: string; count: number }[]>`
-    WITH ranked AS (
-      SELECT cl."debtorId" AS "debtorId",
-             cl."dispositionCode" AS "dispositionCode",
-             ROW_NUMBER() OVER (PARTITION BY cl."debtorId" ORDER BY cl."createdAt" DESC) AS rn
-      FROM "CallLog" cl
-      WHERE cl."debtorId" IN (SELECT id FROM "Debtor" WHERE "fileId" IN (${Prisma.join(fileIds)}))
-    ),
-    stale_debtors AS (
-      SELECT "debtorId" FROM ranked
-      WHERE rn <= 5
-      GROUP BY "debtorId"
-      HAVING COUNT(*) = 5 AND SUM(CASE WHEN "dispositionCode" != 'NA' THEN 1 ELSE 0 END) = 0
-    )
-    SELECT d."fileId" AS "fileId", COUNT(*) AS "count"
-    FROM stale_debtors sd JOIN "Debtor" d ON d.id = sd."debtorId"
-    GROUP BY d."fileId"
-  `;
-
-  for (const r of rows) result.set(r.fileId, Number(r.count));
-  return result;
-}
-
 export interface CallLogLite {
   dispositionCode: string;
   createdAt: Date;
@@ -156,7 +123,7 @@ export interface CallLogLite {
 // take: 5 } } })`) — fine at normal queue sizes, but a genuinely expensive query shape
 // once one agent's queue reaches into the thousands (found via a real agent with 10,000+
 // assigned debtors timing out the client's 8s fetch). Same ranked-window-function
-// technique as getStaleCountsByFile, just returning the actual rows instead of a count.
+// technique used elsewhere in this file, just returning the actual rows instead of a count.
 export async function getRecentCallLogsByDebtor(debtorIds: string[], take = 5): Promise<Map<string, CallLogLite[]>> {
   const result = new Map<string, CallLogLite[]>();
   if (debtorIds.length === 0) return result;
@@ -199,6 +166,57 @@ export async function getRecentlyPaidDebtorIds(debtorIds: string[], since: Date)
   });
   for (const r of rows) result.add(r.debtorId);
   return result;
+}
+
+export interface AgentCoverageRow {
+  agentId: string;
+  assignedCount: number;
+  contactedCount: number;
+  callsCount: number;
+  ptpsCount: number;
+}
+
+// Per-agent rollup for the Team Overview coverage widget: currently-assigned count
+// (not date-scoped — "how big is their book right now") alongside calls/contacted/PTPs
+// within [from, to] (date-scoped). "Contacted" here means the same thing as
+// getContactedCountsByFile's date-ranged mode — at least one call logged in the window —
+// just grouped by agent instead of by file, and in one query rather than one per agent.
+// agentId/clientId narrow to one agent and/or one client's files; omitted means "everyone"/
+// "every client". One LEFT JOIN handles the whole rollup instead of N+1 per-agent queries.
+export async function getAgentCoverageInRange(
+  range: DateRange,
+  filters?: { agentId?: string; clientId?: string }
+): Promise<AgentCoverageRow[]> {
+  const rows = await prisma.$queryRawUnsafe<
+    { agentId: string; assignedCount: bigint; contactedCount: bigint; callsCount: bigint; ptpsCount: bigint }[]
+  >(
+    `
+    SELECT d."assignedAgentId" AS "agentId",
+           COUNT(DISTINCT d.id) AS "assignedCount",
+           COUNT(DISTINCT CASE WHEN cl.id IS NOT NULL THEN d.id END) AS "contactedCount",
+           COUNT(cl.id) AS "callsCount",
+           COUNT(CASE WHEN cl."dispositionCode" = 'PTP' THEN 1 END) AS "ptpsCount"
+    FROM "Debtor" d
+    JOIN "File" f ON f.id = d."fileId"
+    LEFT JOIN "CallLog" cl ON cl."debtorId" = d.id AND cl."createdAt" >= $2 AND cl."createdAt" <= $3
+    WHERE d."assignedAgentId" IS NOT NULL
+      AND ($1::text IS NULL OR d."assignedAgentId" = $1)
+      AND ($4::text IS NULL OR f."clientId" = $4)
+    GROUP BY d."assignedAgentId"
+    `,
+    filters?.agentId ?? null,
+    range.from,
+    range.to,
+    filters?.clientId ?? null
+  );
+
+  return rows.map((r) => ({
+    agentId: r.agentId,
+    assignedCount: Number(r.assignedCount),
+    contactedCount: Number(r.contactedCount),
+    callsCount: Number(r.callsCount),
+    ptpsCount: Number(r.ptpsCount),
+  }));
 }
 
 // dashboard/summary's own "contacted" definition — the most recent call log isn't NA —

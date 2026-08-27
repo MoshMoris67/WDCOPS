@@ -4,7 +4,7 @@ import { getSession } from '@/lib/session';
 
 interface Notification {
   id: string;
-  kind: 'stale' | 'import_done' | 'import_failed' | 'file_uploaded' | 'reconciliation_uploaded';
+  kind: 'import_done' | 'import_failed' | 'file_uploaded' | 'reconciliation_uploaded';
   message: string;
   href: string;
 }
@@ -16,40 +16,7 @@ export async function GET(req: Request) {
   if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
   const mineOnly = new URL(req.url).searchParams.get('scope') === 'mine';
-  const scopedToAgent = session.role === 'agent' || mineOnly;
-  // Same "5+ most-recent calls all NA" definition as everywhere else this session
-  // (debtor-aggregates.ts's getStaleCountsByFile) — here returning the actual debtors,
-  // not just a count, since a notification needs something to link to.
-  const staleRows = await prisma.$queryRawUnsafe<{ id: string; name: string }[]>(
-    `
-    WITH ranked AS (
-      SELECT cl."debtorId" AS "debtorId", cl."dispositionCode" AS "dispositionCode",
-             ROW_NUMBER() OVER (PARTITION BY cl."debtorId" ORDER BY cl."createdAt" DESC) AS rn
-      FROM "CallLog" cl
-      JOIN "Debtor" d ON d.id = cl."debtorId"
-      WHERE ($1::text IS NULL OR d."assignedAgentId" = $1)
-    ),
-    stale AS (
-      SELECT "debtorId" FROM ranked WHERE rn <= 5
-      GROUP BY "debtorId"
-      HAVING COUNT(*) = 5 AND SUM(CASE WHEN "dispositionCode" != 'NA' THEN 1 ELSE 0 END) = 0
-    )
-    SELECT d.id AS id, d.name AS name FROM stale s JOIN "Debtor" d ON d.id = s."debtorId"
-    LIMIT 5
-    `,
-    scopedToAgent ? session.sub : null
-  );
-
   const notifications: Notification[] = [];
-
-  for (const r of staleRows) {
-    notifications.push({
-      id: `stale-${r.id}`,
-      kind: 'stale',
-      message: `${r.name} has gone 5+ calls with no answer`,
-      href: `/debtor-detail-call-logging?id=${r.id}`,
-    });
-  }
 
   // Admin only: upload/import activity in the last hour — both the upload itself (so an
   // admin who wasn't the one uploading still sees it happened) and, separately, when a

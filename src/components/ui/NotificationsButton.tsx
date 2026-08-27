@@ -2,17 +2,16 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Bell, AlertTriangle, CheckCircle, XCircle, UploadCloud } from 'lucide-react';
+import { Bell, CheckCircle, XCircle, UploadCloud } from 'lucide-react';
 
 interface Notification {
   id: string;
-  kind: 'stale' | 'import_done' | 'import_failed' | 'file_uploaded' | 'reconciliation_uploaded';
+  kind: 'import_done' | 'import_failed' | 'file_uploaded' | 'reconciliation_uploaded';
   message: string;
   href: string;
 }
 
-const ICONS: Record<Notification['kind'], typeof AlertTriangle> = {
-  stale: AlertTriangle,
+const ICONS: Record<Notification['kind'], typeof CheckCircle> = {
   import_done: CheckCircle,
   import_failed: XCircle,
   file_uploaded: UploadCloud,
@@ -73,8 +72,7 @@ export default function NotificationsButton({ collapsed, scope = 'branch' }: Not
                 const Icon = ICONS[n.kind];
                 const tone = n.kind === 'import_failed' ? 'text-negative'
                   : n.kind === 'import_done' ? 'text-positive'
-                  : (n.kind === 'file_uploaded' || n.kind === 'reconciliation_uploaded') ? 'text-info'
-                  : 'text-warning';
+                  : 'text-info';
                 return (
                   <Link
                     key={n.id}

@@ -14,8 +14,6 @@ export interface CachedDebtorRow {
   recentlyPaid?: boolean;
   lastDisposition: string | null;
   lastCallDate: string | null;
-  naCount: number;
-  isStale: boolean;
   isPTP: boolean;
   activePTP: { amount: number; date: string } | null;
   cachedAt: string;

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireRole, isSessionPayload } from '@/lib/rbac';
-import { getFileDebtorAggregates, getContactedCountsByFile, getStaleCountsByFile } from '@/lib/debtor-aggregates';
+import { getFileDebtorAggregates, getContactedCountsByFile } from '@/lib/debtor-aggregates';
 
 function startOfDay(d: Date) {
   const x = new Date(d);
@@ -34,10 +34,9 @@ export async function GET() {
 
   const agentIds = agents.map((a) => a.id);
 
-  const [aggregates, contactedByFile, staleByFile, assignedCounts, callStatsToday] = await Promise.all([
+  const [aggregates, contactedByFile, assignedCounts, callStatsToday] = await Promise.all([
     getFileDebtorAggregates(fileIds),
     getContactedCountsByFile(fileIds),
-    getStaleCountsByFile(fileIds),
     prisma.debtor.groupBy({ by: ['assignedAgentId'], where: { assignedAgentId: { in: agentIds } }, _count: { _all: true } }),
     prisma.callLog.groupBy({ by: ['agentId', 'dispositionCode'], where: { agentId: { in: agentIds }, createdAt: { gte: today } }, _count: { _all: true } }),
   ]);
@@ -49,16 +48,16 @@ export async function GET() {
 
   const clientSummaries = clients.map((c) => {
     const clientFileIds = (filesByClient.get(c.id) ?? []).map((f) => f.id);
-    let debtorCount = 0, recovered = 0, totalOwed = 0, contacted = 0, staleCount = 0;
+    let debtorCount = 0, recovered = 0, totalOwed = 0, totalBalance = 0, contacted = 0;
     for (const fid of clientFileIds) {
       const agg = aggregates.get(fid);
       if (agg) {
         debtorCount += agg.debtorCount;
         recovered += agg.recovered;
         totalOwed += agg.totalOwed;
+        totalBalance += agg.totalBalance;
       }
       contacted += contactedByFile.get(fid) ?? 0;
-      staleCount += staleByFile.get(fid) ?? 0;
     }
     const contactRate = debtorCount > 0 ? Math.round((contacted / debtorCount) * 100) : 0;
     // Already fetched above for the aggregation rollup — trimming to the 3 most recent
@@ -68,7 +67,10 @@ export async function GET() {
       .sort((a, b) => b.receivedDate.getTime() - a.receivedDate.getTime())
       .slice(0, 3)
       .map((f) => ({ id: f.id, batchLabel: f.batchLabel, receivedDate: f.receivedDate }));
-    return { id: c.id, name: c.name, reconciliationType: c.reconciliationType, debtorCount, contactRate, recovered, totalOwed, staleCount, recentFiles };
+    // totalOwed is the original disbursed amount (used for the recovery-% base below);
+    // totalBalance is the current outstanding book value — genuinely different numbers,
+    // both surfaced since ClientCard shows book value alongside recovery progress.
+    return { id: c.id, name: c.name, reconciliationType: c.reconciliationType, debtorCount, contactRate, recovered, totalOwed, totalBalance, recentFiles };
   });
 
   const agentSummaries = participatingAgents.map((a) => {

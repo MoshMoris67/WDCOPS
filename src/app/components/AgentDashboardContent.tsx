@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Phone, AlertTriangle, TrendingUp, Clock, RefreshCw, WifiOff, Calendar, Wifi } from 'lucide-react';
+import { Phone, TrendingUp, Clock, RefreshCw, WifiOff, Calendar, Wifi } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import KPICard from './KPICard';
 import { useOnlineStatus, usePendingSyncCount } from '@/lib/use-offline';
@@ -36,6 +36,8 @@ interface FileBreakdownRow {
 interface DashboardSummary {
   callsToday: number;
   contactRate: number;
+  totalAssigned: number;
+  contacted: number;
   dispositionBreakdownToday: { code: string; count: number }[];
   dailyTrend: { date: string; count: number }[];
   fileBreakdown: FileBreakdownRow[];
@@ -47,8 +49,8 @@ function formatUGX(amount: number) {
 }
 
 export default function AgentDashboardContent() {
-  // Only isStale/activePTP are needed here (for the KPI cards) — the full queue table
-  // moved to /my-queue (AgentQueueContent), which reads this same cached queue itself.
+  // Only activePTP is needed here (for the KPI cards) — the full queue table moved to
+  // /my-queue (AgentQueueContent), which reads this same cached queue itself.
   const { debtors: debtorQueue } = useDebtorQueue();
   const { data: summary } = useCachedQuery<DashboardSummary>('/api/dashboard/summary?scope=mine');
   const { data: codesData } = useCachedQuery<{ codes: DispositionCodeOption[] }>('/api/disposition-codes');
@@ -58,7 +60,6 @@ export default function AgentDashboardContent() {
 
   const todayIso = new Date().toISOString().slice(0, 10);
   const ptpDueToday = debtorQueue.filter(d => d.activePTP?.date?.slice(0, 10) === todayIso).length;
-  const staleCount = debtorQueue.filter(d => d.isStale).length;
   const todayLabel = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
   const nowLabel = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
@@ -124,24 +125,27 @@ export default function AgentDashboardContent() {
           icon={Clock}
           variant="warning"
         />
-        <KPICard
-          label="Contact Rate"
-          value={`${summary?.contactRate ?? 0}%`}
-          subtext="Non-NA dispositions / assigned"
-          trend="neutral"
-          trendValue=""
-          icon={TrendingUp}
-          variant="positive"
-        />
-        <KPICard
-          label="Stale Accounts"
-          value={String(staleCount)}
-          subtext="5+ consecutive NA dispositions"
-          trend="neutral"
-          trendValue=""
-          icon={AlertTriangle}
-          variant="negative"
-        />
+        {/* File coverage — same visual language as KPICard, plus an actual progress bar
+            (mirrors ClientCard's Recovery Progress bar) so "so far contacted, out of what's
+            assigned" reads as real, filling progress rather than just a bare percentage. */}
+        <div className="bg-card border border-[#BBF7D0] rounded-xl shadow-card p-5 flex flex-col gap-3 hover:shadow-card-hover transition-shadow duration-200">
+          <div className="flex items-start justify-between">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--positive-bg)] text-positive">
+              <TrendingUp size={18} />
+            </div>
+          </div>
+          <div>
+            <p className="text-card-label text-muted-foreground uppercase tracking-wider mb-1">File Coverage</p>
+            <p className="font-tabular font-bold text-hero-value text-positive">{summary?.contactRate ?? 0}%</p>
+            <p className="text-xs text-muted-foreground mt-1">{summary?.contacted ?? 0} of {summary?.totalAssigned ?? 0} contacted</p>
+          </div>
+          <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full bg-positive transition-all duration-500"
+              style={{ width: `${Math.min(100, summary?.contactRate ?? 0)}%` }}
+            />
+          </div>
+        </div>
         <KPICard
           label="Pending Sync"
           value={String(pendingSync)}

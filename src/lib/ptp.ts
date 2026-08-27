@@ -15,8 +15,8 @@ export interface PtpRow {
 // "Active PTP" — same definition as debtor-status.ts's isPTP/activePTP (the debtor's
 // LATEST call log, not just any PTP ever logged): a debtor whose most recent call has
 // dispositionCode 'PTP'. Computed at the DB via the same ranked-window-function pattern
-// as debtor-aggregates.ts's getStaleCountsByFile, scoped to one agent when agentId is
-// passed (mirrors api/notifications' now-removed ptpRows query, minus the LIMIT 5 cap).
+// used elsewhere in debtor-aggregates.ts, scoped to one agent when agentId is passed
+// (mirrors api/notifications' now-removed ptpRows query, minus the LIMIT 5 cap).
 export async function getActivePtps(agentId?: string): Promise<PtpRow[]> {
   const rows = await prisma.$queryRawUnsafe<
     {

@@ -64,8 +64,6 @@ interface DebtorDetail {
   balance: number;
   assignedAgent: string | null;
   branch: string;
-  naCount: number;
-  isStale: boolean;
   isPTP: boolean;
   activePTP: { amount: number; date: string } | null;
 }
@@ -529,7 +527,6 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
             </div>
             <div className="mt-4 pt-4 border-t border-border flex items-center gap-6 flex-wrap text-xs text-muted-foreground">
               <span><span className="font-medium text-foreground">Loan Ref:</span> <span className="font-mono-data">{liteRow.loanRef}</span></span>
-              <span><span className="font-medium text-foreground">NA Count:</span> {liteRow.naCount} / 5</span>
             </div>
           </div>
 
@@ -619,9 +616,6 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl font-bold text-foreground">{debtor.name}</h1>
-                {debtor.isStale && (
-                  <Badge variant="negative" dot>Stale Account</Badge>
-                )}
                 {debtor.isPTP && (
                   <Badge variant="positive" dot>Active PTP</Badge>
                 )}
@@ -662,7 +656,6 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
           <span><span className="font-medium text-foreground">Loan Ref:</span> <span className="font-mono-data">{debtor.loanRef}</span></span>
           <span><span className="font-medium text-foreground">Assigned Agent:</span> {debtor.assignedAgent}</span>
           <span><span className="font-medium text-foreground">Branch:</span> {debtor.branch}</span>
-          <span><span className="font-medium text-foreground">NA Count:</span> {debtor.naCount} / 5</span>
           {debtor.activePTP && (
             <span className="flex items-center gap-1 text-positive font-medium">
               <CheckCircle size={12} />

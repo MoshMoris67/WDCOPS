@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Download, Calendar, CheckCircle, Clock, TrendingUp, Users, AlertTriangle } from 'lucide-react';
+import { Download, Calendar, CheckCircle, Clock, TrendingUp, Users } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Badge from '@/components/ui/Badge';
 import DispositionBadge from '@/components/ui/DispositionBadge';
@@ -27,7 +27,6 @@ interface ReportSummary {
   ptpAmount: number;
   recovered: number;
   totalOwed: number;
-  staleCount: number;
   dispositions: { code: string; label: string; count: number }[];
   agentSummary: { agentId: string; name: string; calls: number; ptps: number; recovered: number }[];
 }
@@ -40,7 +39,6 @@ interface DebtorRow {
   balance: number;
   lastDisposition: string | null;
   lastCallDate: string | null;
-  isStale: boolean;
 }
 
 interface AgentOption {
@@ -310,17 +308,16 @@ export default function ReportsContent() {
       {data && (
         <>
           {/* KPI summary */}
-          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
               { label: 'Total Debtors', value: data.totalDebtors.toLocaleString(), icon: Users, sub: `${selectedClient?.name ?? ''} active file`, variant: 'info' as const },
               { label: 'Contact Rate', value: `${contactRate}%`, icon: TrendingUp, sub: `${data.contacted} of ${data.totalDebtors} contacted`, variant: 'positive' as const },
               { label: 'PTP Rate', value: `${ptpRate}%`, icon: CheckCircle, sub: `${data.ptpCount} PTPs · ${formatUGX(data.ptpAmount)} committed`, variant: 'positive' as const },
-              { label: 'Stale Accounts', value: String(data.staleCount), icon: AlertTriangle, sub: '5+ consecutive NA dispositions', variant: 'negative' as const },
             ].map((kpi) => (
-              <div key={`rpt-kpi-${kpi.label}`} className={`bg-card rounded-xl border shadow-card p-4 ${kpi.variant === 'negative' ? 'border-[#FECACA]' : kpi.variant === 'positive' ? 'border-[#BBF7D0]' : 'border-[#BFDBFE]'}`}>
+              <div key={`rpt-kpi-${kpi.label}`} className={`bg-card rounded-xl border shadow-card p-4 ${kpi.variant === 'positive' ? 'border-[#BBF7D0]' : 'border-[#BFDBFE]'}`}>
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{kpi.label}</p>
-                  <kpi.icon size={14} className={kpi.variant === 'negative' ? 'text-negative' : kpi.variant === 'positive' ? 'text-positive' : 'text-info'} />
+                  <kpi.icon size={14} className={kpi.variant === 'positive' ? 'text-positive' : 'text-info'} />
                 </div>
                 <p className="font-tabular font-bold text-2xl text-foreground">{kpi.value}</p>
                 <p className="text-xs text-muted-foreground mt-1">{kpi.sub}</p>
@@ -517,7 +514,6 @@ export default function ReportsContent() {
                     { label: 'Include Agent Breakdown', checked: true },
                     { label: 'Include Disposition Detail', checked: true },
                     { label: 'Include PTP Schedule', checked: true },
-                    { label: 'Include Stale Account List', checked: true },
                   ].map((config) => (
                     <div key={`cfg-${'label' in config ? config.label : ''}`} className="flex items-center justify-between gap-2">
                       <span className="text-sm text-foreground">{'label' in config ? config.label : ''}</span>
@@ -626,10 +622,9 @@ export default function ReportsContent() {
                 </tr>
               )}
               renderTableRow={(d) => (
-                <tr className={`border-b border-border/60 hover:bg-secondary/40 transition-colors ${debtorRowTint({ isStale: d.isStale, balance: d.balance })}`}>
+                <tr className={`border-b border-border/60 hover:bg-secondary/40 transition-colors ${debtorRowTint({ balance: d.balance })}`}>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <div className="flex items-center gap-1.5">
-                      {d.isStale && <AlertTriangle size={12} className="text-negative shrink-0" />}
                       <span className="font-medium text-foreground text-sm">{d.name}</span>
                     </div>
                     <p className="text-xs text-muted-foreground">{d.loanRef}</p>
@@ -651,11 +646,10 @@ export default function ReportsContent() {
                 </tr>
               )}
               renderCard={(d) => (
-                <div className={`bg-card border border-border rounded-xl p-4 shadow-card ${debtorRowTint({ isStale: d.isStale, balance: d.balance })}`}>
+                <div className={`bg-card border border-border rounded-xl p-4 shadow-card ${debtorRowTint({ balance: d.balance })}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        {d.isStale && <AlertTriangle size={12} className="text-negative shrink-0" />}
                         <span className="font-medium text-foreground text-sm truncate">{d.name}</span>
                       </div>
                       <p className="text-xs text-muted-foreground">{d.loanRef}</p>

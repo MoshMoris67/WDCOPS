@@ -2,9 +2,10 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Users, TrendingUp, AlertTriangle, Wallet, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Users, TrendingUp, Wallet, ChevronLeft, ChevronRight } from 'lucide-react';
 import Badge from '@/components/ui/Badge';
 import ClientCard from '@/components/ui/ClientCard';
+import TeamCoverageSection from './TeamCoverageSection';
 import ResponsiveList from '@/components/ui/ResponsiveList';
 import ListToolbar from '@/components/ui/ListToolbar';
 import InlineEditCell from '@/components/ui/InlineEditCell';
@@ -25,7 +26,7 @@ interface ClientSummary {
   contactRate: number;
   recovered: number;
   totalOwed: number;
-  staleCount: number;
+  totalBalance: number;
   recentFiles: { id: string; batchLabel: string; receivedDate: string }[];
 }
 
@@ -48,8 +49,6 @@ interface DebtorRow {
   client: string;
   lastDisposition: string | null;
   lastCallDate: string | null;
-  naCount: number;
-  isStale: boolean;
   recentlyPaid: boolean;
 }
 
@@ -348,7 +347,6 @@ export default function TeamDashboardContent() {
   const totalDebtors = clients.reduce((s, c) => s + c.debtorCount, 0);
   const totalRecovered = clients.reduce((s, c) => s + c.recovered, 0);
   const totalOwed = clients.reduce((s, c) => s + c.totalOwed, 0);
-  const totalStale = clients.reduce((s, c) => s + c.staleCount, 0);
 
   return (
     <div>
@@ -372,7 +370,6 @@ export default function TeamDashboardContent() {
           { label: 'Total Debtors', value: totalDebtors.toLocaleString(), icon: Users, from: '#DBEAFE', to: '#EFF6FF', color: '#1D4ED8' },
           { label: 'Recovered', value: formatUGX(totalRecovered), icon: Wallet, from: '#DCFCE7', to: '#F0FDF4', color: '#16A34A' },
           { label: 'Recovery Rate', value: totalOwed > 0 ? `${Math.round((totalRecovered / totalOwed) * 100)}%` : '0%', icon: TrendingUp, from: '#FEF3C7', to: '#FFFBEB', color: '#D97706' },
-          { label: 'Stale Accounts', value: String(totalStale), icon: AlertTriangle, from: '#FEE2E2', to: '#FEF2F2', color: '#DC2626' },
         ].map((stat) => (
           <div key={stat.label} className="bg-card rounded-xl border border-border shadow-card p-4 flex items-center gap-3">
             <div
@@ -400,7 +397,7 @@ export default function TeamDashboardContent() {
             contactRate={c.contactRate}
             recovered={c.recovered}
             totalOwed={c.totalOwed}
-            staleCount={c.staleCount}
+            totalBalance={c.totalBalance}
             recentFiles={c.recentFiles}
             onClick={() => router.push(`/reports-client-export?clientId=${c.id}`)}
           />
@@ -410,36 +407,11 @@ export default function TeamDashboardContent() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Agent performance */}
-        <div className="xl:col-span-1 bg-card rounded-xl shadow-card border border-border">
-          <div className="px-5 py-4 border-b border-border">
-            <h2 className="text-section-header text-foreground">Agents Today</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">{agents.length} agents</p>
-          </div>
-          <div className="divide-y divide-border max-h-[420px] overflow-y-auto scrollbar-thin">
-            {agents.map((a) => (
-              <div key={a.id} className="px-5 py-3 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-sm font-medium text-foreground truncate">{a.name}</p>
-                    {a.role === 'admin' && (
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-info bg-[var(--info-bg)] px-1.5 py-0.5 rounded-full shrink-0">Admin</span>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground">{a.assignedCount} assigned</p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="font-tabular text-sm font-semibold text-foreground">{a.callsToday} calls</p>
-                  <p className="text-xs text-positive">{a.ptpsToday} PTPs</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+      <TeamCoverageSection agents={agents} />
 
+      <div className="grid grid-cols-1 gap-6">
         {/* Debtor table with reassignment */}
-        <div className="xl:col-span-2 bg-card rounded-xl shadow-card border border-border">
+        <div className="bg-card rounded-xl shadow-card border border-border">
           <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h2 className="text-section-header text-foreground">All Debtors</h2>
@@ -550,7 +522,7 @@ export default function TeamDashboardContent() {
                 </tr>
               )}
               renderTableRow={(d) => (
-                <tr className={`border-b border-border/60 hover:bg-secondary/40 transition-colors ${selectedIds.has(d.id) ? 'bg-primary/5' : ''} ${debtorRowTint({ isStale: d.isStale, balance: d.balance })}`}>
+                <tr className={`border-b border-border/60 hover:bg-secondary/40 transition-colors ${selectedIds.has(d.id) ? 'bg-primary/5' : ''} ${debtorRowTint({ balance: d.balance })}`}>
                   <td className="px-4 py-3">
                     <input
                       type="checkbox"
@@ -561,7 +533,6 @@ export default function TeamDashboardContent() {
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <div className="flex items-center gap-1.5">
-                      {d.isStale && <AlertTriangle size={12} className="text-negative shrink-0" />}
                       <span className="font-medium text-foreground text-sm">{d.name}</span>
                     </div>
                     <p className="text-xs text-muted-foreground">{d.loanRef}</p>
@@ -586,7 +557,7 @@ export default function TeamDashboardContent() {
                 </tr>
               )}
               renderCard={(d) => (
-                <div className={`bg-card border border-border rounded-xl p-4 shadow-card ${selectedIds.has(d.id) ? 'ring-2 ring-primary/40' : ''} ${debtorRowTint({ isStale: d.isStale, balance: d.balance })}`}>
+                <div className={`bg-card border border-border rounded-xl p-4 shadow-card ${selectedIds.has(d.id) ? 'ring-2 ring-primary/40' : ''} ${debtorRowTint({ balance: d.balance })}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-start gap-2 min-w-0">
                       <input
@@ -597,7 +568,6 @@ export default function TeamDashboardContent() {
                       />
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
-                          {d.isStale && <AlertTriangle size={12} className="text-negative shrink-0" />}
                           <span className="font-medium text-foreground text-sm truncate">{d.name}</span>
                         </div>
                         <p className="text-xs text-muted-foreground">{d.loanRef}</p>

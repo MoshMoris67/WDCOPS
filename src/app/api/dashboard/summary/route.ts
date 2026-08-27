@@ -89,5 +89,5 @@ export async function GET(req: Request) {
     }
   }
 
-  return NextResponse.json({ callsToday, contactRate, dispositionBreakdownToday, dailyTrend, fileBreakdown });
+  return NextResponse.json({ callsToday, contactRate, totalAssigned, contacted, dispositionBreakdownToday, dailyTrend, fileBreakdown });
 }
