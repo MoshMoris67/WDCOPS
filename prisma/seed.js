@@ -9,7 +9,7 @@ const DISPOSITION_CODES = [
   { code: 'DL', label: 'Disputing Loan', description: 'Debtor denies taking the loan', color: '#B91C1C', requiresCallback: false, requiresPtp: false },
   { code: 'HU', label: 'Hang Up', description: 'Debtor hung up mid-call without a clear response', color: '#EA580C', requiresCallback: false, requiresPtp: false },
   { code: 'NP', label: 'Negotiation In Progress', description: 'No dispute, but no payment commitment yet', color: '#D97706', requiresCallback: false, requiresPtp: false },
-  { code: 'NA', label: 'No Answer', description: 'Call not answered — counts toward the stale-account flag', color: '#94A3B8', requiresCallback: false, requiresPtp: false },
+  { code: 'NA', label: 'No Answer', description: 'Call not answered', color: '#94A3B8', requiresCallback: false, requiresPtp: false },
   { code: 'NB', label: 'Number Busy', description: 'Line busy at time of call', color: '#7C3AED', requiresCallback: false, requiresPtp: false },
   { code: 'PTP', label: 'Promise To Pay', description: 'Debtor commits to pay — captures promised amount and date', color: '#16A34A', requiresCallback: false, requiresPtp: true },
   { code: 'SO', label: 'Switched Off', description: 'Number off at time of call', color: '#64748B', requiresCallback: false, requiresPtp: false },
