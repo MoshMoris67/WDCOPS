@@ -87,24 +87,21 @@ interface DateRange {
 // "Contacted" = has at least one call log, optionally scoped to a date range. Without a
 // range this answers "ever contacted" (team/overview); with one it answers "contacted
 // within this report window" (reports.ts) — genuinely different questions, same shape.
-export async function getContactedCountsByFile(fileIds: string[], range?: DateRange): Promise<Map<string, number>> {
+export async function getContactedCountsByFile(fileIds: string[], range?: DateRange, agentId?: string): Promise<Map<string, number>> {
   const result = new Map<string, number>();
   if (fileIds.length === 0) return result;
 
-  const rows = range
-    ? await prisma.$queryRaw<{ fileId: string; count: number }[]>`
-        SELECT d."fileId" AS "fileId", COUNT(DISTINCT cl."debtorId") AS "count"
-        FROM "CallLog" cl JOIN "Debtor" d ON d.id = cl."debtorId"
-        WHERE d."fileId" IN (${Prisma.join(fileIds)})
-          AND cl."createdAt" >= ${range.from} AND cl."createdAt" <= ${range.to}
-        GROUP BY d."fileId"
-      `
-    : await prisma.$queryRaw<{ fileId: string; count: number }[]>`
-        SELECT d."fileId" AS "fileId", COUNT(DISTINCT cl."debtorId") AS "count"
-        FROM "CallLog" cl JOIN "Debtor" d ON d.id = cl."debtorId"
-        WHERE d."fileId" IN (${Prisma.join(fileIds)})
-        GROUP BY d."fileId"
-      `;
+  const rangeFilter = range ? Prisma.sql`AND cl."createdAt" >= ${range.from} AND cl."createdAt" <= ${range.to}` : Prisma.empty;
+  const agentFilter = agentId ? Prisma.sql`AND d."assignedAgentId" = ${agentId}` : Prisma.empty;
+
+  const rows = await prisma.$queryRaw<{ fileId: string; count: number }[]>`
+    SELECT d."fileId" AS "fileId", COUNT(DISTINCT cl."debtorId") AS "count"
+    FROM "CallLog" cl JOIN "Debtor" d ON d.id = cl."debtorId"
+    WHERE d."fileId" IN (${Prisma.join(fileIds)})
+      ${rangeFilter}
+      ${agentFilter}
+    GROUP BY d."fileId"
+  `;
 
   for (const r of rows) result.set(r.fileId, Number(r.count));
   return result;

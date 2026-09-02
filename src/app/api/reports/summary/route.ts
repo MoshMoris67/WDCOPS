@@ -10,13 +10,14 @@ export async function GET(req: Request) {
   const clientId = searchParams.get('clientId') ?? '';
   const from = searchParams.get('from');
   const to = searchParams.get('to');
+  const agentId = searchParams.get('agentId') || undefined;
 
   if (!clientId || !from || !to) {
     return NextResponse.json({ error: 'clientId, from, and to are required' }, { status: 400 });
   }
 
   try {
-    const summary = await buildReportSummary(clientId, new Date(`${from}T00:00:00`), new Date(`${to}T23:59:59`));
+    const summary = await buildReportSummary(clientId, new Date(`${from}T00:00:00`), new Date(`${to}T23:59:59`), agentId);
     return NextResponse.json({ summary });
   } catch {
     return NextResponse.json({ error: 'Unknown client' }, { status: 404 });

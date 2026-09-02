@@ -85,7 +85,11 @@ export default function ReportsContent() {
   const clients = useClients();
   const searchParams = useSearchParams();
   const clientIdParam = searchParams.get('clientId');
+  const agentIdParam = searchParams.get('agentId');
+  const fromParam = searchParams.get('from');
+  const toParam = searchParams.get('to');
   const [selectedClientId, setSelectedClientId] = useState('');
+  const [selectedAgentId, setSelectedAgentId] = useState('All');
   const [selectedFrequency, setSelectedFrequency] = useState<FrequencyKey>('daily');
   const [dateFrom, setDateFrom] = useState(isoDate(new Date()));
   const [dateTo, setDateTo] = useState(isoDate(new Date()));
@@ -111,6 +115,15 @@ export default function ReportsContent() {
   useEffect(() => {
     if (clientIdParam) setSelectedClientId(clientIdParam);
   }, [clientIdParam]);
+
+  useEffect(() => {
+    if (agentIdParam) setSelectedAgentId(agentIdParam);
+  }, [agentIdParam]);
+
+  useEffect(() => {
+    if (fromParam) setDateFrom(fromParam);
+    if (toParam) setDateTo(toParam);
+  }, [fromParam, toParam]);
 
   useEffect(() => {
     if (clients.length > 0) setSelectedClientId((prev) => prev || clients[0].id);
@@ -151,7 +164,9 @@ export default function ReportsContent() {
     refetchDebtors();
   }
 
-  const summaryUrl = selectedClientId ? `/api/reports/summary?clientId=${selectedClientId}&from=${dateFrom}&to=${dateTo}` : null;
+  const summaryUrl = selectedClientId
+    ? `/api/reports/summary?clientId=${selectedClientId}&from=${dateFrom}&to=${dateTo}${selectedAgentId !== 'All' ? `&agentId=${selectedAgentId}` : ''}`
+    : null;
   const { data: summaryPayload } = useCachedQuery<{ summary: ReportSummary }>(summaryUrl);
   const data = summaryPayload?.summary ?? null;
   useEffect(() => {
@@ -159,6 +174,7 @@ export default function ReportsContent() {
   }, [data]);
 
   const selectedClient = clients.find((c) => c.id === selectedClientId);
+  const selectedAgentName = agents.find((a) => a.id === selectedAgentId)?.name;
   const recoveryPct = data && data.totalOwed > 0 ? Math.round((data.recovered / data.totalOwed) * 100) : 0;
   const contactRate = data && data.totalDebtors > 0 ? Math.round((data.contacted / data.totalDebtors) * 100) : 0;
   const ptpRate = data && data.contacted > 0 ? Math.round((data.ptpCount / data.contacted) * 100) : 0;
@@ -181,7 +197,8 @@ export default function ReportsContent() {
     if (!selectedClientId) return;
     setIsExporting(true);
     try {
-      const res = await fetch(`/api/reports/export?clientId=${selectedClientId}&frequency=${selectedFrequency}&from=${dateFrom}&to=${dateTo}`);
+      const agentParam = selectedAgentId !== 'All' ? `&agentId=${selectedAgentId}` : '';
+      const res = await fetch(`/api/reports/export?clientId=${selectedClientId}&frequency=${selectedFrequency}&from=${dateFrom}&to=${dateTo}${agentParam}`);
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
         toast.error(payload.error || 'Export failed');
@@ -191,12 +208,14 @@ export default function ReportsContent() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${selectedClient?.name ?? 'report'}-${selectedFrequency}-${dateFrom}-to-${dateTo}.xlsx`;
+      const agentSuffix = selectedAgentId !== 'All' ? `-${selectedAgentName ?? 'agent'}` : '';
+      a.download = `${selectedClient?.name ?? 'report'}-${selectedFrequency}-${dateFrom}-to-${dateTo}${agentSuffix}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      toast.success(`${selectedClient?.name} ${selectedFrequency} report exported — check your downloads`);
+      const scopeLabel = selectedAgentId !== 'All' ? ` for ${selectedAgentName}` : '';
+      toast.success(`${selectedClient?.name} ${selectedFrequency} report${scopeLabel} exported — check your downloads`);
     } catch {
       toast.error('Could not reach the server — try again');
     } finally {
@@ -296,6 +315,23 @@ export default function ReportsContent() {
             </div>
           </div>
 
+          <div className="w-px h-8 bg-border" />
+
+          {/* Agent — narrows the whole report to one agent's current book on this client */}
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Agent</p>
+            <select
+              value={selectedAgentId}
+              onChange={(e) => setSelectedAgentId(e.target.value)}
+              className="px-2.5 py-1.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+            >
+              <option value="All">All Agents</option>
+              {agents.filter((a) => a.status === 'active').map((a) => (
+                <option key={`report-agent-${a.id}`} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="ml-auto">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/50 text-xs text-muted-foreground">
               <Clock size={12} />
@@ -310,7 +346,7 @@ export default function ReportsContent() {
           {/* KPI summary */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              { label: 'Total Debtors', value: data.totalDebtors.toLocaleString(), icon: Users, sub: `${selectedClient?.name ?? ''} active file`, variant: 'info' as const },
+              { label: 'Total Debtors', value: data.totalDebtors.toLocaleString(), icon: Users, sub: selectedAgentName ? `${selectedAgentName}'s book` : `${selectedClient?.name ?? ''} active file`, variant: 'info' as const },
               { label: 'Contact Rate', value: `${contactRate}%`, icon: TrendingUp, sub: `${data.contacted} of ${data.totalDebtors} contacted`, variant: 'positive' as const },
               { label: 'PTP Rate', value: `${ptpRate}%`, icon: CheckCircle, sub: `${data.ptpCount} PTPs · ${formatUGX(data.ptpAmount)} committed`, variant: 'positive' as const },
             ].map((kpi) => (
@@ -335,7 +371,10 @@ export default function ReportsContent() {
                     <h2 className="text-section-header text-foreground">Disposition Summary</h2>
                     <p className="text-xs text-muted-foreground mt-0.5">{totalDispositions} total dispositions — {selectedFrequency} period</p>
                   </div>
-                  <Badge variant="info">{selectedClient?.name}</Badge>
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant="info">{selectedClient?.name}</Badge>
+                    {selectedAgentName && <Badge variant="positive">{selectedAgentName}</Badge>}
+                  </div>
                 </div>
 
                 <div className="p-4">
@@ -400,7 +439,9 @@ export default function ReportsContent() {
               <div className="bg-card rounded-xl shadow-card border border-border">
                 <div className="px-5 py-4 border-b border-border">
                   <h2 className="text-section-header text-foreground">Agent Performance</h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">{selectedFrequency} breakdown per agent on {selectedClient?.name} file</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {selectedAgentName ? `${selectedFrequency} breakdown for ${selectedAgentName} on ${selectedClient?.name} file` : `${selectedFrequency} breakdown per agent on ${selectedClient?.name} file`}
+                  </p>
                 </div>
                 <div className="px-4 pb-4 md:px-0 md:pb-0">
                   <ResponsiveList
@@ -511,6 +552,7 @@ export default function ReportsContent() {
                   {[
                     { label: 'Report Template', value: `${selectedClient?.name ?? ''} Standard Format`, editable: false },
                     { label: 'Date Range', value: `${dateFrom} to ${dateTo}`, editable: false },
+                    ...(selectedAgentName ? [{ label: 'Agent', value: selectedAgentName, editable: false }] : []),
                     { label: 'Include Agent Breakdown', checked: true },
                     { label: 'Include Disposition Detail', checked: true },
                     { label: 'Include PTP Schedule', checked: true },

@@ -24,7 +24,7 @@ export interface ReportSummary {
   debtorReport: { name: string; phone: string; loanRef: string; balance: number; comment: string }[];
 }
 
-export async function buildReportSummary(clientId: string, from: Date, to: Date): Promise<ReportSummary> {
+export async function buildReportSummary(clientId: string, from: Date, to: Date, agentId?: string): Promise<ReportSummary> {
   const [client, files, dispositionCodes] = await Promise.all([
     prisma.client.findUniqueOrThrow({ where: { id: clientId } }),
     prisma.file.findMany({ where: { clientId }, select: { id: true } }),
@@ -33,19 +33,24 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date)
   const fileIds = files.map((f) => f.id);
   const labelByCode = new Map(dispositionCodes.map((d) => [d.code, d.label]));
 
+  // When agentId is given, every debtor-scoped query below narrows to that agent's *current*
+  // book on this client — same "current assignment, not who logged the call historically"
+  // convention already used for agent display names below.
+  const debtorWhere = agentId ? { fileId: { in: fileIds }, assignedAgentId: agentId } : { fileId: { in: fileIds } };
+
   const [debtorAgg, contactedCounts, logsInRange, assignedAgentsOnClient, debtorsForReport] = await Promise.all([
-    prisma.debtor.aggregate({ where: { fileId: { in: fileIds } }, _count: { _all: true }, _sum: { amountOwed: true } }),
+    prisma.debtor.aggregate({ where: debtorWhere, _count: { _all: true }, _sum: { amountOwed: true } }),
     // Contacted is date-scoped for a report (calls within the window), unlike team/overview's "ever contacted".
-    getContactedCountsByFile(fileIds, { from, to }),
+    getContactedCountsByFile(fileIds, { from, to }, agentId),
     prisma.callLog.findMany({
-      where: { debtor: { fileId: { in: fileIds } }, createdAt: { gte: from, lte: to } },
+      where: { debtor: debtorWhere, createdAt: { gte: from, lte: to } },
       select: { debtorId: true, agentId: true, dispositionCode: true, promisedAmount: true },
     }),
     // Agent display names come from the debtor's *current* assignedAgent, not callLog.agentId
     // (a reassigned debtor's historical calls are relabeled under the new agent) — a
     // pre-existing quirk, kept intact rather than "fixed" as a side effect of this rewrite.
     prisma.debtor.findMany({
-      where: { fileId: { in: fileIds }, assignedAgentId: { not: null } },
+      where: agentId ? { fileId: { in: fileIds }, assignedAgentId: agentId } : { fileId: { in: fileIds }, assignedAgentId: { not: null } },
       select: { id: true, assignedAgentId: true, assignedAgent: { select: { name: true } } },
     }),
     // Raw SQL, not a nested Prisma `include` — tested directly against KCB Mopesa's real
@@ -61,6 +66,7 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date)
         FROM "Debtor" d
         LEFT JOIN "CallLog" cl ON cl."debtorId" = d.id
         WHERE d."fileId" IN (${Prisma.join(fileIds)})
+          ${agentId ? Prisma.sql`AND d."assignedAgentId" = ${agentId}` : Prisma.empty}
         ORDER BY d.id, cl."createdAt" DESC NULLS LAST
       `
     ),
@@ -78,7 +84,7 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date)
   const ptpAmount = ptpLogs.reduce((s, l) => s + (l.promisedAmount ?? 0), 0);
 
   const recoveredAgg = await prisma.reconciliationEntry.aggregate({
-    where: { debtor: { fileId: { in: fileIds } }, createdAt: { gte: from, lte: to } },
+    where: { debtor: debtorWhere, createdAt: { gte: from, lte: to } },
     _sum: { paidAmount: true },
   });
 
@@ -100,7 +106,10 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date)
 
   const recoveredByAgentRows = await prisma.reconciliationEntry.groupBy({
     by: ['debtorId'],
-    where: { debtor: { fileId: { in: fileIds }, assignedAgentId: { not: null } }, createdAt: { gte: from, lte: to } },
+    where: {
+      debtor: agentId ? { fileId: { in: fileIds }, assignedAgentId: agentId } : { fileId: { in: fileIds }, assignedAgentId: { not: null } },
+      createdAt: { gte: from, lte: to },
+    },
     _sum: { paidAmount: true },
   });
   const recoveredByAgent = new Map<string, number>();

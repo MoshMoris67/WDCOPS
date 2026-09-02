@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Phone, Users, TrendingUp } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Phone, Users, TrendingUp, FileText } from 'lucide-react';
 import { useClients } from '@/lib/use-clients';
 
 interface AgentOption {
@@ -32,6 +33,7 @@ function isoDate(d: Date) {
 }
 
 export default function TeamCoverageSection({ agents }: TeamCoverageSectionProps) {
+  const router = useRouter();
   const clients = useClients();
   const [dateFrom, setDateFrom] = useState(isoDate(new Date()));
   const [dateTo, setDateTo] = useState(isoDate(new Date()));
@@ -133,16 +135,16 @@ export default function TeamCoverageSection({ agents }: TeamCoverageSectionProps
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-secondary/30">
-              {['Agent', 'Assigned', 'Contacted', 'Coverage', 'Calls', 'PTPs'].map((col) => (
+              {['Agent', 'Assigned', 'Contacted', 'Coverage', 'Calls', 'PTPs', ''].map((col) => (
                 <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {isLoading ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">Loading…</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">Loading…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">No activity for this period/filter.</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">No activity for this period/filter.</td></tr>
             ) : (
               rows.map((r) => (
                 <tr key={r.agentId} className="hover:bg-secondary/40 transition-colors">
@@ -166,6 +168,17 @@ export default function TeamCoverageSection({ agents }: TeamCoverageSectionProps
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap font-tabular font-semibold text-foreground">{r.callsCount}</td>
                   <td className="px-4 py-3 whitespace-nowrap font-tabular text-positive">{r.ptpsCount}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    {filterClient !== 'All' && (
+                      <button
+                        onClick={() => router.push(`/reports-client-export?clientId=${filterClient}&agentId=${r.agentId}&from=${dateFrom}&to=${dateTo}`)}
+                        title={`Full report for ${r.name}, ${dateFrom} to ${dateTo}`}
+                        className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                      >
+                        <FileText size={12} /> Report
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))
             )}
