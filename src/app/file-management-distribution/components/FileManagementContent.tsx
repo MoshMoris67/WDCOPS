@@ -66,6 +66,70 @@ interface EditFileForm {
   isMidMonthTopup: boolean;
 }
 
+interface DistributedSheetInfo {
+  name: string;
+  rowCount: number;
+  matchedAgent: { id: string; name: string } | null;
+}
+
+type SheetAction = { action: 'assign'; agentId: string } | { action: 'unassigned' } | { action: 'skip' };
+
+interface LastSync {
+  id: string;
+  status: 'queued' | 'processing' | 'complete' | 'failed';
+  error: string | null;
+  newDebtorsCount: number;
+  paymentsAppliedCount: number;
+  paymentsSkippedCount: number;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+function formatSyncTime(iso: string) {
+  return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+interface PaymentMappingState {
+  loanRefCol: string;
+  paidDateCol: string;
+  paidAmountCol: string;
+  companyCommissionCol: string;
+}
+
+const EMPTY_PAYMENT_MAPPING: PaymentMappingState = { loanRefCol: '', paidDateCol: '', paidAmountCol: '', companyCommissionCol: '' };
+
+function paymentMappingFromSuggestion(s: { loanRefCol?: number; paidDateCol?: number; paidAmountCol?: number; companyCommissionCol?: number }): PaymentMappingState {
+  const str = (n?: number) => (n === undefined ? '' : String(n));
+  return { loanRefCol: str(s.loanRefCol), paidDateCol: str(s.paidDateCol), paidAmountCol: str(s.paidAmountCol), companyCommissionCol: str(s.companyCommissionCol) };
+}
+
+function paymentMappingIsComplete(m: PaymentMappingState): boolean {
+  return m.loanRefCol !== '' && m.paidDateCol !== '' && m.paidAmountCol !== '';
+}
+
+function buildPaymentMappingPayload(m: PaymentMappingState) {
+  const n = (v: string) => (v === '' ? undefined : Number(v));
+  return { loanRefCol: n(m.loanRefCol), paidDateCol: n(m.paidDateCol), paidAmountCol: n(m.paidAmountCol), companyCommissionCol: n(m.companyCommissionCol) };
+}
+
+interface SyncSheetPreview {
+  sheetName: string;
+  headers: string[];
+  sampleRows: string[][];
+}
+
+function encodeSheetAction(a: SheetAction | undefined): string {
+  if (!a) return 'unassigned';
+  if (a.action === 'assign') return `assign:${a.agentId}`;
+  return a.action;
+}
+
+function decodeSheetAction(value: string): SheetAction {
+  if (value === 'skip') return { action: 'skip' };
+  if (value.startsWith('assign:')) return { action: 'assign', agentId: value.slice('assign:'.length) };
+  return { action: 'unassigned' };
+}
+
 interface FilePreview {
   headers: string[];
   sampleRows: string[][];
@@ -186,6 +250,18 @@ export default function FileManagementContent() {
   const [selectedUploadFile, setSelectedUploadFile] = useState<globalThis.File | null>(null);
   const [preview, setPreview] = useState<FilePreview | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
+  const [isDistributedImport, setIsDistributedImport] = useState(false);
+  const [distributedSheets, setDistributedSheets] = useState<DistributedSheetInfo[]>([]);
+  const [distributedAgents, setDistributedAgents] = useState<{ id: string; name: string }[]>([]);
+  const [sheetActions, setSheetActions] = useState<Record<string, SheetAction>>({});
+
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncUploadFile, setSyncUploadFile] = useState<globalThis.File | null>(null);
+  const [isSyncPreviewing, setIsSyncPreviewing] = useState(false);
+  const [syncPreview, setSyncPreview] = useState<{ callingList: SyncSheetPreview; payments: SyncSheetPreview } | null>(null);
+  const [callingListMapping, setCallingListMapping] = useState<MappingState>(EMPTY_MAPPING);
+  const [paymentMapping, setPaymentMapping] = useState<PaymentMappingState>(EMPTY_PAYMENT_MAPPING);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [mapping, setMapping] = useState<MappingState>(EMPTY_MAPPING);
   const [editingFile, setEditingFile] = useState<FileRow | null>(null);
@@ -233,6 +309,10 @@ export default function FileManagementContent() {
   const { data: distributionPayload, refetch: refetchDistribution } = useCachedQuery<{ distribution: DistributionRow[] }>(distributionUrl);
   const distributionData = distributionPayload?.distribution ?? [];
 
+  const syncStatusUrl = distributionFileId ? `/api/files/${distributionFileId}/sync` : null;
+  const { data: syncStatusPayload, refetch: refetchSyncStatus } = useCachedQuery<{ latest: LastSync | null }>(syncStatusUrl);
+  const lastSync = syncStatusPayload?.latest ?? null;
+
   const filtered = files.filter(f => {
     const matchSearch = f.batchLabel.toLowerCase().includes(search.toLowerCase()) || f.client.toLowerCase().includes(search.toLowerCase());
     const matchClient = filterClient === 'All' || f.client === filterClient;
@@ -242,14 +322,52 @@ export default function FileManagementContent() {
 
   const selectedFile = files.find(f => f.id === distributionFileId);
 
+  function resetImportModalState() {
+    setSelectedUploadFile(null);
+    setPreview(null);
+    setMapping(EMPTY_MAPPING);
+    setIsMidMonth(false);
+    setIsDistributedImport(false);
+    setDistributedSheets([]);
+    setDistributedAgents([]);
+    setSheetActions({});
+  }
+
   async function onFileSelected(file: globalThis.File | null) {
     setSelectedUploadFile(file);
     setPreview(null);
     setMapping(EMPTY_MAPPING);
+    setDistributedSheets([]);
+    setDistributedAgents([]);
+    setSheetActions({});
     if (!file) return;
 
     setIsPreviewing(true);
     try {
+      if (isDistributedImport) {
+        const form = new FormData();
+        form.append('file', file);
+        const res = await fetch('/api/files/preview-distributed', { method: 'POST', body: form });
+        const payload = await res.json();
+        if (!res.ok) {
+          toast.error(payload.error || 'Could not read this file');
+          return;
+        }
+        setPreview({ headers: payload.headers, sampleRows: payload.sampleRows, suggested: payload.suggested, totalRows: null });
+        setMapping(mappingFromSuggestion(payload.suggested));
+        setDistributedAgents(payload.agents);
+        const sheets: DistributedSheetInfo[] = payload.sheets;
+        setDistributedSheets(sheets);
+        const initialActions: Record<string, SheetAction> = {};
+        for (const s of sheets) {
+          if (s.name === payload.suggestedMasterSheet) initialActions[s.name] = { action: 'skip' };
+          else if (s.matchedAgent) initialActions[s.name] = { action: 'assign', agentId: s.matchedAgent.id };
+          else initialActions[s.name] = { action: 'unassigned' };
+        }
+        setSheetActions(initialActions);
+        return;
+      }
+
       const form = new FormData();
       form.append('file', file);
       const res = await fetch('/api/files/preview', { method: 'POST', body: form });
@@ -283,6 +401,10 @@ export default function FileManagementContent() {
       toast.error('Map Name, Phone, Loan Ref, and Amount Owed to columns in the file before importing');
       return;
     }
+    if (isDistributedImport && distributedSheets.every((s) => sheetActions[s.name]?.action === 'skip')) {
+      toast.error('At least one sheet needs to actually import debtors — everything is set to skip');
+      return;
+    }
     setIsImporting(true);
     try {
       const form = new FormData();
@@ -292,6 +414,10 @@ export default function FileManagementContent() {
       form.append('receivedDate', data.receivedDate);
       form.append('isMidMonthTopup', String(isMidMonth));
       form.append('mapping', JSON.stringify(buildMappingPayload(mapping)));
+      if (isDistributedImport) {
+        form.append('isDistributedImport', 'true');
+        form.append('sheetPlan', JSON.stringify(sheetActions));
+      }
 
       const res = await fetch('/api/files', { method: 'POST', body: form });
       const payload = await res.json();
@@ -301,13 +427,14 @@ export default function FileManagementContent() {
       }
       setImportModalOpen(false);
       reset();
-      setSelectedUploadFile(null);
-      setPreview(null);
-      setMapping(EMPTY_MAPPING);
-      setIsMidMonth(false);
+      resetImportModalState();
       refetchFiles();
       setDistributionFileId(payload.file.id);
-      toast.success(`File "${data.batchLabel}" queued — importing in the background, ready shortly`);
+      toast.success(
+        isDistributedImport
+          ? `File "${data.batchLabel}" queued — importing with agent assignments preserved from each sheet`
+          : `File "${data.batchLabel}" queued — importing in the background, ready shortly`
+      );
     } catch {
       toast.error('Could not reach the server — try again');
     } finally {
@@ -365,6 +492,77 @@ export default function FileManagementContent() {
       toast.error('Could not reach the server — try again');
     } finally {
       setIsExportingDistribution(false);
+    }
+  }
+
+  function resetSyncModalState() {
+    setSyncUploadFile(null);
+    setSyncPreview(null);
+    setCallingListMapping(EMPTY_MAPPING);
+    setPaymentMapping(EMPTY_PAYMENT_MAPPING);
+  }
+
+  async function onSyncFileSelected(file: globalThis.File | null) {
+    setSyncUploadFile(file);
+    setSyncPreview(null);
+    setCallingListMapping(EMPTY_MAPPING);
+    setPaymentMapping(EMPTY_PAYMENT_MAPPING);
+    if (!file || !selectedFile) return;
+
+    setIsSyncPreviewing(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch(`/api/files/${selectedFile.id}/sync/preview`, { method: 'POST', body: form });
+      const payload = await res.json();
+      if (!res.ok) {
+        toast.error(payload.error || 'Could not read this file');
+        return;
+      }
+      setSyncPreview(payload);
+      setCallingListMapping(mappingFromSuggestion(payload.callingList.suggested));
+      setPaymentMapping(paymentMappingFromSuggestion(payload.payments.suggested));
+    } catch {
+      toast.error('Could not reach the server — try again');
+    } finally {
+      setIsSyncPreviewing(false);
+    }
+  }
+
+  async function onSubmitSync() {
+    if (!selectedFile || !syncUploadFile) {
+      toast.error('Choose the daily file to sync');
+      return;
+    }
+    if (!mappingIsComplete(callingListMapping)) {
+      toast.error('Map Name, Phone, Loan Ref, and Amount Owed on the calling-list sheet first');
+      return;
+    }
+    if (!paymentMappingIsComplete(paymentMapping)) {
+      toast.error('Map Loan Ref, Payment Date, and Payment Amount on the payments sheet first');
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      const form = new FormData();
+      form.append('file', syncUploadFile);
+      form.append('callingListMapping', JSON.stringify(buildMappingPayload(callingListMapping)));
+      form.append('paymentMapping', JSON.stringify(buildPaymentMappingPayload(paymentMapping)));
+
+      const res = await fetch(`/api/files/${selectedFile.id}/sync`, { method: 'POST', body: form });
+      const payload = await res.json();
+      if (!res.ok) {
+        toast.error(payload.error || 'Sync failed');
+        return;
+      }
+      setSyncModalOpen(false);
+      resetSyncModalState();
+      refetchSyncStatus();
+      toast.success("Sync queued — new loans will be created and auto-distributed, this month's payments applied, shortly");
+    } catch {
+      toast.error('Could not reach the server — try again');
+    } finally {
+      setIsSyncing(false);
     }
   }
 
@@ -786,8 +984,27 @@ export default function FileManagementContent() {
                         <Download size={14} className={isExportingDistribution ? 'animate-pulse' : ''} />
                       </button>
                     )}
+                    <button
+                      onClick={() => setSyncModalOpen(true)}
+                      disabled={offlineBlocked}
+                      title={offlineBlocked ? 'Offline — reconnect to sync' : 'Sync Update — pick up new loans and this month\'s payments from a client\'s daily file'}
+                      className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                    >
+                      <RefreshCcw size={14} />
+                    </button>
                   </div>
                 </div>
+
+                {lastSync && (
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    Last sync {formatSyncTime(lastSync.completedAt ?? lastSync.createdAt)}:{' '}
+                    {lastSync.status === 'failed'
+                      ? <span className="text-negative">failed — {lastSync.error}</span>
+                      : lastSync.status === 'complete'
+                        ? `${lastSync.newDebtorsCount} new debtor(s), ${lastSync.paymentsAppliedCount} payment(s) applied${lastSync.paymentsSkippedCount > 0 ? `, ${lastSync.paymentsSkippedCount} already recorded` : ''}`
+                        : 'in progress…'}
+                  </p>
+                )}
 
                 {/* Balance band legend */}
                 <div className="mt-3 grid grid-cols-2 gap-1.5">
@@ -1011,7 +1228,7 @@ export default function FileManagementContent() {
       {/* Import Modal */}
       <Modal
         open={importModalOpen}
-        onClose={() => { setImportModalOpen(false); reset(); setSelectedUploadFile(null); setPreview(null); setMapping(EMPTY_MAPPING); setIsMidMonth(false); }}
+        onClose={() => { setImportModalOpen(false); reset(); resetImportModalState(); }}
         title="Import New Client File"
         subtitle="Upload an Excel file and configure how debtors are split across agents"
         size="lg"
@@ -1019,7 +1236,7 @@ export default function FileManagementContent() {
           <>
             <button
               type="button"
-              onClick={() => { setImportModalOpen(false); reset(); setSelectedUploadFile(null); setPreview(null); setMapping(EMPTY_MAPPING); setIsMidMonth(false); }}
+              onClick={() => { setImportModalOpen(false); reset(); resetImportModalState(); }}
               className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
               Cancel
@@ -1027,7 +1244,10 @@ export default function FileManagementContent() {
             <button
               form="import-form"
               type="submit"
-              disabled={isImporting || isPreviewing || !preview || !mappingIsComplete(mapping) || offlineBlocked}
+              disabled={
+                isImporting || isPreviewing || !preview || !mappingIsComplete(mapping) || offlineBlocked ||
+                (isDistributedImport && distributedSheets.every((s) => sheetActions[s.name]?.action === 'skip'))
+              }
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
             >
               {isImporting ? (
@@ -1049,6 +1269,26 @@ export default function FileManagementContent() {
         }
       >
         <form id="import-form" onSubmit={handleSubmit(onImport)} className="space-y-5">
+          {/* Already-distributed toggle */}
+          <div className="flex items-start gap-3 p-4 bg-secondary/40 rounded-lg border border-border">
+            <Toggle
+              checked={isDistributedImport}
+              onChange={(checked) => {
+                setIsDistributedImport(checked);
+                if (selectedUploadFile) onFileSelected(selectedUploadFile);
+              }}
+              size="md"
+            />
+            <div>
+              <p className="text-sm font-medium text-foreground">Already Distributed by Agent</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Enable if this file was split by agent outside the app (one sheet per agent, e.g. &quot;DESMOND&quot;, &quot;JONATHAN&quot;). Skips
+                Run Auto-Distribution — each sheet&apos;s rows are assigned straight to that agent, and any sheet name that doesn&apos;t match a
+                real user gets flagged so you can fix it before importing.
+              </p>
+            </div>
+          </div>
+
           {/* File upload zone */}
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-foreground">
@@ -1188,6 +1428,63 @@ export default function FileManagementContent() {
             </div>
           )}
 
+          {isDistributedImport && distributedSheets.length > 0 && (() => {
+            const unresolvedCount = distributedSheets.filter(
+              (s) => sheetActions[s.name]?.action === 'unassigned' && !s.matchedAgent
+            ).length;
+            return (
+              <div className="space-y-3 p-4 bg-secondary/30 rounded-xl border border-border">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Sheet Distribution</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {unresolvedCount > 0
+                      ? `${unresolvedCount} sheet name${unresolvedCount === 1 ? '' : 's'} didn't match a user — pick the right agent below, or leave unassigned/skip.`
+                      : 'Every sheet name matched a real user. Double-check the reference sheet is set to Skip before importing.'}
+                  </p>
+                </div>
+                <div className="overflow-x-auto scrollbar-thin border border-border rounded-lg bg-card">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border bg-secondary/40">
+                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">Sheet</th>
+                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">Rows</th>
+                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">Assignment</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {distributedSheets.map((s) => {
+                        const current = sheetActions[s.name];
+                        const unmatched = !s.matchedAgent && current?.action === 'unassigned';
+                        return (
+                          <tr key={s.name} className={`border-b border-border/60 last:border-0 ${unmatched ? 'bg-[var(--negative-bg)]' : ''}`}>
+                            <td className="px-2 py-1.5 whitespace-nowrap font-medium text-foreground">
+                              {s.name}
+                              {unmatched && <span className="ml-1.5 text-negative font-semibold">Not recognized</span>}
+                            </td>
+                            <td className="px-2 py-1.5 whitespace-nowrap text-muted-foreground">{s.rowCount.toLocaleString()}</td>
+                            <td className="px-2 py-1.5 whitespace-nowrap">
+                              <select
+                                value={encodeSheetAction(current)}
+                                onChange={(e) => setSheetActions((prev) => ({ ...prev, [s.name]: decodeSheetAction(e.target.value) }))}
+                                className="w-full px-2 py-1.5 text-xs bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+                              >
+                                <option value="skip">Skip — reference/master sheet</option>
+                                <option value="unassigned">Leave unassigned</option>
+                                {distributedAgents.map((a) => (
+                                  <option key={a.id} value={`assign:${a.id}`}>Assign to {a.name}</option>
+                                ))}
+                              </select>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Client */}
             <div className="space-y-1.5">
@@ -1249,21 +1546,30 @@ export default function FileManagementContent() {
           </div>
 
           {/* Distribution method */}
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Distribution Method</label>
-            <p className="text-xs text-muted-foreground">How debtors will be split across agents</p>
-            <div className="grid grid-cols-1 gap-2">
-              <label className="flex items-start gap-3 p-3 rounded-lg border-2 border-primary bg-primary/5 cursor-pointer">
-                <input type="radio" value="balance_range" defaultChecked className="mt-0.5 accent-primary" {...register('splitMethod')} />
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Balance Range Split</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Debtors split into 4 bands (≤500K, 500K–2M, 2M–5M, 5M+) and distributed evenly across agents so each agent receives a comparable mix of easier and harder accounts.
-                  </p>
-                </div>
-              </label>
+          {isDistributedImport ? (
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-foreground">Distribution Method</label>
+              <p className="text-xs text-muted-foreground">
+                Skipped — assignments come straight from the Sheet Distribution table above, not Run Auto-Distribution.
+              </p>
             </div>
-          </div>
+          ) : (
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-foreground">Distribution Method</label>
+              <p className="text-xs text-muted-foreground">How debtors will be split across agents</p>
+              <div className="grid grid-cols-1 gap-2">
+                <label className="flex items-start gap-3 p-3 rounded-lg border-2 border-primary bg-primary/5 cursor-pointer">
+                  <input type="radio" value="balance_range" defaultChecked className="mt-0.5 accent-primary" {...register('splitMethod')} />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Balance Range Split</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Debtors split into 4 bands (≤500K, 500K–2M, 2M–5M, 5M+) and distributed evenly across agents so each agent receives a comparable mix of easier and harder accounts.
+                    </p>
+                  </div>
+                </label>
+              </div>
+            </div>
+          )}
 
           {/* Info box */}
           <div className="flex items-start gap-2 p-3 bg-[var(--info-bg)] border border-[#BFDBFE] rounded-lg text-xs text-info">
@@ -1271,6 +1577,164 @@ export default function FileManagementContent() {
             <span>Call history is preserved on reassignment. If an agent leaves mid-file, their debtors transfer to another agent with full call logs intact.</span>
           </div>
         </form>
+      </Modal>
+
+      {/* Sync Update Modal — for a client (e.g. Zenka) whose daily file is a full
+          accumulating export against an already-existing file: a calling-list sheet
+          (diffed for genuinely new loans, auto-distributed) and a payments sheet
+          (this month's payments only, applied once each). */}
+      <Modal
+        open={syncModalOpen}
+        onClose={() => { setSyncModalOpen(false); resetSyncModalState(); }}
+        title="Sync Update"
+        subtitle={selectedFile ? `Pick up new loans and this month's payments for ${selectedFile.batchLabel}` : undefined}
+        size="lg"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => { setSyncModalOpen(false); resetSyncModalState(); }}
+              className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onSubmitSync}
+              disabled={isSyncing || isSyncPreviewing || !syncPreview || !mappingIsComplete(callingListMapping) || !paymentMappingIsComplete(paymentMapping) || offlineBlocked}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
+            >
+              {isSyncing ? (
+                <>
+                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  <span>Queuing…</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCcw size={15} />
+                  <span>Run Sync</span>
+                </>
+              )}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-5">
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-foreground">Daily File <span className="text-negative">*</span></label>
+            <p className="text-xs text-muted-foreground">One file, first sheet = calling list, second sheet = payments — any column headers are fine, confirm the mapping below.</p>
+            <label className="block border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer border-border hover:border-primary/50 bg-secondary/20">
+              <input
+                type="file"
+                accept=".xlsx,.xlsb"
+                className="sr-only"
+                onChange={(e) => onSyncFileSelected(e.target.files?.[0] ?? null)}
+              />
+              <Upload size={24} className="text-muted-foreground mx-auto mb-2" />
+              <p className="text-sm font-medium text-foreground">{syncUploadFile ? syncUploadFile.name : 'Click to browse'}</p>
+              <p className="text-xs text-muted-foreground mt-1">Accepts .xlsx or .xlsb files</p>
+            </label>
+          </div>
+
+          {isSyncPreviewing && <p className="text-sm text-muted-foreground">Reading sheets…</p>}
+
+          {syncPreview && (
+            <>
+              {/* Calling list mapping */}
+              <div className="space-y-4 p-4 bg-secondary/30 rounded-xl border border-border">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Calling List Sheet — &quot;{syncPreview.callingList.sheetName}&quot;</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Any loan not already on this file gets created and auto-distributed. Existing loans are left untouched.</p>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-foreground uppercase tracking-wide">Name <span className="text-negative">*</span></label>
+                    <div className="flex items-center gap-1 text-xs">
+                      <button type="button" onClick={() => setCallingListMapping((m) => ({ ...m, nameMode: 'single' }))} className={`px-2 py-0.5 rounded-full ${callingListMapping.nameMode === 'single' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'}`}>One column</button>
+                      <button type="button" onClick={() => setCallingListMapping((m) => ({ ...m, nameMode: 'split' }))} className={`px-2 py-0.5 rounded-full ${callingListMapping.nameMode === 'split' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'}`}>First / Last</button>
+                    </div>
+                  </div>
+                  {callingListMapping.nameMode === 'single' ? (
+                    <select
+                      value={callingListMapping.nameCol}
+                      onChange={(e) => setCallingListMapping((m) => ({ ...m, nameCol: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+                    >
+                      <option value="">Select column…</option>
+                      {syncPreview.callingList.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
+                    </select>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['firstNameCol', 'lastNameCol', 'middleNameCol'] as const).map((field, idx) => (
+                        <select
+                          key={field}
+                          value={callingListMapping[field]}
+                          onChange={(e) => setCallingListMapping((m) => ({ ...m, [field]: e.target.value }))}
+                          className="w-full px-2 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+                        >
+                          <option value="">{['First…', 'Last…', 'Middle (optional)…'][idx]}</option>
+                          {syncPreview.callingList.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
+                        </select>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  {([
+                    ['phone1Col', 'Phone', true],
+                    ['loanRefCol', 'Loan Ref', true],
+                    ['amountOwedCol', 'Amount Owed', true],
+                    ['balanceCol', 'Current Balance (optional)', false],
+                  ] as const).map(([field, label, required]) => (
+                    <div key={field} className="space-y-1">
+                      <label className="text-xs font-semibold text-foreground uppercase tracking-wide">{label}{required && <span className="text-negative"> *</span>}</label>
+                      <select
+                        value={callingListMapping[field]}
+                        onChange={(e) => setCallingListMapping((m) => ({ ...m, [field]: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+                      >
+                        <option value="">{required ? 'Select column…' : 'Same as Amount Owed'}</option>
+                        {syncPreview.callingList.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Payments mapping */}
+              <div className="space-y-4 p-4 bg-secondary/30 rounded-xl border border-border">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Payments Sheet — &quot;{syncPreview.payments.sheetName}&quot;</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Only this calendar month&apos;s payments are applied, and only once each — safe to re-run daily even though the sheet resends history.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {([
+                    ['loanRefCol', 'Loan Ref', true],
+                    ['paidDateCol', 'Payment Date', true],
+                    ['paidAmountCol', 'Payment Amount', true],
+                    ['companyCommissionCol', 'Company Commission (optional)', false],
+                  ] as const).map(([field, label, required]) => (
+                    <div key={field} className="space-y-1">
+                      <label className="text-xs font-semibold text-foreground uppercase tracking-wide">{label}{required && <span className="text-negative"> *</span>}</label>
+                      <select
+                        value={paymentMapping[field]}
+                        onChange={(e) => setPaymentMapping((m) => ({ ...m, [field]: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+                      >
+                        <option value="">{required ? 'Select column…' : 'Not tracked'}</option>
+                        {syncPreview.payments.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </Modal>
 
       {/* Edit File */}

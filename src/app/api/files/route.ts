@@ -63,6 +63,8 @@ export async function POST(req: Request) {
   const receivedDateRaw = String(form.get('receivedDate') ?? '');
   const isMidMonthTopup = String(form.get('isMidMonthTopup') ?? '') === 'true';
   const mappingRaw = String(form.get('mapping') ?? '');
+  const isDistributedImport = String(form.get('isDistributedImport') ?? '') === 'true';
+  const sheetPlanRaw = String(form.get('sheetPlan') ?? '');
   const file = form.get('file');
 
   if (!clientId || !batchLabel || !receivedDateRaw || !(file instanceof File)) {
@@ -80,6 +82,19 @@ export async function POST(req: Request) {
     mapping = JSON.parse(mappingRaw) as ImportMapping;
   } catch {
     return NextResponse.json({ error: 'Invalid column mapping' }, { status: 400 });
+  }
+
+  let sheetPlan: string | null = null;
+  if (isDistributedImport) {
+    if (!sheetPlanRaw) {
+      return NextResponse.json({ error: 'Sheet distribution plan is required — preview the file and confirm each sheet first' }, { status: 400 });
+    }
+    try {
+      JSON.parse(sheetPlanRaw);
+    } catch {
+      return NextResponse.json({ error: 'Invalid sheet distribution plan' }, { status: 400 });
+    }
+    sheetPlan = sheetPlanRaw;
   }
 
   const client = await prisma.client.findUnique({ where: { id: clientId } });
@@ -104,6 +119,8 @@ export async function POST(req: Request) {
       rawFile: Buffer.from(buffer).toString('base64'),
       rawFileName: file.name,
       importMapping: JSON.stringify(mapping),
+      isDistributedImport,
+      sheetPlan,
     },
   });
 

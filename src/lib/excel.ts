@@ -80,7 +80,7 @@ function cellFromXlsxValue(value: ExcelJS.CellValue): string {
  * raw Excel serial instead — see previewXlsxFast below, where this was first verified
  * correct against real data (zero mismatches vs. the old DOM approach on 77,217 rows).
  */
-interface NamedSheet {
+export interface NamedSheet {
   name: string;
   rows: string[][];
 }
@@ -211,7 +211,7 @@ function loadXlsbSheets(buffer: ArrayBuffer): NamedSheet[] {
  * file for interface consistency (a caller asking for sheet tags on a .csv just gets the
  * filename repeated for every row, which correctly canonicalizes to no bucket rather than
  * mispricing anything). */
-async function loadNamedSheets(buffer: ArrayBuffer, filename: string): Promise<NamedSheet[]> {
+export async function loadNamedSheets(buffer: ArrayBuffer, filename: string): Promise<NamedSheet[]> {
   if (isCsv(filename)) {
     return [{ name: filename, rows: parseCsvText(Buffer.from(buffer).toString('utf8')) }];
   }
@@ -441,6 +441,224 @@ export async function previewImportFile(buffer: ArrayBuffer, filename: string): 
   return { headers, sampleRows, suggested: suggestImportMapping(headers), totalRows: null };
 }
 
+export interface DistributedSheetInfo {
+  name: string;
+  rowCount: number;
+}
+
+export interface DistributedFilePreview {
+  headers: string[];
+  sampleRows: string[][];
+  sheets: DistributedSheetInfo[];
+}
+
+/**
+ * For a file already split by agent outside the app (one sheet per agent, e.g. the
+ * "DESMOND" / "JONATHAN" / ... sheets in a real client's own reference workbook) — reads
+ * every sheet's name and row count, plus headers + a sample from the first sheet for the
+ * usual column-mapping step (every sheet shares the same columns in practice, so any one
+ * of them is representative). Unlike previewXlsxFast this can't early-stop after the first
+ * sheet, since every sheet's name and count is exactly what this is for — but it still
+ * only retains cell data for the first sheet, discarding the rest after counting, so it
+ * stays far lighter than loadTableWithSheetTags's full in-memory table for the same file.
+ */
+export async function previewDistributedSheets(buffer: ArrayBuffer, filename: string): Promise<DistributedFilePreview> {
+  if (isCsv(filename)) {
+    throw new Error('A CSV file has no sheets to distribute by agent — use an .xlsx or .xlsb file instead');
+  }
+  if (isXlsb(filename)) {
+    const sheets = loadXlsbSheets(buffer);
+    const [first] = sheets;
+    return {
+      headers: first?.rows[0] ?? [],
+      sampleRows: first?.rows.slice(1, 6) ?? [],
+      sheets: sheets.map((s) => ({ name: s.name, rowCount: Math.max(0, s.rows.length - 1) })),
+    };
+  }
+
+  const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from([Buffer.from(buffer)]), {
+    styles: 'cache',
+    sharedStrings: 'cache',
+    hyperlinks: 'ignore',
+    worksheets: 'emit',
+  });
+
+  const sheets: DistributedSheetInfo[] = [];
+  let headers: string[] = [];
+  const sampleRows: string[][] = [];
+
+  for await (const worksheetReader of workbookReader) {
+    const name = (worksheetReader as unknown as { name?: string }).name ?? `Sheet${sheets.length + 1}`;
+    const isFirstSheet = sheets.length === 0;
+    let rowCount = 0;
+    for await (const row of worksheetReader) {
+      rowCount++;
+      if (isFirstSheet && rowCount <= 6) {
+        const cells: string[] = [];
+        row.eachCell({ includeEmpty: true }, (cell) => cells.push(cellFromXlsxValue(cell.value)));
+        if (rowCount === 1) headers = cells;
+        else sampleRows.push(cells);
+      }
+    }
+    sheets.push({ name, rowCount: Math.max(0, rowCount - 1) });
+  }
+
+  return { headers, sampleRows, sheets };
+}
+
+export interface AgentOption {
+  id: string;
+  name: string;
+}
+
+/**
+ * Matches a sheet name against the real user roster — sheet names in practice are first
+ * names ("DESMOND"), not the full names ("Desmond Kato") wellcashops stores, so this is a
+ * case-insensitive "sheet name appears in the agent's full name" containment check, not an
+ * exact match. Ambiguous (0 or 2+ agents contain the same sheet name) deliberately returns
+ * null rather than guessing — the admin resolves it by hand in the import preview instead
+ * of the app silently picking the wrong person.
+ */
+export function matchAgentBySheetName(sheetName: string, agents: AgentOption[]): AgentOption | null {
+  const needle = sheetName.trim().toLowerCase();
+  if (!needle) return null;
+  const matches = agents.filter((a) => a.name.toLowerCase().includes(needle));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export interface TwoSheetPreview {
+  callingList: { sheetName: string; headers: string[]; sampleRows: string[][] };
+  payments: { sheetName: string; headers: string[]; sampleRows: string[][] };
+}
+
+/**
+ * Headers + a sample from each of a workbook's first two sheets — for a client (e.g.
+ * Zenka) whose daily export is one file with a calling-list sheet and a payments sheet.
+ * Only .xlsx/.xlsb make sense here (a .csv has no second sheet to speak of). Uses the same
+ * early-stopping streaming approach as previewXlsxFast, just for two sheets instead of one.
+ */
+export async function previewTwoSheets(buffer: ArrayBuffer, filename: string): Promise<TwoSheetPreview> {
+  if (isCsv(filename)) {
+    throw new Error('A CSV file has only one sheet — this needs a calling-list sheet and a payments sheet, so use an .xlsx or .xlsb file');
+  }
+  if (isXlsb(filename)) {
+    const sheets = loadXlsbSheets(buffer);
+    if (sheets.length < 2) throw new Error('This file needs at least two sheets — a calling list and a payments sheet');
+    const [first, second] = sheets;
+    return {
+      callingList: { sheetName: first.name, headers: first.rows[0] ?? [], sampleRows: first.rows.slice(1, 6) },
+      payments: { sheetName: second.name, headers: second.rows[0] ?? [], sampleRows: second.rows.slice(1, 6) },
+    };
+  }
+
+  const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from([Buffer.from(buffer)]), {
+    styles: 'cache',
+    sharedStrings: 'cache',
+    hyperlinks: 'ignore',
+    worksheets: 'emit',
+  });
+
+  const sheetPreviews: { sheetName: string; headers: string[]; sampleRows: string[][] }[] = [];
+  for await (const worksheetReader of workbookReader) {
+    if (sheetPreviews.length >= 2) break;
+    const name = (worksheetReader as unknown as { name?: string }).name ?? `Sheet${sheetPreviews.length + 1}`;
+    let headers: string[] = [];
+    const sampleRows: string[][] = [];
+    let rowCount = 0;
+    for await (const row of worksheetReader) {
+      rowCount++;
+      const cells: string[] = [];
+      row.eachCell({ includeEmpty: true }, (cell) => cells.push(cellFromXlsxValue(cell.value)));
+      if (rowCount === 1) headers = cells;
+      else sampleRows.push(cells);
+      if (rowCount > 6) break;
+    }
+    sheetPreviews.push({ sheetName: name, headers, sampleRows });
+  }
+
+  if (sheetPreviews.length < 2) {
+    throw new Error('This file needs at least two sheets — a calling list and a payments sheet');
+  }
+  return { callingList: sheetPreviews[0], payments: sheetPreviews[1] };
+}
+
+export interface SyncPaymentMapping {
+  loanRefCol?: number;
+  paidDateCol?: number;
+  paidAmountCol?: number;
+  /** Optional — a client like Zenka hands over an already-computed commission figure to
+   * trust directly, rather than one wellcashops derives itself from a bucket rate (see
+   * lib/commission.ts). Left unmapped, companyCommission on the resulting entries is null,
+   * same as any client with no commission tracking configured. */
+  companyCommissionCol?: number;
+}
+
+/** Best-effort auto-detect for the payments sheet — same idea as suggestImportMapping. */
+export function suggestSyncPaymentMapping(headers: string[]): SyncPaymentMapping {
+  const cols = headerColumnMap(headers);
+  return {
+    loanRefCol: findColumn(cols, SYNONYMS.loanRef),
+    paidDateCol: findColumn(cols, ['paiddate', 'paymentdate', 'datepaid']) ?? findColumnFuzzy(cols, ['paiddate', 'paymentdate']),
+    paidAmountCol: findColumn(cols, SYNONYMS.amountPaid) ?? findColumnFuzzy(cols, AMOUNT_PAID_FUZZY),
+    companyCommissionCol: findColumnFuzzy(cols, ['agencyfee', 'commission']),
+  };
+}
+
+export function requiredSyncPaymentMappingError(mapping: SyncPaymentMapping): string | null {
+  const missing: string[] = [];
+  if (mapping.loanRefCol === undefined) missing.push('Loan Ref');
+  if (mapping.paidDateCol === undefined) missing.push('Payment Date');
+  if (mapping.paidAmountCol === undefined) missing.push('Payment Amount');
+  return missing.length > 0 ? `Missing column(s) for: ${missing.join(', ')}.` : null;
+}
+
+export interface SyncPaymentRow {
+  rowNumber: number;
+  loanRef: string;
+  paidDate: Date;
+  paidAmount: number;
+  companyCommission: number | null;
+}
+
+function cellDate(row: string[], col: number | undefined): Date | null {
+  const text = cellText(row, col);
+  if (!text) return null;
+  const d = new Date(text);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export type MappedSyncPaymentRow = { kind: 'row'; row: SyncPaymentRow } | { kind: 'blank' } | { kind: 'error'; message: string };
+
+export function mapSyncPaymentRow(row: string[], mapping: SyncPaymentMapping, rowNumber: number): MappedSyncPaymentRow {
+  const loanRef = cellText(row, mapping.loanRefCol);
+  const paidDate = cellDate(row, mapping.paidDateCol);
+  const paidAmount = cellNumber(row, mapping.paidAmountCol);
+  if (!loanRef && !paidDate && paidAmount === null) return { kind: 'blank' };
+  if (!loanRef || !paidDate || paidAmount === null) {
+    return { kind: 'error', message: `Row ${rowNumber}: missing or invalid loan ref/payment date/payment amount — skipped` };
+  }
+  const companyCommission = mapping.companyCommissionCol !== undefined ? cellNumber(row, mapping.companyCommissionCol) : null;
+  return { kind: 'row', row: { rowNumber, loanRef, paidDate, paidAmount, companyCommission } };
+}
+
+/** Parses payment rows from a pre-loaded table (the payments sheet only — caller passes
+ * the right table) using a confirmed mapping. Filtering to the current month happens in
+ * lib/daily-sync.ts, not here — this just turns rows into typed data. */
+export function parseSyncPaymentRows(table: string[][], mapping: SyncPaymentMapping): ParseResult<SyncPaymentRow> {
+  const mappingError = requiredSyncPaymentMappingError(mapping);
+  if (mappingError) return { rows: [], errors: [mappingError] };
+
+  const errors: string[] = [];
+  const rows: SyncPaymentRow[] = [];
+  for (let i = 1; i < table.length; i++) {
+    const mapped = mapSyncPaymentRow(table[i], mapping, i + 1);
+    if (mapped.kind === 'blank') continue;
+    if (mapped.kind === 'error') { errors.push(mapped.message); continue; }
+    rows.push(mapped.row);
+  }
+  return { rows, errors };
+}
+
 export interface ImportRow {
   rowNumber: number;
   name: string;
@@ -531,6 +749,43 @@ export async function parseImportWorkbook(buffer: ArrayBuffer, filename: string)
   const table = await loadTable(buffer, filename);
   const mapping = suggestImportMapping(table[0] ?? []);
   return parseImportRows(table, mapping);
+}
+
+export type SheetPlanEntry = { action: 'assign'; agentId: string } | { action: 'unassigned' } | { action: 'skip' };
+export type SheetPlan = Record<string, SheetPlanEntry>;
+
+export interface DistributedImportRow extends ImportRow {
+  assignedAgentId: string | null;
+}
+
+/**
+ * Same row-mapping rules as parseImportRows, but sourced from loadTableWithSheetTags's
+ * sheet-tagged table and resolved through the admin's confirmed sheetPlan instead of
+ * defaulting every row to unassigned. A sheet with no entry in the plan (shouldn't happen —
+ * the preview step always covers every sheet — but a stale/hand-edited plan is possible)
+ * is treated the same as 'skip', not silently imported unassigned.
+ */
+export function parseDistributedImportRows(
+  table: string[][],
+  sheetTags: string[],
+  mapping: ImportMapping,
+  sheetPlan: SheetPlan
+): ParseResult<DistributedImportRow> {
+  const mappingError = requiredMappingError(mapping);
+  if (mappingError) return { rows: [], errors: [mappingError] };
+
+  const errors: string[] = [];
+  const rows: DistributedImportRow[] = [];
+  for (let i = 1; i < table.length; i++) {
+    const plan = sheetPlan[sheetTags[i]];
+    if (!plan || plan.action === 'skip') continue;
+    const mapped = mapImportRow(table[i], mapping, i + 1);
+    if (mapped.kind === 'blank') continue;
+    if (mapped.kind === 'error') { errors.push(mapped.message); continue; }
+    rows.push({ ...mapped.row, assignedAgentId: plan.action === 'assign' ? plan.agentId : null });
+  }
+
+  return { rows, errors };
 }
 
 export interface ReconciliationRow {

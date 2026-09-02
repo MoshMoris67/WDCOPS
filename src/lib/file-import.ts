@@ -1,5 +1,13 @@
 import { prisma } from './db';
-import { loadTable, parseImportRows, type ImportRow, type ImportMapping } from './excel';
+import {
+  loadTable,
+  loadTableWithSheetTags,
+  parseImportRows,
+  parseDistributedImportRows,
+  type ImportRow,
+  type ImportMapping,
+  type SheetPlan,
+} from './excel';
 
 // One INSERT per this many rows, not one giant statement for the whole file — keeps any
 // single query lightweight regardless of file size, and means File.debtorCount (already
@@ -7,7 +15,7 @@ import { loadTable, parseImportRows, type ImportRow, type ImportMapping } from '
 // UI shows real import progress with no extra field needed for that specifically.
 const BATCH_SIZE = 1000;
 
-function toDebtorData(fileId: string, r: ImportRow) {
+function toDebtorData(fileId: string, r: ImportRow & { assignedAgentId?: string | null }) {
   // Some clients' files carry the current outstanding balance separately from the
   // original amount owed (already-partly-repaid loans) — when they don't, balance
   // defaults to amountOwed, matching the standard-template behavior.
@@ -22,6 +30,10 @@ function toDebtorData(fileId: string, r: ImportRow) {
     amountOwed: r.amountOwed,
     cumulativePaid,
     balance,
+    // Undefined for a normal import (ImportRow has no such field) — same as never setting
+    // it, debtor lands unassigned exactly as before. Only a distributed import supplies a
+    // real value (an agent id, or explicit null for "leave unassigned").
+    assignedAgentId: r.assignedAgentId ?? null,
   };
 }
 
@@ -63,8 +75,18 @@ export async function runFileImport(fileId: string): Promise<void> {
 
     const mapping: ImportMapping = file.importMapping ? JSON.parse(file.importMapping) : {};
     const raw = Buffer.from(file.rawFile, 'base64');
-    const table = await loadTable(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength), file.rawFileName);
-    const { rows, errors } = parseImportRows(table, mapping);
+    const bufferSlice = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+
+    let rows: (ImportRow & { assignedAgentId?: string | null })[];
+    let errors: string[];
+    if (file.isDistributedImport) {
+      const sheetPlan: SheetPlan = file.sheetPlan ? JSON.parse(file.sheetPlan) : {};
+      const { table, sheetTags } = await loadTableWithSheetTags(bufferSlice, file.rawFileName);
+      ({ rows, errors } = parseDistributedImportRows(table, sheetTags, mapping, sheetPlan));
+    } else {
+      const table = await loadTable(bufferSlice, file.rawFileName);
+      ({ rows, errors } = parseImportRows(table, mapping));
+    }
 
     if (rows.length === 0) {
       await prisma.file.update({

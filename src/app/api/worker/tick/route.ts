@@ -1,6 +1,7 @@
 import { NextResponse, after } from 'next/server';
 import { prisma } from '@/lib/db';
 import { runFileImport } from '@/lib/file-import';
+import { runFileSync } from '@/lib/daily-sync';
 import { processReconciliationTick, parseReconciliationUpload } from '@/lib/reconciliation';
 
 // Soft time budget for reconciliation's matching loop specifically — comfortably inside
@@ -19,6 +20,7 @@ const STALE_CLAIM_MS = 10 * 60 * 1000;
 // — past this many attempts, stop retrying and mark it 'failed' outright instead of
 // quietly re-crashing the instance on a fixed cadence forever.
 const MAX_FILE_IMPORT_ATTEMPTS = 3;
+const MAX_FILE_SYNC_ATTEMPTS = 3;
 
 /**
  * Called on a schedule by an external cron (see .github/workflows/worker-tick.yml), not
@@ -98,6 +100,33 @@ export async function POST(req: Request) {
     }
     after(runFileImport(file.id).catch(() => {}));
     return NextResponse.json({ startedImportingFile: file.id });
+  }
+
+  // Same claim-then-run shape as file import above, one priority tier down — a daily sync
+  // only ever targets a file that's already imported, so there's no ordering conflict with
+  // the block above (a file mid-import can't have a sync queued against it yet).
+  const fileSync = await prisma.fileSync.findFirst({
+    where: { status: { in: ['queued', 'processing'] }, ...claimable },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, attempts: true },
+  });
+  if (fileSync) {
+    if (fileSync.attempts >= MAX_FILE_SYNC_ATTEMPTS) {
+      await prisma.fileSync.update({
+        where: { id: fileSync.id },
+        data: { status: 'failed', error: `Failed after ${MAX_FILE_SYNC_ATTEMPTS} attempts — most likely too large to fit in this host's available memory.`, parsingStartedAt: null },
+      });
+      return NextResponse.json({ gaveUpOnFileSync: fileSync.id });
+    }
+    const claim = await prisma.fileSync.updateMany({
+      where: { id: fileSync.id, status: { in: ['queued', 'processing'] }, ...claimable },
+      data: { parsingStartedAt: new Date(), attempts: { increment: 1 } },
+    });
+    if (claim.count === 0) {
+      return NextResponse.json({ idle: true, note: 'race — another tick just claimed this file sync' });
+    }
+    after(runFileSync(fileSync.id).catch(() => {}));
+    return NextResponse.json({ startedFileSync: fileSync.id });
   }
 
   const unparsedRecon = await prisma.reconciliation.findFirst({

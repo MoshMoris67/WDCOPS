@@ -95,8 +95,20 @@ model File {
   // instead of quietly re-crashing the instance on a fixed retry cadence forever.
   importAttempts   Int     @default(0)
 
+  // "Already distributed outside the app" import: the uploaded workbook has one sheet per
+  // agent (plus, typically, a combined reference sheet) instead of one flat roster —
+  // runFileImport assigns each row straight to its sheet's resolved agent instead of
+  // leaving everything unassigned for the usual Run Auto-Distribution step. sheetPlan is
+  // the admin's confirmed per-sheet choice from the import preview (JSON: sheet name ->
+  // { action: "assign", agentId } | { action: "unassigned" } | { action: "skip" } — "skip"
+  // is how a combined/reference sheet is excluded so its rows aren't double-imported).
+  // Both fields are write-once at POST /api/files time and read once by runFileImport.
+  isDistributedImport Boolean @default(false)
+  sheetPlan           String?
+
   debtors         Debtor[]
   reconciliations Reconciliation[]
+  fileSyncs       FileSync[]
 
   @@index([clientId])
 }
@@ -215,8 +227,58 @@ model ReconciliationEntry {
   companyCommission Float?
   agentCommission   Float?
 
+  // The real-world payment date from the source file (see lib/daily-sync.ts) — distinct
+  // from createdAt, which is when wellcashops recorded the entry. Null for every
+  // reconciliation entry created before this feature (a normal upload has no concept of a
+  // payment date separate from processing time). Only a daily-sync run sets this, and only
+  // a daily-sync run reads it back: a client like Zenka re-sends its full payment history
+  // in every file, so "has an entry for this exact debtor/date/amount already been
+  // recorded" (via paidDate + paidAmount) is what stops the same payment from being
+  // re-applied and double-counting recoveries on every re-upload.
+  paidDate DateTime?
+
   @@index([reconciliationId])
   @@index([debtorId])
+  @@index([debtorId, paidDate])
+}
+
+// One upload of a client's full daily export (a calling-list sheet + a payments sheet, see
+// lib/daily-sync.ts) against a File that already exists — for a client like Zenka whose
+// daily file is a full accumulating snapshot of their whole book, not a discrete new batch.
+// Two things happen per run, both reusing existing machinery rather than new logic:
+// (1) any loanRef on the calling-list sheet not already a Debtor on this File is created
+// and auto-distributed the same coverage-weighted way reconciliation.ts's new-account path
+// already does; (2) payment rows from the payments sheet, filtered to the current calendar
+// month, become a real Reconciliation + ReconciliationEntry rows (deduplicated via
+// ReconciliationEntry.paidDate) — so existing recovery reporting needs zero changes to
+// pick these up. Same two-stage raw-upload-then-tick-parses pattern as File/Reconciliation
+// above, for the same reason (a large file synchronously parsed in the request times out).
+model FileSync {
+  id     String @id @default(cuid())
+  fileId String
+  file   File   @relation(fields: [fileId], references: [id])
+
+  status String  @default("queued") // queued | processing | complete | failed
+  error  String?
+
+  rawFile            String?
+  rawFileName        String?
+  callingListMapping String? // JSON ImportMapping, confirmed at upload time
+  paymentMapping     String? // JSON SyncPaymentMapping, confirmed at upload time
+
+  newDebtorsCount       Int @default(0)
+  paymentsAppliedCount  Int @default(0)
+  paymentsSkippedCount  Int @default(0) // already recorded from an earlier sync — not an error
+
+  // Same claim/stale-recovery mechanism as File.parsingStartedAt — see that comment.
+  parsingStartedAt DateTime?
+  // Same give-up-after-N-crashes mechanism as File.importAttempts — see that comment.
+  attempts   Int      @default(0)
+  createdAt  DateTime @default(now())
+  completedAt DateTime?
+
+  @@index([fileId])
+  @@index([status])
 }
 
 model User {
