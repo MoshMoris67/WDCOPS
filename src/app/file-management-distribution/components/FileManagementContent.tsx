@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { FolderOpen, Upload, CheckCircle, Clock, Users, ChevronRight, FileText, Layers, UserPlus, Pencil, Trash2, Undo2, RefreshCcw } from 'lucide-react';
+import { FolderOpen, Upload, CheckCircle, Clock, Users, ChevronRight, FileText, Layers, UserPlus, Pencil, Trash2, Undo2, RefreshCcw, Download } from 'lucide-react';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import Toggle from '@/components/ui/Toggle';
@@ -178,6 +178,7 @@ export default function FileManagementContent() {
   const [distributionFileId, setDistributionFileId] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isDistributing, setIsDistributing] = useState(false);
+  const [isExportingDistribution, setIsExportingDistribution] = useState(false);
   const [rebalanceAgentId, setRebalanceAgentId] = useState('');
   const [isRebalancing, setIsRebalancing] = useState(false);
   const [isReassigning, setIsReassigning] = useState(false);
@@ -338,6 +339,32 @@ export default function FileManagementContent() {
       toast.error('Could not reach the server — try again');
     } finally {
       setIsDistributing(false);
+    }
+  }
+
+  async function exportDistribution(file: FileRow) {
+    setIsExportingDistribution(true);
+    try {
+      const res = await fetch(`/api/files/${file.id}/distribution/export`);
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || 'Export failed');
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${file.client}-${file.batchLabel}-distribution.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success('Distribution exported — one sheet per agent, check your downloads');
+    } catch {
+      toast.error('Could not reach the server — try again');
+    } finally {
+      setIsExportingDistribution(false);
     }
   }
 
@@ -745,9 +772,21 @@ export default function FileManagementContent() {
                     <h3 className="text-section-header text-foreground">Agent Distribution</h3>
                     <p className="text-xs text-muted-foreground mt-0.5 font-mono-data">{selectedFile.batchLabel}</p>
                   </div>
-                  <Badge variant={fileStatusBadge(selectedFile).variant}>
-                    {fileStatusBadge(selectedFile).label}
-                  </Badge>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge variant={fileStatusBadge(selectedFile).variant}>
+                      {fileStatusBadge(selectedFile).label}
+                    </Badge>
+                    {distributionData.length > 0 && (
+                      <button
+                        onClick={() => exportDistribution(selectedFile)}
+                        disabled={isExportingDistribution || offlineBlocked}
+                        title={offlineBlocked ? 'Offline — reconnect to export' : 'Export — one sheet per agent'}
+                        className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                      >
+                        <Download size={14} className={isExportingDistribution ? 'animate-pulse' : ''} />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Balance band legend */}

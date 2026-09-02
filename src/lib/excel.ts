@@ -725,3 +725,68 @@ export async function buildReportWorkbook(input: {
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }
+
+// Excel worksheet names can't contain [ ] : * ? / \ and cap out at 31 characters — and two
+// agents can share a display name (or collide after truncation), which ExcelJS rejects
+// outright as a duplicate. Sanitize once, then de-dupe by appending "(2)", "(3)", etc.
+function uniqueSheetName(base: string, used: Set<string>): string {
+  const safe = base.replace(/[[\]:*?/\\]/g, ' ').trim().slice(0, 31) || 'Sheet';
+  let candidate = safe;
+  for (let n = 2; used.has(candidate.toLowerCase()); n++) {
+    const suffix = ` (${n})`;
+    candidate = safe.slice(0, 31 - suffix.length) + suffix;
+  }
+  used.add(candidate.toLowerCase());
+  return candidate;
+}
+
+export interface DistributionDebtorRow {
+  loanId: string;
+  msisdn: string;
+  customerName: string;
+  totalOut: number;
+  current: number;
+  paid: number;
+}
+
+// Column set and header casing mirror the client's own long-standing reference workbook
+// (LOAN ID / MSISDN / CUSTOMERNAME / TOTAL OUT / CURRENT / PAID / COMPANY) so a sheet from
+// this export drops into their existing workflow unchanged. COMPANY there is always the
+// literal string "Wellcash" (the collection agency, not the client) on every row, not a
+// per-debtor value, so it's applied as a constant rather than threaded through as data.
+// Their reference also has a PASTDUE column (days past due) — deliberately left out since
+// wellcashops has no per-debtor days-past-due field to source it from honestly.
+export async function buildFileDistributionWorkbook(input: {
+  agents: { agentName: string; debtors: DistributionDebtorRow[] }[];
+  unassigned: DistributionDebtorRow[];
+}): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'WellcashOps';
+  workbook.created = new Date();
+
+  const usedNames = new Set<string>();
+  const addSheet = (title: string, rows: DistributionDebtorRow[]) => {
+    const sheet = workbook.addWorksheet(uniqueSheetName(title, usedNames));
+    sheet.columns = [
+      { header: 'LOAN ID', key: 'loanId', width: 14 },
+      { header: 'MSISDN', key: 'msisdn', width: 16 },
+      { header: 'CUSTOMERNAME', key: 'customerName', width: 30 },
+      { header: 'TOTAL OUT', key: 'totalOut', width: 14 },
+      { header: 'CURRENT', key: 'current', width: 14 },
+      { header: 'PAID', key: 'paid', width: 14 },
+      { header: 'COMPANY', key: 'company', width: 12 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+    rows.forEach((row) => sheet.addRow({ ...row, company: 'Wellcash' }));
+    sheet.addRow({});
+    sheet.addRow({ customerName: 'Total', current: rows.reduce((s, r) => s + r.current, 0) }).font = { bold: true };
+  };
+
+  const allDebtors = [...input.agents.flatMap((a) => a.debtors), ...input.unassigned];
+  addSheet('FILE', allDebtors);
+  for (const agent of input.agents) addSheet(agent.agentName, agent.debtors);
+  if (input.unassigned.length > 0) addSheet('Unassigned', input.unassigned);
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
