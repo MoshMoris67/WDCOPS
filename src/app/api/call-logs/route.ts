@@ -17,6 +17,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'debtorId and dispositionCode are required' }, { status: 400 });
   }
 
+  // A native date input has no upper bound on its own — a stray mouse-wheel scroll or held
+  // arrow key over the year segment can spin it into the tens of thousands. Prisma can't
+  // encode a year that large (its extended-ISO form isn't valid DateTime wire format) and
+  // throws, which without this check surfaces as an uncaught 500 — and offline-sync.ts
+  // treats any 5xx as retryable, so a record like this gets resent forever instead of
+  // landing in the 'failed' queue where an agent could actually see and discard it.
+  if (promisedDate && (Number.isNaN(promisedDate.getTime()) || promisedDate.getFullYear() > new Date().getFullYear() + 5)) {
+    return NextResponse.json({ error: 'promisedDate is not a valid date' }, { status: 400 });
+  }
+
   const code = await prisma.dispositionCode.findUnique({ where: { code: dispositionCode } });
   if (!code) return NextResponse.json({ error: `Unknown disposition code: ${dispositionCode}` }, { status: 400 });
 

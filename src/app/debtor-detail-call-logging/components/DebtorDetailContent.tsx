@@ -48,6 +48,17 @@ function formatDateOnly(iso: string | null) {
   return new Date(iso).toLocaleDateString('en-GB');
 }
 
+// Native date inputs have no built-in upper bound — without `max`, a stray mouse-wheel
+// scroll or held arrow key over the year segment can spin it into the tens of thousands,
+// which the server then rejects but (per a real production incident) can get stuck
+// retrying forever in the offline queue. 2 years out comfortably covers any real PTP or
+// callback while still catching a runaway year.
+function maxFutureDate(yearsAhead: number) {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() + yearsAhead);
+  return d.toISOString().slice(0, 10);
+}
+
 function initials(name: string) {
   return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 }
@@ -358,6 +369,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                 </label>
                 <input
                   type="date"
+                  max={maxFutureDate(2)}
                   className={`w-full px-3 py-2 text-sm bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${errors.promisedDate ? 'border-negative' : 'border-border'}`}
                   {...register('promisedDate', {
                     required: selectedDispo?.requiresPtp ? 'Select the payment date' : false,
@@ -380,6 +392,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                   <label className="block text-xs font-medium text-foreground">Date <span className="text-negative">*</span></label>
                   <input
                     type="date"
+                    max={maxFutureDate(2)}
                     className="w-full px-2 py-2 text-sm bg-white border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
                     {...register('callbackDate', {
                       required: selectedDispo?.requiresCallback ? 'Select callback date' : false,
