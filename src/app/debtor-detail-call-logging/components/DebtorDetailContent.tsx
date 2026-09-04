@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Phone, ChevronLeft, ChevronRight, Clock, CheckCircle, MessageSquare, CreditCard, History, User, Calendar, Wifi, WifiOff, Send, Info, X,  } from 'lucide-react';
+import { Phone, ChevronLeft, ChevronRight, Clock, CheckCircle, MessageSquare, CreditCard, History, User, Calendar, Wifi, WifiOff, Send, Info, X, Pencil, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import Badge from '@/components/ui/Badge';
 import DispositionBadge from '@/components/ui/DispositionBadge';
@@ -13,8 +13,13 @@ import { useOnlineStatus } from '@/lib/use-offline';
 import { queueCallLog, syncOneNow, QUEUE_CHANGED_EVENT } from '@/lib/offline-sync';
 import { useCachedQuery } from '@/lib/use-cached-query';
 import { useCachedDebtorLite } from '@/lib/use-debtor-queue';
+import { useCurrentUser } from '@/lib/use-current-user';
 import { clientBadgeVariant } from '@/lib/client-badge';
 import { toDialFormat } from '@/lib/phone';
+
+// How long after logging a disposition an agent may correct it themselves — must match
+// SELF_CORRECTION_WINDOW_MS in src/app/api/call-logs/[id]/route.ts.
+const SELF_CORRECTION_WINDOW_MS = 60 * 1000;
 
 interface CallLogFormData {
   dispositionCode: string;
@@ -86,8 +91,10 @@ interface CallHistoryItem {
   promisedAmount: number | null;
   promisedDate: string | null;
   createdAt: string;
+  agentId?: string;
   agentName: string;
   synced: boolean;
+  editedAt?: string | null;
 }
 
 type TabKey = 'overview' | 'history' | 'payment';
@@ -157,6 +164,38 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isOnline = useOnlineStatus();
+  const { data: currentUserData } = useCurrentUser();
+  const currentUser = currentUserData?.user ?? null;
+
+  // Only ticks while the history tab is open — nothing elsewhere depends on wall-clock
+  // time, so there's no reason to run a timer the rest of the time.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (activeTab !== 'history') return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [activeTab]);
+
+  const [correctingLogId, setCorrectingLogId] = useState<string | null>(null);
+
+  /** A synced log is correctable now if the caller is an admin, or if it's the current
+   *  agent's own disposition and it's still within the self-correction window. */
+  function canCorrect(log: CallHistoryItem): boolean {
+    if (!currentUser || !log.synced) return false;
+    if (currentUser.role === 'admin') return true;
+    if (log.agentId !== currentUser.id) return false;
+    return now - new Date(log.createdAt).getTime() <= SELF_CORRECTION_WINDOW_MS;
+  }
+
+  function secondsLeftToCorrect(log: CallHistoryItem): number {
+    return Math.max(0, Math.ceil((SELF_CORRECTION_WINDOW_MS - (now - new Date(log.createdAt).getTime())) / 1000));
+  }
+
+  function handleCorrected(updated: CallHistoryItem) {
+    setLocalLogs((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+    setCorrectingLogId(null);
+    toast.success('Disposition corrected');
+  }
 
   // Full detail (debtor + call history) — cache-backed, so a debtor already opened once
   // on this device renders instantly even offline. `isLoading` only stays true while
@@ -255,6 +294,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
         promisedAmount,
         promisedDate,
         createdAt: new Date().toISOString(),
+        agentId: currentUser?.id,
         agentName: 'You',
         synced: false,
       },
@@ -761,13 +801,16 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                 {localLogs.map((log) => (
                   <div key={log.id} className="px-5 py-4 hover:bg-secondary/30 transition-colors">
                     <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <DispositionBadge code={log.disposition} color={dispositionColor(log.disposition)} />
                         {!log.synced && (
                           <span className="flex items-center gap-1 text-xs text-warning">
                             <WifiOff size={11} />
                             Pending sync
                           </span>
+                        )}
+                        {log.editedAt && (
+                          <span className="text-xs text-muted-foreground italic">corrected</span>
                         )}
                       </div>
                       <span className="text-xs text-muted-foreground font-mono-data whitespace-nowrap">{formatDateTime(log.createdAt)}</span>
@@ -786,7 +829,27 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                         Callback scheduled: {formatDateTime(log.promisedDate)}
                       </p>
                     )}
-                    <p className="text-xs text-muted-foreground mt-2">by {log.agentName}</p>
+                    <div className="flex items-center justify-between gap-3 mt-2">
+                      <p className="text-xs text-muted-foreground">by {log.agentName}</p>
+                      {correctingLogId !== log.id && canCorrect(log) && (
+                        <button
+                          onClick={() => setCorrectingLogId(log.id)}
+                          className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                        >
+                          <Pencil size={11} />
+                          Correct
+                          {currentUser?.role !== 'admin' && ` (${secondsLeftToCorrect(log)}s)`}
+                        </button>
+                      )}
+                    </div>
+                    {correctingLogId === log.id && (
+                      <CorrectLogForm
+                        log={log}
+                        dispositionCodes={dispositionCodes}
+                        onCancel={() => setCorrectingLogId(null)}
+                        onSaved={handleCorrected}
+                      />
+                    )}
                   </div>
                 ))}
               </div>
@@ -860,6 +923,149 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
             {renderLogCallCard(debtor.phone1)}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+interface CorrectLogFormProps {
+  log: CallHistoryItem;
+  dispositionCodes: DispositionCodeOption[];
+  onCancel: () => void;
+  onSaved: (updated: CallHistoryItem) => void;
+}
+
+/** Inline correction form for one call-history entry — the server (src/app/api/call-logs/[id]/route.ts)
+ *  re-checks who's allowed and when, so this only needs to gather the corrected values. */
+function CorrectLogForm({ log, dispositionCodes, onCancel, onSaved }: CorrectLogFormProps) {
+  const [dispositionCode, setDispositionCode] = useState(log.disposition);
+  const [note, setNote] = useState(log.note ?? '');
+  const [promisedAmount, setPromisedAmount] = useState(log.promisedAmount ? String(log.promisedAmount) : '');
+  const [promisedDate, setPromisedDate] = useState(log.promisedDate ? log.promisedDate.slice(0, 10) : '');
+  const [promisedTime, setPromisedTime] = useState(log.promisedDate ? log.promisedDate.slice(11, 16) : '');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const selectedDispo = dispositionCodes.find((d) => d.code === dispositionCode);
+
+  async function handleSave() {
+    if (!dispositionCode) {
+      toast.error('Select a disposition code');
+      return;
+    }
+    const finalPromisedDate = selectedDispo?.requiresPtp
+      ? (promisedDate || null)
+      : selectedDispo?.requiresCallback
+        ? (promisedDate ? `${promisedDate}${promisedTime ? `T${promisedTime}` : ''}` : null)
+        : null;
+
+    setIsSaving(true);
+    try {
+      const res = await fetch(`/api/call-logs/${log.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dispositionCode,
+          note: note || null,
+          promisedAmount: selectedDispo?.requiresPtp && promisedAmount ? Number(promisedAmount) : null,
+          promisedDate: finalPromisedDate,
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(payload.error || 'Could not save the correction');
+        return;
+      }
+      onSaved(payload.log);
+    } catch {
+      toast.error('Could not reach the server — try again');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 p-3 rounded-lg border border-primary/30 bg-primary/5 space-y-3 fade-in">
+      <div className="grid grid-cols-3 gap-1.5">
+        {dispositionCodes.map((d) => (
+          <label
+            key={`correct-${log.id}-${d.code}`}
+            className={`cursor-pointer flex flex-col items-center justify-center p-1.5 rounded-lg border-2 transition-all text-center ${
+              dispositionCode === d.code ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40'
+            }`}
+          >
+            <input
+              type="radio"
+              name={`correct-${log.id}`}
+              value={d.code}
+              className="sr-only"
+              checked={dispositionCode === d.code}
+              onChange={() => setDispositionCode(d.code)}
+            />
+            <DispositionBadge code={d.code} color={d.color} />
+          </label>
+        ))}
+      </div>
+
+      {selectedDispo?.requiresPtp && (
+        <div className="grid grid-cols-2 gap-2">
+          <input
+            type="number"
+            placeholder="Promised amount"
+            value={promisedAmount}
+            onChange={(e) => setPromisedAmount(e.target.value)}
+            className="px-2.5 py-1.5 text-sm bg-white border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 font-tabular"
+          />
+          <input
+            type="date"
+            max={maxFutureDate(2)}
+            value={promisedDate}
+            onChange={(e) => setPromisedDate(e.target.value)}
+            className="px-2.5 py-1.5 text-sm bg-white border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+          />
+        </div>
+      )}
+      {selectedDispo?.requiresCallback && (
+        <div className="grid grid-cols-2 gap-2">
+          <input
+            type="date"
+            max={maxFutureDate(2)}
+            value={promisedDate}
+            onChange={(e) => setPromisedDate(e.target.value)}
+            className="px-2.5 py-1.5 text-sm bg-white border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+          />
+          <input
+            type="time"
+            value={promisedTime}
+            onChange={(e) => setPromisedTime(e.target.value)}
+            className="px-2.5 py-1.5 text-sm bg-white border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+          />
+        </div>
+      )}
+
+      <textarea
+        rows={2}
+        placeholder="Call notes"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        className="w-full px-2.5 py-1.5 text-sm bg-white border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 resize-none"
+      />
+
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleSave}
+          disabled={isSaving}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-60"
+        >
+          {isSaving ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
+          Save correction
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={isSaving}
+          className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          Cancel
+        </button>
       </div>
     </div>
   );

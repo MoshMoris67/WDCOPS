@@ -153,11 +153,36 @@ model CallLog {
   promisedDate    DateTime?
   createdAt       DateTime  @default(now())
   syncedAt        DateTime?
+  // Set the moment a correction is applied (see CallLogCorrection) — null means the
+  // disposition an agent logged is still exactly what's on the record.
+  editedAt        DateTime?
+
+  corrections CallLogCorrection[]
 
   @@index([debtorId])
   @@index([agentId])
   @@index([debtorId, createdAt])
   @@index([createdAt])
+}
+
+// One row per correction to a CallLog, keeping the pre-correction values so nothing is
+// silently overwritten — the same append-only-history convention Assignment already uses
+// for reassignments. The CallLog row itself still carries the current (corrected) values,
+// so every existing read path (reports, "latest call per debtor", agent stats) keeps working
+// unchanged; this table exists purely for accountability.
+model CallLogCorrection {
+  id                      String    @id @default(cuid())
+  callLogId               String
+  callLog                 CallLog   @relation(fields: [callLogId], references: [id])
+  correctedById           String
+  correctedBy             User      @relation("CallLogCorrections", fields: [correctedById], references: [id])
+  previousDispositionCode String
+  previousNote            String?
+  previousPromisedAmount  Float?
+  previousPromisedDate    DateTime?
+  createdAt               DateTime  @default(now())
+
+  @@index([callLogId])
 }
 
 model Reconciliation {
@@ -291,9 +316,10 @@ model User {
   branch         String   @default("uganda")
   createdAt      DateTime @default(now())
 
-  assignedDebtors Debtor[]     @relation("AgentDebtors")
-  callLogs        CallLog[]    @relation("AgentCallLogs")
-  assignmentsTo   Assignment[] @relation("AssignedTo")
+  assignedDebtors    Debtor[]             @relation("AgentDebtors")
+  callLogs           CallLog[]            @relation("AgentCallLogs")
+  assignmentsTo      Assignment[]         @relation("AssignedTo")
+  callLogCorrections CallLogCorrection[]  @relation("CallLogCorrections")
 }
 
 model Assignment {

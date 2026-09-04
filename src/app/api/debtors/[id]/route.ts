@@ -55,8 +55,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       promisedAmount: log.promisedAmount,
       promisedDate: log.promisedDate,
       createdAt: log.createdAt,
+      agentId: log.agentId,
       agentName: log.agent.name,
       synced: log.syncedAt !== null,
+      editedAt: log.editedAt,
     })),
   });
 }
