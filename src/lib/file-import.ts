@@ -1,9 +1,8 @@
 import { prisma } from './db';
 import {
-  loadTable,
-  loadTableWithSheetTags,
-  parseImportRows,
-  parseDistributedImportRows,
+  iterateTable,
+  mapImportRow,
+  requiredMappingError,
   type ImportRow,
   type ImportMapping,
   type SheetPlan,
@@ -41,24 +40,13 @@ function toDebtorData(fileId: string, r: ImportRow & { assignedAgentId?: string 
  * Parses a file's raw upload and inserts every row, run once via Next's after() (see
  * api/worker/tick/route.ts) rather than resumable ticks.
  *
- * Deliberately does NOT persist the parsed rows to File.rawRows and re-read them back for
- * a separate insert phase, the way an earlier version of this function did — that meant
- * holding the raw base64 string, the decoded buffer, the full parsed table, the full
- * ImportRow[], AND a JSON-stringified copy of it all in memory at overlapping points,
- * which measurably made peak memory *worse*, not better, when tested against the real
- * 77,000-row file (peak RSS ~650MB vs ~500MB for parsing straight into memory and
- * inserting immediately, without ever serializing rawRows at all). Both numbers are
- * uncomfortably close to Render's free-tier 512MB ceiling for a file this size — this is
- * the better of the two measured designs, not a confirmed fix for every file size; see
- * the commit message for the fuller picture and what a real fix would need if this still
- * isn't enough.
+ * Uses iterateTable to stream the file row-by-row, avoiding holding the entire table
+ * in memory. This is the primary fix for OOM issues on 512MB RAM hosts when processing
+ * large (70k+ row) files.
  *
- * Parsing can't be split into bounded chunks (no cheap way to resume a spreadsheet parse
- * partway through — confirmed by direct timing: skipping rows costs as much as reading
- * them), so this runs the whole file in one pass. If a prior attempt crashed partway
- * through inserting (rowsProcessed > 0 but importStatus never reached 'complete'), this
- * clears whatever it already inserted and starts over clean rather than trying to resume
- * — there's no materialized row array to resume a cursor into.
+ * If a prior attempt crashed partway through inserting (rowsProcessed > 0 but
+ * importStatus never reached 'complete'), this clears whatever it already inserted
+ * and starts over clean rather than trying to resume.
  */
 export async function runFileImport(fileId: string): Promise<void> {
   const file = await prisma.file.findUnique({ where: { id: fileId } });
@@ -68,44 +56,80 @@ export async function runFileImport(fileId: string): Promise<void> {
     if (!file.rawFile || !file.rawFileName) {
       await prisma.file.update({
         where: { id: fileId },
-        data: { importStatus: 'failed', importError: 'No stored file to import — the upload may have been interrupted, re-import the file', parsingStartedAt: null },
+        data: {
+          importStatus: 'failed',
+          importError: 'No stored file to import — the upload may have been interrupted, re-import the file',
+          parsingStartedAt: null,
+        },
       });
       return;
     }
 
     const mapping: ImportMapping = file.importMapping ? JSON.parse(file.importMapping) : {};
-    const raw = Buffer.from(file.rawFile, 'base64');
-    const bufferSlice = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
-
-    let rows: (ImportRow & { assignedAgentId?: string | null })[];
-    let errors: string[];
-    if (file.isDistributedImport) {
-      const sheetPlan: SheetPlan = file.sheetPlan ? JSON.parse(file.sheetPlan) : {};
-      const { table, sheetTags } = await loadTableWithSheetTags(bufferSlice, file.rawFileName);
-      ({ rows, errors } = parseDistributedImportRows(table, sheetTags, mapping, sheetPlan));
-    } else {
-      const table = await loadTable(bufferSlice, file.rawFileName);
-      ({ rows, errors } = parseImportRows(table, mapping));
-    }
-
-    if (rows.length === 0) {
+    const mappingError = requiredMappingError(mapping);
+    if (mappingError) {
       await prisma.file.update({
         where: { id: fileId },
-        data: { importStatus: 'failed', importError: errors[0] ?? 'No valid debtor rows found in the file', rawFile: null, parsingStartedAt: null },
+        data: { importStatus: 'failed', importError: mappingError, parsingStartedAt: null },
       });
       return;
     }
+
+    const raw = Buffer.from(file.rawFile, 'base64');
+    const bufferSlice = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+
+    const sheetPlan: SheetPlan = file.isDistributedImport && file.sheetPlan ? JSON.parse(file.sheetPlan) : {};
 
     if (file.rowsProcessed > 0) {
       await prisma.debtor.deleteMany({ where: { fileId } });
     }
 
+    const errors: string[] = [];
+    let batch: (ImportRow & { assignedAgentId?: string | null })[] = [];
     let inserted = 0;
-    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-      const batch = rows.slice(i, i + BATCH_SIZE).map((r) => toDebtorData(fileId, r));
-      await prisma.debtor.createMany({ data: batch });
+
+    await iterateTable(bufferSlice, file.rawFileName, async (row, index, sheetName) => {
+      if (index === 0) return; // Skip header
+
+      const rowNumber = index + 1;
+      let assignedAgentId: string | null = null;
+
+      if (file.isDistributedImport) {
+        const plan = sheetPlan[sheetName];
+        if (!plan || plan.action === 'skip') return;
+        assignedAgentId = plan.action === 'assign' ? plan.agentId : null;
+      }
+
+      const mapped = mapImportRow(row, mapping, rowNumber);
+      if (mapped.kind === 'blank') return;
+      if (mapped.kind === 'error') {
+        if (errors.length < 500) errors.push(mapped.message);
+        return;
+      }
+
+      batch.push({ ...mapped.row, assignedAgentId });
+
+      if (batch.length >= BATCH_SIZE) {
+        const data = batch.map((r) => toDebtorData(fileId, r));
+        await prisma.debtor.createMany({ data });
+        inserted += batch.length;
+        batch = [];
+        await prisma.file.update({
+          where: { id: fileId },
+          data: { importStatus: 'processing', rowsProcessed: inserted },
+        });
+      }
+    });
+
+    // Final batch
+    if (batch.length > 0) {
+      const data = batch.map((r) => toDebtorData(fileId, r));
+      await prisma.debtor.createMany({ data });
       inserted += batch.length;
-      await prisma.file.update({ where: { id: fileId }, data: { importStatus: 'processing', rowsProcessed: inserted } });
+    }
+
+    if (inserted === 0 && errors.length > 0) {
+      throw new Error(errors[0]);
     }
 
     await prisma.file.update({

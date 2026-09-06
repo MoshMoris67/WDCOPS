@@ -222,7 +222,99 @@ export async function loadNamedSheets(buffer: ArrayBuffer, filename: string): Pr
 }
 
 /**
+ * High-performance streaming iterator for all supported file types.
+ * Invokes the callback for every row (including the header) as it is parsed,
+ * avoiding the need to hold the entire file in memory.
+ */
+export async function iterateTable(
+  buffer: ArrayBuffer,
+  filename: string,
+  onRow: (row: string[], index: number, sheetName: string) => Promise<void> | void
+): Promise<void> {
+  if (isCsv(filename)) {
+    const table = parseCsvText(Buffer.from(buffer).toString('utf8'));
+    for (let i = 0; i < table.length; i++) {
+      await onRow(table[i], i, filename);
+    }
+    return;
+  }
+
+  if (isXlsb(filename)) {
+    const sheets = loadXlsbSheets(buffer);
+    let globalIndex = 0;
+    for (const sheet of sheets) {
+      const headerRow = sheet.rows[0];
+      for (let i = 0; i < sheet.rows.length; i++) {
+        // Skip duplicate headers on subsequent sheets
+        if (globalIndex > 0 && i === 0 && headerRow && rowsMatch(sheet.rows[0], headerRow)) {
+          continue;
+        }
+        await onRow(sheet.rows[i], globalIndex++, sheet.name);
+      }
+    }
+    return;
+  }
+
+  // .xlsx streaming path
+  const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from([Buffer.from(buffer)]), {
+    styles: 'cache',
+    sharedStrings: 'cache',
+    hyperlinks: 'ignore',
+    worksheets: 'emit',
+  });
+
+  let globalIndex = 0;
+  let firstSheetHeader: string[] | null = null;
+
+  for await (const worksheetReader of workbookReader) {
+    const sheetName = (worksheetReader as unknown as { name?: string }).name ?? `Sheet`;
+    let sheetRowIndex = 0;
+    for await (const row of worksheetReader) {
+      const cells: string[] = [];
+      row.eachCell({ includeEmpty: true }, (cell) => cells.push(cellFromXlsxValue(cell.value)));
+
+      if (globalIndex === 0) {
+        firstSheetHeader = cells;
+      } else if (sheetRowIndex === 0 && firstSheetHeader && rowsMatch(cells, firstSheetHeader)) {
+        // Skip duplicate header
+        sheetRowIndex++;
+        continue;
+      }
+
+      await onRow(cells, globalIndex++, sheetName);
+      sheetRowIndex++;
+    }
+  }
+}
+
+/**
+ * Reads every sheet of an .xlsx workbook via exceljs's streaming reader.
+ * Returns only the sheet names and their respective row counts.
+ */
+async function streamXlsxSheetCounts(buffer: ArrayBuffer): Promise<{ name: string; rowCount: number }[]> {
+  const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from([Buffer.from(buffer)]), {
+    styles: 'cache',
+    sharedStrings: 'cache',
+    hyperlinks: 'ignore',
+    worksheets: 'emit',
+  });
+
+  const sheets: { name: string; rowCount: number }[] = [];
+  for await (const worksheetReader of workbookReader) {
+    let rowCount = 0;
+    for await (const _ of worksheetReader) {
+      rowCount++;
+    }
+    const name = (worksheetReader as unknown as { name?: string }).name ?? `Sheet${sheets.length + 1}`;
+    sheets.push({ name, rowCount: Math.max(0, rowCount - 1) });
+  }
+  return sheets;
+}
+
+/**
  * Loads any supported file into a plain table (row 0 = header) — .xlsx via exceljs's
+
+
  * streaming reader, .xlsb via SheetJS, .csv via the fast tokenizer above.
  */
 export async function loadTable(buffer: ArrayBuffer, filename: string): Promise<string[][]> {

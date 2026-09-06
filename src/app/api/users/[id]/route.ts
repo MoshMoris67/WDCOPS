@@ -58,9 +58,10 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "You can't delete your own account" }, { status: 400 });
   }
 
-  const [assignedDebtorCount, callLogCount] = await Promise.all([
+  const [assignedDebtorCount, callLogCount, assignmentHistoryCount] = await Promise.all([
     prisma.debtor.count({ where: { assignedAgentId: id } }),
     prisma.callLog.count({ where: { agentId: id } }),
+    prisma.assignment.count({ where: { agentId: id } }),
   ]);
 
   if (assignedDebtorCount > 0) {
@@ -75,9 +76,22 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       { status: 400 }
     );
   }
+  if (assignmentHistoryCount > 0) {
+    return NextResponse.json(
+      { error: `This user has ${assignmentHistoryCount} assignment history record(s) — deleting would break the audit trail. Deactivate them instead.` },
+      { status: 400 }
+    );
+  }
 
-  const deleted = await prisma.user.delete({ where: { id } }).catch(() => null);
-  if (!deleted) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  try {
+    await prisma.user.delete({ where: { id } });
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2025') {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+    console.error('Failed to delete user', { userId: id, error });
+    return NextResponse.json({ error: 'Could not delete user because related records still reference this account.' }, { status: 409 });
+  }
 
   return NextResponse.json({ ok: true });
 }

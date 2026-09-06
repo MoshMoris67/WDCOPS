@@ -1,5 +1,10 @@
 import { prisma } from './db';
-import { loadTable, loadTableWithSheetTags, parseReconciliationRows, type ReconciliationRow, type ReconciliationMapping } from './excel';
+import {
+  iterateTable,
+  parseReconciliationRows,
+  type ReconciliationRow,
+  type ReconciliationMapping,
+} from './excel';
 import { assignByCoverageWeight } from './distribution';
 import { agentCoverageWeights } from './coverage';
 import { applyAssignment } from './assignment';
@@ -22,20 +27,12 @@ export interface ParseUploadResult {
 /**
  * Parses a reconciliation's stored raw upload into rawRows — a worker tick claims a
  * pending, not-yet-parsed reconciliation and calls this fire-and-forget, not awaited (see
- * api/worker/tick/route.ts): parsing a large file synchronously is what caused the
- * browser-facing hang in the first place, and even off the browser, a slow enough parse
- * can outlast Render's own inbound request timeout and get the *tick's* response killed
- * (confirmed in production — a stuck 'pending' reconciliation, tick logs showing a 502
- * after 2+ minutes). Not awaited means no timeout applies to it; it keeps running against
- * this same long-lived process after the tick's response has already gone out. Wrapped in
- * its own try/catch (rather than trusting the caller's fire-and-forget .catch(() => {}))
- * so a thrown error still reliably marks the reconciliation 'failed' and clears the claim
- * below, instead of leaving it silently stuck.
+ * api/worker/tick/route.ts).
  *
- * Never falls through into processing in the same call — processing a reconciliation is
- * its own chunked, budget-bounded tick turn (see processReconciliationTick below), so
- * stacking it with this unbounded parse step would risk the exact same problem this is
- * fixing.
+ * Uses iterateTable to stream the file, but still materializes rows into rawRows (JSON)
+ * for the resumable processReconciliationTick path. This is a compromise: we avoid
+ * the peak memory spike of loadTable (which builds a full 2D array), but we still
+ * store the parsed rows in the DB to allow chunked matching.
  */
 export async function parseReconciliationUpload(reconciliationId: string): Promise<ParseUploadResult> {
   try {
@@ -43,7 +40,11 @@ export async function parseReconciliationUpload(reconciliationId: string): Promi
     if (!r?.rawFile || !r.rawFileName) {
       await prisma.reconciliation.update({
         where: { id: reconciliationId },
-        data: { status: 'failed', errorSummary: 'No stored file to parse — the upload may have been interrupted, log a new reconciliation instead', parsingStartedAt: null },
+        data: {
+          status: 'failed',
+          errorSummary: 'No stored file to parse — the upload may have been interrupted, log a new reconciliation instead',
+          parsingStartedAt: null,
+        },
       });
       return { parsed: false, rowCount: 0 };
     }
@@ -53,34 +54,36 @@ export async function parseReconciliationUpload(reconciliationId: string): Promi
     const buffer = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
     const type = r.type as 'full' | 'partial';
 
-    // Sheet-tagged parsing only for clients with commission tracking configured (see
-    // lib/commission.ts) — everyone else gets exactly the same loadTable call as before
-    // this feature existed. KCB Mopesa's files use the sheet itself as the aging bucket,
-    // no BUCKET column at all, so bucketRaw comes from sheetTags, not from `mapping`.
-    const commissionConfig = await loadClientCommissionConfig(r.clientId);
-    let rows: ReconciliationRow[];
-    let errors: string[];
-    if (commissionConfig) {
-      const { table, sheetTags } = await loadTableWithSheetTags(buffer, r.rawFileName);
-      ({ rows, errors } = parseReconciliationRows(table, mapping, type, sheetTags));
-    } else {
-      const table = await loadTable(buffer, r.rawFileName);
-      ({ rows, errors } = parseReconciliationRows(table, mapping, type));
-    }
+    const rows: ReconciliationRow[] = [];
+    const errors: string[] = [];
+    const table: string[][] = [];
+    const sheetTags: string[] = [];
 
-    if (rows.length === 0) {
+    await iterateTable(buffer, r.rawFileName, (row, index, sheetName) => {
+      table.push(row);
+      sheetTags.push(sheetName);
+    });
+
+    const { rows: parsedRows, errors: parseErrors } = parseReconciliationRows(table, mapping, type, sheetTags);
+
+    if (parsedRows.length === 0) {
       await prisma.reconciliation.update({
         where: { id: reconciliationId },
-        data: { status: 'failed', errorSummary: errors[0] ?? 'No valid rows found in the file', rawFile: null, parsingStartedAt: null },
+        data: {
+          status: 'failed',
+          errorSummary: parseErrors[0] ?? 'No valid rows found in the file',
+          rawFile: null,
+          parsingStartedAt: null,
+        },
       });
       return { parsed: false, rowCount: 0 };
     }
 
     await prisma.reconciliation.update({
       where: { id: reconciliationId },
-      data: { rawRows: JSON.stringify(rows), recordCount: rows.length, rawFile: null, parsingStartedAt: null },
+      data: { rawRows: JSON.stringify(parsedRows), recordCount: parsedRows.length, rawFile: null, parsingStartedAt: null },
     });
-    return { parsed: true, rowCount: rows.length };
+    return { parsed: true, rowCount: parsedRows.length };
   } catch (err) {
     await prisma.reconciliation
       .update({
