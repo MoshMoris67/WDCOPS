@@ -143,7 +143,6 @@ model Debtor {
 
 model CallLog {
   id              String    @id @default(cuid())
-  clientRequestId String?   @unique
   debtorId        String
   debtor          Debtor    @relation(fields: [debtorId], references: [id])
   agentId         String

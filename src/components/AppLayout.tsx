@@ -21,13 +21,11 @@ const cachedShellPathnames = new Set<string>();
 
 export default function AppLayout({ children }: AppLayoutProps) {
   const pathname = usePathname();
-  const { data: userData, refetch: refetchUser } = useCurrentUser();
-  const user = userData?.user ?? null;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   useEffect(() => {
-    flushQueue(user?.id);
+    flushQueue();
     revalidateEssentials();
     // Catches the case navigator.onLine's own 'online' event misses: the browser never
     // reports going offline (e.g. the server is just unreachable, or a request quietly
@@ -35,15 +33,17 @@ export default function AppLayout({ children }: AppLayoutProps) {
     // no-op when there's nothing pending or nothing worth refreshing, so this costs
     // nothing on the common path.
     const interval = setInterval(() => {
-      flushQueue(user?.id);
+      flushQueue();
       revalidateEssentials();
     }, 45000);
     return () => clearInterval(interval);
-  }, [user?.id]);
+  }, []);
 
   // Cache-backed: a failed fetch here (offline mid-session) no longer wipes out `user`
   // and drops Sidebar/BottomTabBar into a logged-out-looking state — it just keeps
   // showing whoever was last known to be signed in.
+  const { data: userData, refetch: refetchUser } = useCurrentUser();
+  const user = userData?.user ?? null;
   useEffect(() => {
     refetchUser();
   }, [pathname, refetchUser]);

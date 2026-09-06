@@ -1,5 +1,4 @@
 import { db, type PendingCallLog } from './offline-db';
-import { getCached } from './offline-cache';
 
 export const QUEUE_CHANGED_EVENT = 'wc:queue-changed';
 
@@ -37,31 +36,23 @@ export async function queueCallLog(
   return localId as number;
 }
 
-async function resolveUserId(userId?: string): Promise<string | null> {
-  if (userId) return userId;
-  const cached = await getCached<{ user?: { id?: string } }>('/api/auth/me');
-  return cached?.user?.id ?? null;
+export async function getPendingCount(): Promise<number> {
+  return db.pendingCallLogs.where('status').equals('pending').count();
 }
 
-export async function getPendingCount(userId?: string): Promise<number> {
-  const activeUserId = await resolveUserId(userId);
-  if (!activeUserId) return 0;
-  return db.pendingCallLogs.filter((entry) => entry.status === 'pending' && entry.userId === activeUserId).count();
+export async function getFailedCount(): Promise<number> {
+  return db.pendingCallLogs.where('status').equals('failed').count();
 }
 
-export async function getFailedCount(userId?: string): Promise<number> {
-  const activeUserId = await resolveUserId(userId);
-  if (!activeUserId) return 0;
-  return db.pendingCallLogs.filter((entry) => entry.status === 'failed' && entry.userId === activeUserId).count();
+export async function getPendingLogs(): Promise<PendingCallLog[]> {
+  return db.pendingCallLogs.orderBy('queuedAt').toArray();
 }
 
 /** Failed entries with their rejection reason (`lastError`) intact — the "Retry" affordance
  *  alone gives no way to see *why* something keeps failing, which reads as broken when it's
  *  actually working correctly (a genuinely invalid record retrying forever and going nowhere). */
 export async function getFailedLogs(): Promise<PendingCallLog[]> {
-  const userId = await resolveUserId();
-  if (!userId) return [];
-  return db.pendingCallLogs.filter((entry) => entry.status === 'failed' && entry.userId === userId).sortBy('queuedAt');
+  return db.pendingCallLogs.where('status').equals('failed').sortBy('queuedAt');
 }
 
 /** Gives up on one entry permanently — for a record retrying can never fix (e.g. the debtor
@@ -86,7 +77,6 @@ async function pushEntry(entry: PendingCallLog): Promise<SyncOutcome> {
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
       body: JSON.stringify({
-        clientRequestId: entry.clientId,
         debtorId: entry.debtorId,
         dispositionCode: entry.dispositionCode,
         note: entry.note,
@@ -131,10 +121,6 @@ async function markOutcome(entry: PendingCallLog, outcome: SyncOutcome): Promise
 export async function syncOneNow(localId: number): Promise<SyncOutcome> {
   const entry = await db.pendingCallLogs.get(localId);
   if (!entry) return { ok: true }; // already synced and removed
-  const userId = await resolveUserId();
-  if (!userId || entry.userId !== userId) {
-    return { ok: false, retryable: false, message: 'This call belongs to another account and was not sent.' };
-  }
   const outcome = await pushEntry(entry);
   await markOutcome(entry, outcome);
   if (outcome.ok) notifyQueueChanged();
@@ -151,18 +137,14 @@ let flushing = false;
  * pattern means "we're actually offline", not "this record is bad", and there's no point
  * burning a timeout on every remaining item just to confirm that repeatedly.
  */
-export async function flushQueue(userId?: string): Promise<{ synced: number; failed: number }> {
+export async function flushQueue(): Promise<{ synced: number; failed: number }> {
   if (flushing || typeof navigator === 'undefined' || !navigator.onLine) return { synced: 0, failed: 0 };
-  const activeUserId = await resolveUserId(userId);
-  if (!activeUserId) return { synced: 0, failed: 0 };
   flushing = true;
   let synced = 0;
   let failed = 0;
   let consecutiveNetworkFailures = 0;
   try {
-    const pending = await db.pendingCallLogs
-      .filter((entry) => entry.status === 'pending' && entry.userId === activeUserId)
-      .sortBy('queuedAt');
+    const pending = await db.pendingCallLogs.where('status').equals('pending').sortBy('queuedAt');
     for (const entry of pending) {
       const outcome = await pushEntry(entry);
       await markOutcome(entry, outcome);
@@ -188,9 +170,7 @@ export async function flushQueue(userId?: string): Promise<{ synced: number; fai
  *  re-adds the disposition code that caused the original rejection. The equivalent of a
  *  manual "force sync": it clears the quarantine and lets flushQueue retry everything. */
 export async function retryFailed(): Promise<{ synced: number; failed: number }> {
-  const userId = await resolveUserId();
-  if (!userId) return { synced: 0, failed: 0 };
-  await db.pendingCallLogs.filter((entry) => entry.status === 'failed' && entry.userId === userId).modify({ status: 'pending' });
+  await db.pendingCallLogs.where('status').equals('failed').modify({ status: 'pending' });
   notifyQueueChanged();
   return flushQueue();
 }

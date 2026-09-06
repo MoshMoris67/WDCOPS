@@ -38,24 +38,12 @@ export default function AgentQueueContent() {
   const searchParams = useSearchParams();
   const selectedId = searchParams.get('selected');
   const isWide = useIsWide();
+  const { debtors: debtorQueue, isLoading, error: queueError, refetch: refetchQueue } = useDebtorQueue();
   const [search, setSearch] = useState('');
   const [filterClient, setFilterClient] = useState('All');
   const [sortField, setSortField] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(1);
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(search), 250);
-    return () => clearTimeout(timer);
-  }, [search]);
-  const selectedClientId = filterClient === 'All' ? null : clients.find((client) => client.name === filterClient)?.id;
-  const { debtors: debtorQueue, isLoading, error: queueError, refetch: refetchQueue, total: queueTotal } = useDebtorQueue({
-    search: debouncedSearch,
-    clientId: selectedClientId,
-    sortField,
-    sortDir,
-    page,
-  });
   const { data: codesData } = useCachedQuery<{ codes: DispositionCodeOption[] }>('/api/disposition-codes');
   const dispositionCodes = codesData?.codes ?? [];
   const isOnline = useOnlineStatus();
@@ -102,12 +90,40 @@ export default function AgentQueueContent() {
 
   const dispositionColor = (code: string) => dispositionCodes.find((d) => d.code === code)?.color ?? '#64748B';
 
+  const filtered = debtorQueue.filter((d) => {
+    // Phone-only, by prefix (not "contains anywhere") — e.g. typing "077" is meant to
+    // isolate debtors on that carrier's number block (for dialing through the matching
+    // SIM), not pull in unrelated name/loan-ref substring matches. Normalized through the
+    // same toDialFormat() used for the Call buttons so a prefix search matches correctly
+    // regardless of which raw format ("077...", "77...", "25677...") the number was
+    // originally imported in.
+    const trimmedSearch = search.trim();
+    const matchSearch = !trimmedSearch || toDialFormat(d.phone).startsWith(trimmedSearch);
+    const matchClient = filterClient === 'All' || d.client === filterClient;
+    return matchSearch && matchClient;
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (!sortField) return 0;
+    const av = (a as unknown as Record<string, unknown>)[sortField];
+    const bv = (b as unknown as Record<string, unknown>)[sortField];
+    if (typeof av === 'number' && typeof bv === 'number') {
+      return sortDir === 'asc' ? av - bv : bv - av;
+    }
+    return sortDir === 'asc'
+      ? String(av).localeCompare(String(bv))
+      : String(bv).localeCompare(String(av));
+  });
+
+  // Reset to page 1 whenever the visible set changes shape, so a filter/search never
+  // leaves the view stuck on a now-nonexistent page.
   useEffect(() => {
     setPage(1);
   }, [search, filterClient, sortField, sortDir]);
 
-  const totalPages = Math.max(1, Math.ceil(queueTotal / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const pageStart = (page - 1) * PAGE_SIZE;
+  const paged = sorted.slice(pageStart, pageStart + PAGE_SIZE);
 
   function toggleSort(field: string) {
     if (sortField === field) {
@@ -118,9 +134,9 @@ export default function AgentQueueContent() {
     }
   }
 
-  const selectedIndex = selectedId ? debtorQueue.findIndex((d) => d.id === selectedId) : -1;
-  const prevId = selectedIndex > 0 ? debtorQueue[selectedIndex - 1].id : null;
-  const nextId = selectedIndex >= 0 && selectedIndex < debtorQueue.length - 1 ? debtorQueue[selectedIndex + 1].id : null;
+  const selectedIndex = selectedId ? sorted.findIndex((d) => d.id === selectedId) : -1;
+  const prevId = selectedIndex > 0 ? sorted[selectedIndex - 1].id : null;
+  const nextId = selectedIndex >= 0 && selectedIndex < sorted.length - 1 ? sorted[selectedIndex + 1].id : null;
 
   // At desktop width, opening a debtor selects it into the split panel on this same page
   // instead of navigating away — the queue never leaves the screen. Below that width there's
@@ -132,7 +148,7 @@ export default function AgentQueueContent() {
       router.push(`/my-queue?selected=${id}`, { scroll: false });
     } else {
       try {
-        sessionStorage.setItem('queue:my-queue', JSON.stringify(debtorQueue.map((d) => d.id)));
+        sessionStorage.setItem('queue:my-queue', JSON.stringify(sorted.map((d) => d.id)));
       } catch {
         // sessionStorage unavailable (private mode, etc.) — Prev/Next just won't show up
       }
@@ -146,7 +162,7 @@ export default function AgentQueueContent() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-page-title text-foreground">My Queue</h1>
-          <p className="text-sm text-muted-foreground mt-1">{queueTotal} debtors assigned — sorted by priority</p>
+          <p className="text-sm text-muted-foreground mt-1">{debtorQueue.length} debtors assigned — sorted by priority</p>
         </div>
         <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium ${isOnline ? 'sync-online' : 'sync-offline'}`}>
           {isOnline ? <Wifi size={13} /> : <WifiOff size={13} />}
@@ -243,7 +259,7 @@ export default function AgentQueueContent() {
               <tbody>
                 {isLoading
                   ? Array.from({ length: 7 }).map((_, i) => <TableRowSkeleton key={`skel-${i}`} cols={7} />)
-                  : debtorQueue.map((debtor) => (
+                  : paged.map((debtor) => (
                     <tr
                       key={debtor.id}
                       className={`border-b border-border/60 hover:bg-secondary/40 transition-colors group ${selectedId === debtor.id ? 'bg-primary/5' : ''}`}
@@ -306,7 +322,7 @@ export default function AgentQueueContent() {
             </table>
           </div>
 
-          {!isLoading && debtorQueue.length === 0 && (
+          {!isLoading && sorted.length === 0 && (
             <div className="py-12 text-center">
               <p className="text-sm text-muted-foreground">No debtors match your search.</p>
             </div>
@@ -314,7 +330,7 @@ export default function AgentQueueContent() {
 
           {/* Pagination */}
           <div className="px-5 py-3 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
-            <span>Showing {queueTotal === 0 ? 0 : pageStart + 1}-{Math.min(pageStart + PAGE_SIZE, queueTotal)} of {queueTotal} debtors</span>
+            <span>Showing {sorted.length === 0 ? 0 : pageStart + 1}-{Math.min(pageStart + PAGE_SIZE, sorted.length)} of {sorted.length} debtors</span>
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
