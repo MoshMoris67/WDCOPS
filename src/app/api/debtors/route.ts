@@ -17,10 +17,9 @@ export async function GET(req: Request) {
   const mineOnly = url.searchParams.get('scope') === 'mine';
   const where: Prisma.DebtorWhereInput = session.role === 'agent' || mineOnly ? { assignedAgentId: session.sub } : {};
 
-  // The unscoped admin path (Team Overview's All Debtors table) is the one that can be
-  // 85,000+ rows — real pagination + server-side filtering there. The scope=mine path is
-  // one agent's own queue, already small and indexed, so it keeps returning everything in
-  // one response (a generous default pageSize) — AgentDashboardContent needs no changes.
+  // The unscoped admin path (Team Overview's All Debtors table) can be 85,000+ rows.
+  // Explicitly paged agent-queue requests use the same bounded query; the no-page
+  // scope=mine request remains available for dashboard offline warm-up.
   const search = url.searchParams.get('search')?.trim();
   if (search) {
     where.OR = [
@@ -46,14 +45,13 @@ export async function GET(req: Request) {
 
   const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
   const requestedPageSize = Number(url.searchParams.get('pageSize'));
-  // The admin/unscoped path genuinely needs a cap — it's paginating against a table that
-  // can be 85,000+ rows. An agent's own queue (scope=mine) gets no cap at all: it's
-  // bounded by however many debtors got distributed to one person, and a fixed number
-  // here has already been the actual bug twice — first at 100 (a 600+-debtor queue
-  // silently truncated), then again once real queues grew past the 5000 that replaced
-  // it. No number picked today stays safely ahead of queue sizes as the roster and
-  // client base keep growing, so this path just returns everything, always.
-  const pageSize = mineOnly ? undefined : Math.min(100, requestedPageSize > 0 ? requestedPageSize : 25);
+  const sortField = url.searchParams.get('sort');
+  const sortDir = url.searchParams.get('dir') === 'desc' ? 'desc' : 'asc';
+  // An explicit pageSize is capped for both admin and agent views. Requests without a
+  // pageSize retain the full agent queue response for the dashboard's offline snapshot.
+  const pageSize = mineOnly
+    ? (requestedPageSize > 0 ? Math.min(100, requestedPageSize) : undefined)
+    : Math.min(100, requestedPageSize > 0 ? requestedPageSize : 25);
 
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
@@ -64,13 +62,17 @@ export async function GET(req: Request) {
   // client's fetch). Fetch the flat debtor rows first, then both status inputs for the
   // whole batch in two DB-aggregated queries (debtor-aggregates.ts) instead of one
   // per debtor — same fix pattern already applied to the admin-side views.
+  const orderBy = sortField === 'name' || sortField === 'loanRef' || sortField === 'balance' || sortField === 'createdAt'
+    ? { [sortField]: sortDir }
+    : { createdAt: 'asc' as const };
+
   const [total, debtors] = await Promise.all([
     prisma.debtor.count({ where }),
     prisma.debtor.findMany({
       where,
       include: { file: { include: { client: true } } },
-      orderBy: { createdAt: 'asc' },
-      ...(mineOnly ? {} : { skip: (page - 1) * (pageSize as number), take: pageSize }),
+      orderBy,
+      ...(pageSize ? { skip: (page - 1) * pageSize, take: pageSize } : {}),
     }),
   ]);
 

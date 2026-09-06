@@ -20,6 +20,12 @@ export async function applyAssignment(
     debtorIdsByAgent.get(agentId)!.push(debtorId);
   }
 
+  const agents = await prisma.user.findMany({
+    where: { id: { in: [...debtorIdsByAgent.keys()] } },
+    select: { id: true, name: true, email: true },
+  });
+  const agentById = new Map(agents.map((agent) => [agent.id, agent]));
+
   // Prisma's default transaction timeout is 5s — comfortably enough for a small file, but
   // a full-file distribution across tens of thousands of debtors on a resource-constrained
   // self-hosted Postgres can exceed that, rolling back every updateMany and every
@@ -36,6 +42,8 @@ export async function applyAssignment(
         data: [...assignment.entries()].map(([debtorId, agentId]) => ({
           debtorId,
           agentId,
+          agentName: agentById.get(agentId)?.name,
+          agentEmail: agentById.get(agentId)?.email,
           reassignedFromId: reassignedFrom?.get(debtorId) ?? null,
         })),
       });

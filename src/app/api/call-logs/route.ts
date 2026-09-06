@@ -7,6 +7,7 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
   const body = await req.json().catch(() => null);
+  const clientRequestId = typeof body?.clientRequestId === 'string' && body.clientRequestId.trim() ? body.clientRequestId.trim() : null;
   const debtorId = typeof body?.debtorId === 'string' ? body.debtorId : '';
   const dispositionCode = typeof body?.dispositionCode === 'string' ? body.dispositionCode : '';
   const note = typeof body?.note === 'string' && body.note.trim() ? body.note.trim() : null;
@@ -15,6 +16,14 @@ export async function POST(req: Request) {
 
   if (!debtorId || !dispositionCode) {
     return NextResponse.json({ error: 'debtorId and dispositionCode are required' }, { status: 400 });
+  }
+
+  if (clientRequestId) {
+    const existing = await prisma.callLog.findUnique({ where: { clientRequestId } });
+    if (existing) {
+      if (existing.agentId !== session.sub) return NextResponse.json({ error: 'This request belongs to another account' }, { status: 409 });
+      return NextResponse.json({ log: { id: existing.id, disposition: existing.dispositionCode, note: existing.note, promisedAmount: existing.promisedAmount, promisedDate: existing.promisedDate, createdAt: existing.createdAt, agentId: existing.agentId, agentName: session.name, synced: true } }, { status: 200 });
+    }
   }
 
   // A native date input has no upper bound on its own — a stray mouse-wheel scroll or held
@@ -40,6 +49,7 @@ export async function POST(req: Request) {
     data: {
       debtorId,
       agentId: session.sub,
+      clientRequestId,
       dispositionCode,
       note,
       promisedAmount,

@@ -90,6 +90,8 @@ export async function rebalanceFileForNewAgent(fileId: string, newAgentId: strin
   const allMoves = [...neverCalledMoves, ...noCollectionsMoves];
 
   if (allMoves.length > 0) {
+    const agent = await prisma.user.findUnique({ where: { id: newAgentId }, select: { name: true, email: true } });
+    if (!agent) throw new Error('Target user not found');
     // Every move here lands on the same newAgentId, so this is one updateMany — not
     // one update per debtor (see lib/assignment.ts for the multi-target version used
     // by initial distribution, where different debtors go to different agents).
@@ -102,7 +104,13 @@ export async function rebalanceFileForNewAgent(fileId: string, newAgentId: strin
       async (tx) => {
         await tx.debtor.updateMany({ where: { id: { in: allMoves.map((m) => m.debtorId) } }, data: { assignedAgentId: newAgentId } });
         await tx.assignment.createMany({
-          data: allMoves.map((m) => ({ debtorId: m.debtorId, agentId: newAgentId, reassignedFromId: m.fromAgentId })),
+          data: allMoves.map((m) => ({
+            debtorId: m.debtorId,
+            agentId: newAgentId,
+            agentName: agent.name,
+            agentEmail: agent.email,
+            reassignedFromId: m.fromAgentId,
+          })),
         });
       },
       { timeout: 60_000 }

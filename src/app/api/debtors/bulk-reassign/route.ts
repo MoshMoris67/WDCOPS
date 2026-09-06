@@ -26,7 +26,7 @@ export async function POST(req: Request) {
   if (debtorIds.length === 0) return NextResponse.json({ error: 'debtorIds is required' }, { status: 400 });
   if (!assignedAgentId) return NextResponse.json({ error: 'assignedAgentId is required' }, { status: 400 });
 
-  const agent = await prisma.user.findUnique({ where: { id: assignedAgentId } });
+  const agent = await prisma.user.findUnique({ where: { id: assignedAgentId }, select: { role: true, status: true, name: true, email: true } });
   if (!agent || !['agent', 'admin'].includes(agent.role) || agent.status !== 'active') {
     return NextResponse.json({ error: 'Target user is not an active agent' }, { status: 400 });
   }
@@ -55,7 +55,13 @@ export async function POST(req: Request) {
         await tx.debtor.updateMany({ where: { id: { in: chunk } }, data: { assignedAgentId } });
       }
       await tx.assignment.createMany({
-        data: toMove.map((d) => ({ debtorId: d.id, agentId: assignedAgentId, reassignedFromId: d.assignedAgentId })),
+        data: toMove.map((d) => ({
+          debtorId: d.id,
+          agentId: assignedAgentId,
+          agentName: agent.name,
+          agentEmail: agent.email,
+          reassignedFromId: d.assignedAgentId,
+        })),
       });
     },
     { timeout: 120_000 }

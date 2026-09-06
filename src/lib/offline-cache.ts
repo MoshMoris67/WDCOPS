@@ -54,23 +54,56 @@ export async function getCachedDebtor(id: string): Promise<CachedDebtorRow | und
   }
 }
 
+export interface OfflineReadiness {
+  ready: boolean;
+  queueCount: number;
+  cachedAt: string | null;
+  missing: string[];
+}
+
+/** Reports whether the agent has enough local data to keep working through an outage. */
+export async function getOfflineReadiness(): Promise<OfflineReadiness> {
+  const [identity, codes, clients, debtors] = await Promise.all([
+    getCached<{ user?: unknown }>('/api/auth/me'),
+    getCached('/api/disposition-codes'),
+    getCached('/api/clients'),
+    getCachedDebtors(),
+  ]);
+  const missing: string[] = [];
+  if (!identity?.user) missing.push('identity');
+  if (!codes) missing.push('disposition codes');
+  if (!clients) missing.push('client list');
+  if (debtors.length === 0) missing.push('queue');
+  return {
+    ready: missing.length === 0,
+    queueCount: debtors.length,
+    cachedAt: debtors[0]?.cachedAt ?? null,
+    missing,
+  };
+}
+
 /**
- * Replaces the ENTIRE cached queue with exactly this snapshot — not an upsert. The
- * `/api/debtors?scope=mine` response is always the caller's complete current queue, so
- * anything not in it must be gone from the cache too (reassigned away, or — on a shared
- * device — simply a different agent's debtors from a previous login). A plain bulkPut
- * only ever adds/overwrites by id and never removes, which is exactly what let one
- * agent's queue silently accumulate on top of another's every time someone new signed
- * in on the same browser: 682 debtors, then 682+686, then +684, approaching the whole
- * table. Clear-then-insert in one transaction closes that gap without a window where
- * the table sits empty mid-write.
+ * Reconciles the cached queue with the complete server snapshot. Rows that are unchanged
+ * are left in IndexedDB, changed/new rows are upserted, and rows no longer assigned are
+ * removed. The complete snapshot still matters: it prevents a shared device or a
+ * reassignment from leaving stale debtors in the offline queue.
  */
 export async function putCachedDebtors(rows: Omit<CachedDebtorRow, 'cachedAt'>[]): Promise<void> {
   try {
     const cachedAt = new Date().toISOString();
+    const incoming = rows.map((row) => ({ ...row, cachedAt }));
     await db.transaction('rw', db.debtors, async () => {
-      await db.debtors.clear();
-      await db.debtors.bulkPut(rows.map((row) => ({ ...row, cachedAt })));
+      const existing = await db.debtors.toArray();
+      const existingById = new Map(existing.map((row) => [row.id, row]));
+      const incomingIds = new Set(incoming.map((row) => row.id));
+      const staleIds = existing.filter((row) => !incomingIds.has(row.id)).map((row) => row.id);
+      const changed = incoming.filter((row) => {
+        const previous = existingById.get(row.id);
+        if (!previous) return true;
+        return Object.keys(row).some((key) => key !== 'cachedAt' && previous[key as keyof CachedDebtorRow] !== row[key as keyof CachedDebtorRow]);
+      });
+      if (staleIds.length > 0) await db.debtors.bulkDelete(staleIds);
+      if (changed.length > 0) await db.debtors.bulkPut(changed);
     });
     notifyCacheChanged();
   } catch {

@@ -83,7 +83,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   await prisma.$transaction([
     prisma.debtor.update({ where: { id }, data: { assignedAgentId: newAgentId } }),
     prisma.assignment.create({
-      data: { debtorId: id, agentId: newAgentId, reassignedFromId: debtor.assignedAgentId },
+      data: {
+        debtorId: id,
+        agentId: newAgentId,
+        agentName: agent.name,
+        agentEmail: agent.email,
+        reassignedFromId: debtor.assignedAgentId,
+      },
     }),
   ]);
 

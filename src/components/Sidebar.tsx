@@ -9,6 +9,7 @@ import ThemeToggle from '@/components/ui/ThemeToggle';
 import NotificationsButton from '@/components/ui/NotificationsButton';
 import FailedSyncModal from '@/components/FailedSyncModal';
 import { useOnlineStatus, usePendingSyncCount, useFailedSyncCount } from '@/lib/use-offline';
+import { useOfflineReadiness } from '@/lib/use-offline-readiness';
 import { clearReadCache } from '@/lib/offline-cache';
 import { getNavGroups, displayRole, type CurrentUser, type NavGroup } from '@/lib/nav-groups';
 import {
@@ -34,6 +35,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
   const isOnline = useOnlineStatus();
   const pendingSync = usePendingSyncCount();
   const failedSync = useFailedSyncCount();
+  const offlineReadiness = useOfflineReadiness(user?.role === 'agent');
   const [failedSyncModalOpen, setFailedSyncModalOpen] = useState(false);
 
   async function handleSignOut() {
@@ -75,6 +77,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
           isOnline={isOnline}
           pendingSync={pendingSync}
           failedSync={failedSync}
+          offlineReadiness={offlineReadiness}
           onOpenFailedSync={() => setFailedSyncModalOpen(true)}
           isActive={isActive}
           navGroups={navGroups}
@@ -99,6 +102,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
           isOnline={isOnline}
           pendingSync={pendingSync}
           failedSync={failedSync}
+          offlineReadiness={offlineReadiness}
           onOpenFailedSync={() => setFailedSyncModalOpen(true)}
           isActive={isActive}
           navGroups={navGroups}
@@ -119,6 +123,7 @@ interface SidebarContentProps {
   isOnline: boolean;
   pendingSync: number;
   failedSync: number;
+  offlineReadiness: ReturnType<typeof useOfflineReadiness>;
   onOpenFailedSync: () => void;
   isActive: (href: string) => boolean;
   navGroups: NavGroup[];
@@ -127,7 +132,7 @@ interface SidebarContentProps {
   onSignOut: () => void;
 }
 
-function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, failedSync, onOpenFailedSync, isActive, navGroups, isMobile, user, onSignOut }: SidebarContentProps) {
+function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, failedSync, offlineReadiness, onOpenFailedSync, isActive, navGroups, isMobile, user, onSignOut }: SidebarContentProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Logo */}
@@ -145,6 +150,17 @@ function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, fa
               ? (pendingSync > 0 ? `Online — syncing ${pendingSync}…` : 'Online — Synced')
               : `Offline${pendingSync > 0 ? ` — ${pendingSync} pending` : ''}`}
           </span>
+        </div>
+      )}
+
+      {(!collapsed || isMobile) && user?.role === 'agent' && (
+        <div className={`mx-3 mt-2 px-3 py-2 rounded-md border text-[11px] ${offlineReadiness.ready ? 'border-positive/30 text-positive bg-positive/5' : 'border-warning/30 text-warning bg-warning/5'}`} title={offlineReadiness.missing.length > 0 ? `Missing: ${offlineReadiness.missing.join(', ')}` : undefined}>
+          <div className="font-semibold">{offlineReadiness.ready ? 'Offline ready' : 'Offline setup incomplete'}</div>
+          <div className="mt-0.5 opacity-80">
+            {offlineReadiness.ready
+              ? `${offlineReadiness.queueCount} debtors cached${offlineReadiness.cachedAt ? ` · ${new Date(offlineReadiness.cachedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : ''}`
+              : `Missing ${offlineReadiness.missing.join(', ')}`}
+          </div>
         </div>
       )}
 

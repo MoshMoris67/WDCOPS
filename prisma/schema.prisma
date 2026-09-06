@@ -143,6 +143,7 @@ model Debtor {
 
 model CallLog {
   id              String    @id @default(cuid())
+  clientRequestId String?   @unique
   debtorId        String
   debtor          Debtor    @relation(fields: [debtorId], references: [id])
   agentId         String
@@ -326,8 +327,10 @@ model Assignment {
   id               String   @id @default(cuid())
   debtorId         String
   debtor           Debtor   @relation(fields: [debtorId], references: [id])
-  agentId          String
-  agent            User     @relation("AssignedTo", fields: [agentId], references: [id])
+  agentId          String?
+  agent            User?    @relation("AssignedTo", fields: [agentId], references: [id], onDelete: SetNull)
+  agentName        String?
+  agentEmail       String?
   assignedAt       DateTime @default(now())
   reassignedFromId String?
 

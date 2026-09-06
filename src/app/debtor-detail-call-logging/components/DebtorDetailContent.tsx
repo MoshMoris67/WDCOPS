@@ -262,6 +262,10 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
       toast.error('Select a disposition code before submitting');
       return;
     }
+    if (!currentUser?.id) {
+      toast.error('Your account is not ready on this device — reconnect before logging a call');
+      return;
+    }
     setIsSubmitting(true);
 
     const promisedDate = selectedDispo?.requiresPtp
@@ -279,6 +283,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
     // below is a separate, best-effort concern — nothing here waits on it to keep the
     // agent's data safe.
     const localId = await queueCallLog({
+      userId: currentUser.id,
       debtorId,
       debtorName: debtor?.name ?? liteRow?.name ?? '',
       dispositionCode: data.dispositionCode,

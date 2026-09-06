@@ -58,10 +58,10 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "You can't delete your own account" }, { status: 400 });
   }
 
-  const [assignedDebtorCount, callLogCount, assignmentHistoryCount] = await Promise.all([
+  const [assignedDebtorCount, callLogCount, correctionHistoryCount] = await Promise.all([
     prisma.debtor.count({ where: { assignedAgentId: id } }),
     prisma.callLog.count({ where: { agentId: id } }),
-    prisma.assignment.count({ where: { agentId: id } }),
+    prisma.callLogCorrection.count({ where: { correctedById: id } }),
   ]);
 
   if (assignedDebtorCount > 0) {
@@ -76,9 +76,9 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       { status: 400 }
     );
   }
-  if (assignmentHistoryCount > 0) {
+  if (correctionHistoryCount > 0) {
     return NextResponse.json(
-      { error: `This user has ${assignmentHistoryCount} assignment history record(s) — deleting would break the audit trail. Deactivate them instead.` },
+      { error: `This user has ${correctionHistoryCount} call-log correction record(s) — deleting would break the audit trail. Deactivate them instead.` },
       { status: 400 }
     );
   }

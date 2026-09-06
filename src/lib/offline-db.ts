@@ -37,6 +37,7 @@ export interface CacheEntry<T = unknown> {
 
 export interface PendingCallLog {
   localId?: number;
+  userId: string;
   clientId: string;
   debtorId: string;
   debtorName: string;
@@ -86,9 +87,23 @@ db.version(2)
 // `cache` is a generic key/value store for everything else. Both start empty — nothing
 // about the existing tables changes, so no upgrade() is needed.
 db.version(3).stores({
-  pendingCallLogs: '++localId, debtorId, queuedAt, status',
+  pendingCallLogs: '++localId, debtorId, queuedAt, status, userId',
   debtors: 'id, cachedAt',
   cache: 'key, fetchedAt',
 });
+
+// Tags new offline calls with their creating account. Legacy records are left
+// unowned and will stay paused until the original device/account can resolve them.
+db.version(4)
+  .stores({
+    pendingCallLogs: '++localId, debtorId, queuedAt, status, userId',
+    debtors: 'id, cachedAt',
+    cache: 'key, fetchedAt',
+  })
+  .upgrade(async (tx) => {
+    await tx.table('pendingCallLogs').toCollection().modify((log) => {
+      if (log.userId === undefined) log.userId = '';
+    });
+  });
 
 export { db };
