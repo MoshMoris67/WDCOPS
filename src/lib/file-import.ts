@@ -15,11 +15,16 @@ import {
 const BATCH_SIZE = 1000;
 
 function toDebtorData(fileId: string, r: ImportRow & { assignedAgentId?: string | null }) {
-  // Some clients' files carry the current outstanding balance separately from the
-  // original amount owed (already-partly-repaid loans) — when they don't, balance
-  // defaults to amountOwed, matching the standard-template behavior.
-  const balance = r.balance ?? r.amountOwed;
-  const cumulativePaid = Math.max(0, r.amountOwed - balance);
+  // A freshly-imported debtor has zero recovery through this system, full stop — even
+  // when the client's own file carries a separate "current balance" column that's
+  // already lower than the amount owed (e.g. a balance net of accrued fees, or repayment
+  // made before the account was ever handed to us). Treating that pre-existing gap as
+  // "already recovered" was the previous behavior here, and it's wrong: it credits the
+  // recovery dashboard with money nobody in this system collected. balance always starts
+  // equal to amountOwed so the balance = amountOwed - cumulativePaid invariant (relied on
+  // by reconciliation.ts and daily-sync.ts) holds true from day one; any real reduction in
+  // balance is applied — and cumulativePaid incremented — only by an actual reconciliation
+  // or daily-sync payment event afterward.
   return {
     fileId,
     name: r.name,
@@ -27,8 +32,9 @@ function toDebtorData(fileId: string, r: ImportRow & { assignedAgentId?: string 
     phone2: r.phone2,
     loanRef: r.loanRef,
     amountOwed: r.amountOwed,
-    cumulativePaid,
-    balance,
+    cumulativePaid: 0,
+    balance: r.amountOwed,
+    extra: Object.keys(r.extra).length > 0 ? r.extra : null,
     // Undefined for a normal import (ImportRow has no such field) — same as never setting
     // it, debtor lands unassigned exactly as before. Only a distributed import supplies a
     // real value (an agent id, or explicit null for "leave unassigned").
@@ -88,8 +94,13 @@ export async function runFileImport(fileId: string): Promise<void> {
     let batch: (ImportRow & { assignedAgentId?: string | null })[] = [];
     let inserted = 0;
 
+    let headers: string[] = [];
+
     await iterateTable(bufferSlice, file.rawFileName, async (row, index, sheetName) => {
-      if (index === 0) return; // Skip header
+      if (index === 0) {
+        headers = row;
+        return;
+      }
 
       const rowNumber = index + 1;
       let assignedAgentId: string | null = null;
@@ -100,7 +111,7 @@ export async function runFileImport(fileId: string): Promise<void> {
         assignedAgentId = plan.action === 'assign' ? plan.agentId : null;
       }
 
-      const mapped = mapImportRow(row, mapping, rowNumber);
+      const mapped = mapImportRow(row, mapping, rowNumber, headers);
       if (mapped.kind === 'blank') return;
       if (mapped.kind === 'error') {
         if (errors.length < 500) errors.push(mapped.message);

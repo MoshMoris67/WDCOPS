@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Phone, ChevronLeft, ChevronRight, Clock, CheckCircle, MessageSquare, CreditCard, History, User, Calendar, Wifi, WifiOff, Send, Info, X, Pencil, Loader2 } from 'lucide-react';
+import { Phone, ChevronLeft, ChevronRight, ChevronDown, Clock, CheckCircle, MessageSquare, CreditCard, History, User, Calendar, Wifi, WifiOff, Send, Info, X, Pencil, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import Badge from '@/components/ui/Badge';
 import DispositionBadge from '@/components/ui/DispositionBadge';
@@ -82,6 +82,10 @@ interface DebtorDetail {
   branch: string;
   isPTP: boolean;
   activePTP: { amount: number; date: string } | null;
+  // Every column from the client's file that isn't one of the fixed fields above (arrears
+  // days, last payment, installment, payroll status, ...), keyed by the file's own header
+  // text — see Debtor.extra in schema.prisma.
+  extra: Record<string, string> | null;
 }
 
 interface CallHistoryItem {
@@ -163,6 +167,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
 
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showAdditionalInfo, setShowAdditionalInfo] = useState(false);
   const isOnline = useOnlineStatus();
   const { data: currentUserData } = useCurrentUser();
   const currentUser = currentUserData?.user ?? null;
@@ -785,6 +790,38 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                       {formatUGX(debtor.activePTP.amount)} promised on {formatDateOnly(debtor.activePTP.date)}. Follow up if not received.
                     </p>
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Additional Info — every column from the client's file that isn't one of the
+              fixed fields above (arrears days, last payment, installment, payroll status,
+              status, ...). Collapsed by default since a client file can carry a couple
+              dozen of these; the agent opens it when they need it mid-call. */}
+          {activeTab === 'overview' && debtor.extra && Object.keys(debtor.extra).length > 0 && (
+            <div className="bg-card rounded-xl shadow-card border border-border fade-in overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowAdditionalInfo((v) => !v)}
+                className="w-full flex items-center justify-between gap-3 p-5 text-left"
+              >
+                <div>
+                  <h3 className="text-section-header text-foreground">Additional Info</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {Object.keys(debtor.extra).length} more field{Object.keys(debtor.extra).length === 1 ? '' : 's'} from the client&apos;s file
+                  </p>
+                </div>
+                <ChevronDown size={16} className={`text-muted-foreground shrink-0 transition-transform ${showAdditionalInfo ? 'rotate-180' : ''}`} />
+              </button>
+              {showAdditionalInfo && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 px-5 pb-5 border-t border-border pt-4">
+                  {Object.entries(debtor.extra).map(([label, value]) => (
+                    <div key={`extra-${label}`} className="space-y-0.5">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</p>
+                      <p className="text-sm font-semibold text-foreground">{value}</p>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

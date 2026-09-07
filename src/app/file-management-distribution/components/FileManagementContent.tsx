@@ -143,7 +143,6 @@ interface FilePreview {
     phone2Col?: number;
     loanRefCol?: number;
     amountOwedCol?: number;
-    balanceCol?: number;
   };
 }
 
@@ -157,12 +156,11 @@ interface MappingState {
   phone2Col: string;
   loanRefCol: string;
   amountOwedCol: string;
-  balanceCol: string;
 }
 
 const EMPTY_MAPPING: MappingState = {
   nameMode: 'single', nameCol: '', firstNameCol: '', lastNameCol: '', middleNameCol: '',
-  phone1Col: '', phone2Col: '', loanRefCol: '', amountOwedCol: '', balanceCol: '',
+  phone1Col: '', phone2Col: '', loanRefCol: '', amountOwedCol: '',
 };
 
 function mappingFromSuggestion(suggested: FilePreview['suggested']): MappingState {
@@ -177,7 +175,6 @@ function mappingFromSuggestion(suggested: FilePreview['suggested']): MappingStat
     phone2Col: s(suggested.phone2Col),
     loanRefCol: s(suggested.loanRefCol),
     amountOwedCol: s(suggested.amountOwedCol),
-    balanceCol: s(suggested.balanceCol),
   };
 }
 
@@ -197,7 +194,6 @@ function buildMappingPayload(m: MappingState) {
     phone2Col: n(m.phone2Col),
     loanRefCol: n(m.loanRefCol),
     amountOwedCol: n(m.amountOwedCol),
-    balanceCol: n(m.balanceCol),
   };
 }
 
@@ -1390,18 +1386,11 @@ export default function FileManagementContent() {
                 ))}
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-foreground uppercase tracking-wide">Current Balance (optional)</label>
-                <p className="text-xs text-muted-foreground">Only if the file has a separate current-outstanding figure — otherwise balance starts equal to Amount Owed.</p>
-                <select
-                  value={mapping.balanceCol}
-                  onChange={(e) => setMapping((m) => ({ ...m, balanceCol: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
-                >
-                  <option value="">Same as Amount Owed</option>
-                  {preview.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
-                </select>
-              </div>
+              <p className="text-xs text-muted-foreground">
+                Every other column in the file (arrears days, last payment, installment, current/principal balance,
+                payroll status, etc.) is kept automatically and shown to agents as Additional Info on the debtor card
+                — no separate mapping needed.
+              </p>
 
               {preview.sampleRows.length > 0 && (
                 <div className="overflow-x-auto scrollbar-thin border border-border rounded-lg bg-card">
@@ -1688,7 +1677,6 @@ export default function FileManagementContent() {
                     ['phone1Col', 'Phone', true],
                     ['loanRefCol', 'Loan Ref', true],
                     ['amountOwedCol', 'Amount Owed', true],
-                    ['balanceCol', 'Current Balance (optional)', false],
                   ] as const).map(([field, label, required]) => (
                     <div key={field} className="space-y-1">
                       <label className="text-xs font-semibold text-foreground uppercase tracking-wide">{label}{required && <span className="text-negative"> *</span>}</label>

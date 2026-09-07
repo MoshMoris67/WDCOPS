@@ -131,11 +131,20 @@ async function syncCallingList(fileId: string, clientId: string, table: string[]
   for (let i = 0; i < newRows.length; i += BATCH_SIZE) {
     const batch = newRows.slice(i, i + BATCH_SIZE);
     const rowsCreated = await prisma.debtor.createManyAndReturn({
-      data: batch.map((r) => {
-        const balance = r.balance ?? r.amountOwed;
-        const cumulativePaid = Math.max(0, r.amountOwed - balance);
-        return { fileId, name: r.name, phone1: r.phone1, phone2: r.phone2, loanRef: r.loanRef, amountOwed: r.amountOwed, cumulativePaid, balance };
-      }),
+      // Same reasoning as toDebtorData in file-import.ts: a newly-discovered debtor starts
+      // at zero recovered, with balance equal to amountOwed, regardless of any separate
+      // "current balance" the file supplies — that gap isn't money this system collected.
+      data: batch.map((r) => ({
+        fileId,
+        name: r.name,
+        phone1: r.phone1,
+        phone2: r.phone2,
+        loanRef: r.loanRef,
+        amountOwed: r.amountOwed,
+        cumulativePaid: 0,
+        balance: r.amountOwed,
+        extra: Object.keys(r.extra).length > 0 ? r.extra : null,
+      })),
       select: { id: true, balance: true },
     });
     created.push(...rowsCreated);

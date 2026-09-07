@@ -1,0 +1,1 @@
+ALTER TABLE "Debtor" ADD COLUMN "extra" JSONB;

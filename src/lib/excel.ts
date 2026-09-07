@@ -415,7 +415,6 @@ export interface ImportMapping {
   phone2Col?: number;
   loanRefCol?: number;
   amountOwedCol?: number;
-  balanceCol?: number;
 }
 
 const SYNONYMS = {
@@ -488,10 +487,13 @@ export function suggestImportMapping(headers: string[]): ImportMapping {
   const phone1Col = findColumn(cols, SYNONYMS.phone) ?? findColumnFuzzy(cols, ['phone', 'mobile', 'tel', 'msisdn', 'contact']);
   const phone2Col = findColumn(cols, SYNONYMS.phone2);
   const loanRefCol = findColumn(cols, SYNONYMS.loanRef);
-  const balanceCol = findColumn(cols, SYNONYMS.balance);
-  const amountOwedCol = findColumn(cols, SYNONYMS.amountOwed) ?? balanceCol;
+  // No "Amount Owed"-labeled column in this file — a bare "Balance"/"Total Due"-style
+  // header is the next best guess for the one figure a fresh import needs (see the
+  // amountOwed synonym list's own "principal" entries for the same idea from the other
+  // direction). This is only ever a starting suggestion the admin confirms.
+  const amountOwedCol = findColumn(cols, SYNONYMS.amountOwed) ?? findColumn(cols, SYNONYMS.balance);
 
-  return { nameCol, firstNameCol, lastNameCol, middleNameCol, phone1Col, phone2Col, loanRefCol, amountOwedCol, balanceCol };
+  return { nameCol, firstNameCol, lastNameCol, middleNameCol, phone1Col, phone2Col, loanRefCol, amountOwedCol };
 }
 
 export interface FilePreview {
@@ -758,7 +760,37 @@ export interface ImportRow {
   phone2: string | null;
   loanRef: string;
   amountOwed: number;
-  balance: number | null;
+  // Every non-empty column the file carries that isn't one of the fields above, keyed by
+  // the file's own header text — see buildExtra below. This is also where a file's own
+  // "current balance"/"principal balance"-type column ends up: it's no longer a fixed
+  // mapping field (see git history — it used to feed a balance/cumulativePaid calculation
+  // that produced false "already recovered" figures), so whatever the client's file calls
+  // it just surfaces here, labeled with its own header, for an agent to see on a call.
+  extra: Record<string, string>;
+}
+
+/** Every column not consumed by the fixed mapping, keyed by its own header text, so a call
+ * agent still sees a client's full row (arrears days, last payment, installment, payroll
+ * status, current/principal balance, ...) even though the schema only has dedicated columns
+ * for a handful of fields. */
+function buildExtra(row: string[], headers: string[] | undefined, mapping: ImportMapping): Record<string, string> {
+  if (!headers) return {};
+  const consumed = new Set(
+    [
+      mapping.nameCol, mapping.firstNameCol, mapping.lastNameCol, mapping.middleNameCol,
+      mapping.phone1Col, mapping.phone2Col, mapping.loanRefCol, mapping.amountOwedCol,
+    ].filter((c): c is number => c !== undefined)
+  );
+  const extra: Record<string, string> = {};
+  headers.forEach((header, i) => {
+    if (consumed.has(i)) return;
+    const key = header?.trim();
+    if (!key) return;
+    const value = cellText(row, i);
+    if (!value) return;
+    extra[key] = value;
+  });
+  return extra;
 }
 
 export interface ParseResult<T> {
@@ -789,7 +821,7 @@ export type MappedRow = { kind: 'row'; row: ImportRow } | { kind: 'blank' } | { 
 /** One row's worth of parseImportRows' logic, pulled out so the streaming importer
  * (lib/file-import.ts) can apply the exact same rules one row at a time without ever
  * materializing the whole table into an ImportRow[] — see that file for why. */
-export function mapImportRow(row: string[], mapping: ImportMapping, rowNumber: number): MappedRow {
+export function mapImportRow(row: string[], mapping: ImportMapping, rowNumber: number, headers?: string[]): MappedRow {
   const name = nameFromMapping(row, mapping);
   const phone1 = cellText(row, mapping.phone1Col);
   const loanRef = cellText(row, mapping.loanRefCol);
@@ -799,7 +831,6 @@ export function mapImportRow(row: string[], mapping: ImportMapping, rowNumber: n
   if (!name || !phone1 || !loanRef || amountOwed === null) {
     return { kind: 'error', message: `Row ${rowNumber}: missing or invalid name/phone/loan ref/amount owed — skipped` };
   }
-  const balance = mapping.balanceCol !== undefined ? cellNumber(row, mapping.balanceCol) : null;
   return {
     kind: 'row',
     row: {
@@ -809,7 +840,7 @@ export function mapImportRow(row: string[], mapping: ImportMapping, rowNumber: n
       phone2: mapping.phone2Col !== undefined ? cellText(row, mapping.phone2Col) || null : null,
       loanRef,
       amountOwed,
-      balance,
+      extra: buildExtra(row, headers, mapping),
     },
   };
 }
@@ -826,8 +857,9 @@ export function parseImportRows(table: string[][], mapping: ImportMapping): Pars
 
   const errors: string[] = [];
   const rows: ImportRow[] = [];
+  const headers = table[0];
   for (let i = 1; i < table.length; i++) {
-    const mapped = mapImportRow(table[i], mapping, i + 1);
+    const mapped = mapImportRow(table[i], mapping, i + 1, headers);
     if (mapped.kind === 'blank') continue;
     if (mapped.kind === 'error') { errors.push(mapped.message); continue; }
     rows.push(mapped.row);
@@ -868,10 +900,11 @@ export function parseDistributedImportRows(
 
   const errors: string[] = [];
   const rows: DistributedImportRow[] = [];
+  const headers = table[0];
   for (let i = 1; i < table.length; i++) {
     const plan = sheetPlan[sheetTags[i]];
     if (!plan || plan.action === 'skip') continue;
-    const mapped = mapImportRow(table[i], mapping, i + 1);
+    const mapped = mapImportRow(table[i], mapping, i + 1, headers);
     if (mapped.kind === 'blank') continue;
     if (mapped.kind === 'error') { errors.push(mapped.message); continue; }
     rows.push({ ...mapped.row, assignedAgentId: plan.action === 'assign' ? plan.agentId : null });
