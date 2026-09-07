@@ -143,6 +143,7 @@ async function syncCallingList(fileId: string, clientId: string, table: string[]
         amountOwed: r.amountOwed,
         cumulativePaid: 0,
         balance: r.amountOwed,
+        extra: Object.keys(r.extra).length > 0 ? r.extra : null,
       })),
       select: { id: true, balance: true },
     });

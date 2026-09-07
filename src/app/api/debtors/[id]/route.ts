@@ -45,6 +45,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       assignedAgentId: debtor.assignedAgentId,
       assignedAgent: debtor.assignedAgent?.name ?? null,
       branch: debtor.branch,
+      extra: (debtor.extra as Record<string, string> | null) ?? null,
       recentlyPaid: debtor.reconciliationEntries.length > 0,
       ...status,
     },

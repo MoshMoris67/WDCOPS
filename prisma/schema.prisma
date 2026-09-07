@@ -127,6 +127,13 @@ model Debtor {
   assignedAgentId String?
   assignedAgent   User?     @relation("AgentDebtors", fields: [assignedAgentId], references: [id])
   branch          String    @default("uganda")
+  // Every column from the source file that isn't one of the fixed fields above (e.g. Days
+  // In Arrears, Last Payment Date, Installment, Payroll Status, Status, CS NPL Reason Code)
+  // — keyed by the file's own header text, value as the raw cell text. Nothing here is
+  // queried or typed; it exists purely so an agent working a call can see the client's full
+  // context instead of only the handful of fields the schema has dedicated columns for. See
+  // ImportRow.extra in lib/excel.ts for how it's built at import time.
+  extra           Json?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
