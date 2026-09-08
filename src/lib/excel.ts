@@ -1060,7 +1060,7 @@ export async function buildReportWorkbook(input: {
   from: string;
   to: string;
   commentSummary: { label: string; count: number }[];
-  debtorReport: { name: string; phone: string; loanRef: string; balance: number; comment: string }[];
+  debtorReport: { name: string; phone: string; loanRef: string; balance: number; comment: string; note: string; callDate: Date | null }[];
   agents: { name: string; calls: number; ptps: number; recovered: number }[];
 }): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
@@ -1088,9 +1088,14 @@ export async function buildReportWorkbook(input: {
     { header: 'Loan Ref', key: 'loanRef', width: 18 },
     { header: 'Balance', key: 'balance', width: 16 },
     { header: 'Comments', key: 'comment', width: 24 },
+    { header: 'Call Note', key: 'note', width: 42 },
+    { header: 'Call Date', key: 'callDate', width: 16 },
   ];
   debtorSheet.getRow(1).font = { bold: true };
-  input.debtorReport.forEach((row) => debtorSheet.addRow(row));
+  input.debtorReport.forEach((row) => {
+    const excelRow = debtorSheet.addRow(row);
+    if (row.callDate) excelRow.getCell('callDate').numFmt = 'dd/mm/yyyy hh:mm';
+  });
 
   const agentSheet = workbook.addWorksheet('Agent Performance');
   agentSheet.columns = [

@@ -21,7 +21,7 @@ export interface ReportSummary {
   // contributes exactly one comment, "No calls yet" if they have none) — a different
   // question from `dispositions` above, which counts calls logged within the date range.
   commentSummary: { label: string; count: number }[];
-  debtorReport: { name: string; phone: string; loanRef: string; balance: number; comment: string }[];
+  debtorReport: { name: string; phone: string; loanRef: string; balance: number; comment: string; note: string; callDate: Date | null }[];
 }
 
 export async function buildReportSummary(clientId: string, from: Date, to: Date, agentId?: string): Promise<ReportSummary> {
@@ -60,9 +60,10 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date,
     // DISTINCT ON is the "latest row per group" pattern used elsewhere in this codebase for
     // similar per-debtor aggregation, just returning full debtor fields instead of a count —
     // 0.3s for the same 47,928 rows in testing, no crash.
-    prisma.$queryRaw<{ name: string; phone: string; loanRef: string; balance: number; dispositionCode: string | null }[]>(
+    prisma.$queryRaw<{ name: string; phone: string; loanRef: string; balance: number; dispositionCode: string | null; note: string | null; callDate: Date | null }[]>(
       Prisma.sql`
-        SELECT DISTINCT ON (d.id) d.name, d.phone1 AS phone, d."loanRef" AS "loanRef", d.balance, cl."dispositionCode" AS "dispositionCode"
+        SELECT DISTINCT ON (d.id) d.name, d.phone1 AS phone, d."loanRef" AS "loanRef", d.balance,
+          cl."dispositionCode" AS "dispositionCode", cl.note, cl."createdAt" AS "callDate"
         FROM "Debtor" d
         LEFT JOIN "CallLog" cl ON cl."debtorId" = d.id
         WHERE d."fileId" IN (${Prisma.join(fileIds)})
@@ -96,7 +97,7 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date,
 
   const debtorReport = debtorsForReport.map((d) => {
     const comment = d.dispositionCode ? (labelByCode.get(d.dispositionCode) ?? d.dispositionCode) : NO_CALLS_LABEL;
-    return { name: d.name, phone: d.phone, loanRef: d.loanRef, balance: d.balance, comment };
+    return { name: d.name, phone: d.phone, loanRef: d.loanRef, balance: d.balance, comment, note: d.note ?? '', callDate: d.callDate };
   });
   const commentCounts = new Map<string, number>();
   for (const d of debtorReport) commentCounts.set(d.comment, (commentCounts.get(d.comment) ?? 0) + 1);
