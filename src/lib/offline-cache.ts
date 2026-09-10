@@ -72,10 +72,27 @@ export async function putCachedDebtors(rows: Omit<CachedDebtorRow, 'cachedAt'>[]
       await db.debtors.clear();
       await db.debtors.bulkPut(rows.map((row) => ({ ...row, cachedAt })));
     });
+    // IndexedDB iterates `debtors` in primary-key (id) order, not the server's own
+    // order (createdAt asc — see /api/debtors/route.ts), so the queue's real order would
+    // otherwise be lost the moment it's read back from cache. Stashed separately so a
+    // debtor-detail page opened cold (no per-view order recorded on this device — see
+    // useStandaloneQueueNav in use-debtor-queue.ts) still gets a sensible Prev/Next
+    // sequence instead of none at all.
+    await setCached(DEFAULT_QUEUE_ORDER_KEY, rows.map((row) => row.id));
     notifyCacheChanged();
   } catch {
     // Same as above — this pass just doesn't get persisted.
   }
+}
+
+const DEFAULT_QUEUE_ORDER_KEY = 'queue:default-order';
+
+/** The server's last-known order for the agent's full queue — see the comment in
+ *  putCachedDebtors. Middle tier of the Prev/Next fallback chain: more durable than the
+ *  per-view order (survives even if this device never visited /my-queue this session)
+ *  but less specific than it (ignores whatever search/sort/filter was active). */
+export async function getCachedQueueOrder(): Promise<string[] | undefined> {
+  return getCached<string[]>(DEFAULT_QUEUE_ORDER_KEY);
 }
 
 /** Wipes every locally-cached read (queue, debtor detail, disposition codes, identity,

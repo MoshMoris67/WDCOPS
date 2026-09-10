@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { useOnlineStatus } from '@/lib/use-offline';
 import { queueCallLog, syncOneNow, QUEUE_CHANGED_EVENT } from '@/lib/offline-sync';
 import { useCachedQuery } from '@/lib/use-cached-query';
-import { useCachedDebtorLite } from '@/lib/use-debtor-queue';
+import { useCachedDebtorLite, useStandaloneQueueNav } from '@/lib/use-debtor-queue';
 import { useCurrentUser } from '@/lib/use-current-user';
 import { clientBadgeVariant } from '@/lib/client-badge';
 import { toDialFormat } from '@/lib/phone';
@@ -120,25 +120,11 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
   const debtorId = embedded ? (debtorIdProp ?? null) : searchParams.get('id');
   const formRef = useRef<HTMLFormElement>(null);
 
-  // Standalone mode has no live queue in memory (it's a fresh page navigation), so it
-  // reads the ordered id list AgentQueueContent stashes in sessionStorage right
-  // before navigating away — same Prev/Next affordance as the embedded split panel,
-  // just sourced differently. Absent entirely (a bookmarked/direct link) simply means no
-  // Prev/Next controls, not an error.
-  const [standaloneQueueIds, setStandaloneQueueIds] = useState<string[] | null>(null);
-  useEffect(() => {
-    if (embedded) return;
-    try {
-      const raw = sessionStorage.getItem('queue:my-queue');
-      setStandaloneQueueIds(raw ? JSON.parse(raw) : null);
-    } catch {
-      setStandaloneQueueIds(null);
-    }
-  }, [embedded]);
-
-  const standaloneIndex = standaloneQueueIds && debtorId ? standaloneQueueIds.indexOf(debtorId) : -1;
-  const standalonePrevId = standaloneIndex > 0 ? standaloneQueueIds![standaloneIndex - 1] : null;
-  const standaloneNextId = standaloneIndex >= 0 && standaloneIndex < (standaloneQueueIds?.length ?? 0) - 1 ? standaloneQueueIds![standaloneIndex + 1] : null;
+  // Standalone mode has no live queue in memory (it's a fresh page navigation, possibly
+  // after the app was closed and reopened) — same Prev/Next affordance as the embedded
+  // split panel, sourced from a fallback chain instead (see useStandaloneQueueNav).
+  // Skipped in embedded mode since onPrev/onNext already come from the live queue.
+  const { prevId: standalonePrevId, nextId: standaloneNextId } = useStandaloneQueueNav(embedded ? null : debtorId);
 
   const effectivePrev = onPrev ?? (standalonePrevId ? () => router.push(`/debtor-detail-call-logging?id=${standalonePrevId}`) : undefined);
   const effectiveNext = onNext ?? (standaloneNextId ? () => router.push(`/debtor-detail-call-logging?id=${standaloneNextId}`) : undefined);
