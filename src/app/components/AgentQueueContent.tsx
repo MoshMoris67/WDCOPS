@@ -10,7 +10,7 @@ import { useOnlineStatus, usePendingSyncCount } from '@/lib/use-offline';
 import { clientBadgeVariant } from '@/lib/client-badge';
 import { useClients } from '@/lib/use-clients';
 import { toDialFormat } from '@/lib/phone';
-import { useDebtorQueue } from '@/lib/use-debtor-queue';
+import { useDebtorQueue, STANDALONE_QUEUE_KEY } from '@/lib/use-debtor-queue';
 import { useCachedQuery } from '@/lib/use-cached-query';
 import { useIsWide } from '@/lib/use-media-query';
 import DebtorDetailContent from '@/app/debtor-detail-call-logging/components/DebtorDetailContent';
@@ -25,9 +25,14 @@ function formatUGX(amount: number) {
   return 'UGX ' + amount.toLocaleString('en-UG');
 }
 
-function formatDate(iso: string | null) {
+// `lastCallDate` is really the full createdAt timestamp of the latest call log (see
+// computeDebtorStatus in debtor-status.ts) — showing date-only here threw that away,
+// which made every call logged today look identical and gave an agent doing follow-ups
+// no way to tell *which* of today's debtors they called most recently without opening
+// each one's call history individually.
+function formatCallTimestamp(iso: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB');
+  return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 const PAGE_SIZE = 50;
@@ -41,6 +46,7 @@ export default function AgentQueueContent() {
   const { debtors: debtorQueue, isLoading, error: queueError, refetch: refetchQueue } = useDebtorQueue();
   const [search, setSearch] = useState('');
   const [filterClient, setFilterClient] = useState('All');
+  const [uncalledOnly, setUncalledOnly] = useState(false);
   const [sortField, setSortField] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(1);
@@ -100,13 +106,22 @@ export default function AgentQueueContent() {
     const trimmedSearch = search.trim();
     const matchSearch = !trimmedSearch || toDialFormat(d.phone).startsWith(trimmedSearch);
     const matchClient = filterClient === 'All' || d.client === filterClient;
-    return matchSearch && matchClient;
+    const matchUncalled = !uncalledOnly || d.lastDisposition === null;
+    return matchSearch && matchClient && matchUncalled;
   });
 
   const sorted = [...filtered].sort((a, b) => {
     if (!sortField) return 0;
     const av = (a as unknown as Record<string, unknown>)[sortField];
     const bv = (b as unknown as Record<string, unknown>)[sortField];
+    // A never-called debtor's lastDisposition/lastCallDate is null — without this,
+    // that stringified to the literal text "null" and interleaved unpredictably with
+    // real values instead of grouping at one end, making the sort useless for exactly
+    // the thing it's needed for: finding who hasn't been called yet, or who was called
+    // most recently.
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
     if (typeof av === 'number' && typeof bv === 'number') {
       return sortDir === 'asc' ? av - bv : bv - av;
     }
@@ -119,7 +134,7 @@ export default function AgentQueueContent() {
   // leaves the view stuck on a now-nonexistent page.
   useEffect(() => {
     setPage(1);
-  }, [search, filterClient, sortField, sortDir]);
+  }, [search, filterClient, uncalledOnly, sortField, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const pageStart = (page - 1) * PAGE_SIZE;
@@ -141,16 +156,21 @@ export default function AgentQueueContent() {
   // At desktop width, opening a debtor selects it into the split panel on this same page
   // instead of navigating away — the queue never leaves the screen. Below that width there's
   // no room for a side-by-side panel, so it falls back to the standalone detail page; the
-  // ordered id list is stashed in sessionStorage first so that page's Prev/Next controls
-  // still work even though it's a fresh navigation with no live queue in memory.
+  // ordered id list is stashed in localStorage first so that page's Prev/Next controls
+  // still work even though it's a fresh navigation with no live queue in memory. localStorage
+  // (not sessionStorage) deliberately — this has to survive the app being closed and
+  // reopened later (killed in the background, or the device restarting), not just a
+  // same-tab navigation, or Prev/Next silently goes dead on reopen. See
+  // useStandaloneQueueNav in use-debtor-queue.ts for the read side and its fallbacks.
   function openDebtor(id: string) {
     if (isWide) {
       router.push(`/my-queue?selected=${id}`, { scroll: false });
     } else {
       try {
-        sessionStorage.setItem('queue:my-queue', JSON.stringify(sorted.map((d) => d.id)));
+        localStorage.setItem(STANDALONE_QUEUE_KEY, JSON.stringify(sorted.map((d) => d.id)));
       } catch {
-        // sessionStorage unavailable (private mode, etc.) — Prev/Next just won't show up
+        // localStorage unavailable (private mode, full quota, etc.) — Prev/Next falls
+        // back to the cached queue order instead (see useStandaloneQueueNav).
       }
       router.push(`/debtor-detail-call-logging?id=${id}`);
     }
@@ -227,6 +247,15 @@ export default function AgentQueueContent() {
                 <option value="All">All Clients</option>
                 {clients.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
               </select>
+              <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer select-none whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={uncalledOnly}
+                  onChange={(e) => setUncalledOnly(e.target.checked)}
+                  className="rounded border-border"
+                />
+                Not yet called
+              </label>
             </div>
           </div>
 
@@ -295,7 +324,7 @@ export default function AgentQueueContent() {
                           <span className="text-xs text-muted-foreground">No calls yet</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-muted-foreground">{formatDate(debtor.lastCallDate)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-muted-foreground">{formatCallTimestamp(debtor.lastCallDate)}</td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <a

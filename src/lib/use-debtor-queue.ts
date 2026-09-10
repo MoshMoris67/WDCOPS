@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CACHE_CHANGED_EVENT, getCachedDebtor, getCachedDebtors, putCachedDebtors } from './offline-cache';
+import { CACHE_CHANGED_EVENT, getCachedDebtor, getCachedDebtors, getCachedQueueOrder, putCachedDebtors } from './offline-cache';
 import { type CachedDebtorRow } from './offline-db';
 
 interface UseDebtorQueueResult {
@@ -108,4 +108,61 @@ export function useCachedDebtorLite(id: string | null): CachedDebtorRow | undefi
   }, [id]);
 
   return row;
+}
+
+/** localStorage key for the ordered id list AgentQueueContent stashes right before
+ *  navigating to the standalone detail page — see useStandaloneQueueNav below. Exported
+ *  so both sides of the handoff use the exact same key. Deliberately localStorage, not
+ *  sessionStorage: this has to survive the browser/app process dying (killed in the
+ *  background, or the device itself losing power) and being reopened later, not just a
+ *  same-tab navigation. */
+export const STANDALONE_QUEUE_KEY = 'queue:my-queue';
+
+/**
+ * Prev/Next id lookup for the standalone debtor-detail page (no live queue in memory —
+ * it's a fresh navigation, possibly after the app was closed and reopened). Falls through
+ * three tiers, most specific first:
+ *   1. This device's last-viewed queue order (localStorage) — respects whatever
+ *      search/client filter/sort was active when the agent opened this debtor.
+ *   2. The server's own last-synced order for the full queue (IndexedDB) — covers a
+ *      debtor reached without ever visiting /my-queue on this device (a deep link, or a
+ *      reload landing straight back on a detail URL after the browser/device restarted).
+ *   3. Whatever's in the cached queue at all, in whatever order IndexedDB happens to
+ *      return it — not necessarily meaningful order, but Prev/Next having *some*
+ *      sequence beats disappearing entirely.
+ * Returns nulls (no controls shown) only when none of the three has anything.
+ */
+export function useStandaloneQueueNav(debtorId: string | null): { prevId: string | null; nextId: string | null } {
+  const [ids, setIds] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let list: string[] | null = null;
+      try {
+        const raw = localStorage.getItem(STANDALONE_QUEUE_KEY);
+        list = raw ? JSON.parse(raw) : null;
+      } catch {
+        list = null;
+      }
+      if (!list || list.length === 0) {
+        list = (await getCachedQueueOrder()) ?? null;
+      }
+      if (!list || list.length === 0) {
+        const rows = await getCachedDebtors();
+        list = rows.map((row) => row.id);
+      }
+      if (!cancelled) setIds(list.length > 0 ? list : null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [debtorId]);
+
+  if (!ids || !debtorId) return { prevId: null, nextId: null };
+  const idx = ids.indexOf(debtorId);
+  return {
+    prevId: idx > 0 ? ids[idx - 1] : null,
+    nextId: idx >= 0 && idx < ids.length - 1 ? ids[idx + 1] : null,
+  };
 }
