@@ -12,12 +12,13 @@ import { toDialFormat } from '@/lib/phone';
 const DispositionChart = dynamic(() => import('./DispositionChart'), { ssr: false });
 const DailyCallsTrend = dynamic(() => import('./DailyCallsTrend'), { ssr: false });
 
-// Still example data — the callback scheduler (Phase 2) is what will drive this for real.
-const callbacks = [
-  { id: 'cb-001', debtorName: 'Auma Grace Lillian', time: '10:30', phone: '+256 785 993 102', client: 'KCB' },
-  { id: 'cb-002', debtorName: 'Nansubuga Patience', time: '14:00', phone: '+256 701 556 881', client: 'HFB' },
-  { id: 'cb-003', debtorName: 'Ssebulime Peter', time: '15:30', phone: '+256 772 887 342', client: 'KCB' },
-];
+interface CallbackRow {
+  id: string;
+  name: string;
+  phone: string;
+  clientName: string;
+  callbackDate: string;
+}
 
 interface DispositionCodeOption {
   code: string;
@@ -55,11 +56,13 @@ export default function AgentDashboardContent() {
   const { data: summary } = useCachedQuery<DashboardSummary>('/api/dashboard/summary?scope=mine');
   const { data: codesData } = useCachedQuery<{ codes: DispositionCodeOption[] }>('/api/disposition-codes');
   const dispositionCodes = codesData?.codes ?? [];
+  const { data: callbacksData } = useCachedQuery<{ callbacks: CallbackRow[] }>('/api/callbacks?scope=mine');
   const isOnline = useOnlineStatus();
   const pendingSync = usePendingSyncCount();
 
   const todayIso = new Date().toISOString().slice(0, 10);
   const ptpDueToday = debtorQueue.filter(d => d.activePTP?.date?.slice(0, 10) === todayIso).length;
+  const callbacksToday = (callbacksData?.callbacks ?? []).filter((cb) => cb.callbackDate.slice(0, 10) === todayIso);
   const todayLabel = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
   const nowLabel = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
@@ -197,17 +200,22 @@ export default function AgentDashboardContent() {
               <Calendar size={15} className="text-primary" />
               Callbacks Today
             </h3>
-            <span className="text-xs font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">{callbacks.length}</span>
+            <span className="text-xs font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">{callbacksToday.length}</span>
           </div>
           <div className="space-y-2">
-            {callbacks.map((cb) => (
+            {callbacksToday.length === 0 && (
+              <p className="text-xs text-muted-foreground py-2">No callbacks scheduled for today</p>
+            )}
+            {callbacksToday.map((cb) => (
               <div key={cb.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-secondary/50 transition-colors group">
                 <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                  <span className="text-xs font-bold text-primary font-mono-data">{cb.time}</span>
+                  <span className="text-xs font-bold text-primary font-mono-data">
+                    {new Date(cb.callbackDate).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{cb.debtorName}</p>
-                  <p className="text-xs text-muted-foreground">{cb.client} · {cb.phone}</p>
+                  <p className="text-sm font-medium text-foreground truncate">{cb.name}</p>
+                  <p className="text-xs text-muted-foreground">{cb.clientName} · {cb.phone}</p>
                 </div>
                 <a
                   href={`tel:${toDialFormat(cb.phone)}`}
