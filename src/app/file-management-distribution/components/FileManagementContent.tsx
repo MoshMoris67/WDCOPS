@@ -66,6 +66,20 @@ interface EditFileForm {
   isMidMonthTopup: boolean;
 }
 
+interface RemoveMatchRow {
+  id: string;
+  loanRef: string;
+  name: string;
+  balance: number;
+  batchLabel: string;
+  agentName: string | null;
+}
+
+interface RemovePreview {
+  matched: RemoveMatchRow[];
+  unmatchedRefs: string[];
+}
+
 interface DistributedSheetInfo {
   name: string;
   rowCount: number;
@@ -262,6 +276,15 @@ export default function FileManagementContent() {
   const [mapping, setMapping] = useState<MappingState>(EMPTY_MAPPING);
   const [editingFile, setEditingFile] = useState<FileRow | null>(null);
   const [isSavingFile, setIsSavingFile] = useState(false);
+
+  const [removeModalOpen, setRemoveModalOpen] = useState(false);
+  const [removeClientId, setRemoveClientId] = useState('');
+  const [removeUploadFile, setRemoveUploadFile] = useState<globalThis.File | null>(null);
+  const [isRemovePreviewing, setIsRemovePreviewing] = useState(false);
+  const [removePreview, setRemovePreview] = useState<RemovePreview | null>(null);
+  const [removeSelectedIds, setRemoveSelectedIds] = useState<Set<string>>(new Set());
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [isRemoveDragOver, setIsRemoveDragOver] = useState(false);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<ImportFormData>({
     defaultValues: { clientId: '', batchLabel: '', receivedDate: '', splitMethod: 'balance_range' },
@@ -684,6 +707,96 @@ export default function FileManagementContent() {
     refetchFiles();
   }
 
+  function resetRemoveModalState() {
+    setRemoveClientId('');
+    setRemoveUploadFile(null);
+    setRemovePreview(null);
+    setRemoveSelectedIds(new Set());
+  }
+
+  async function previewRemove(clientId: string, file: globalThis.File) {
+    setIsRemovePreviewing(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('clientId', clientId);
+      const res = await fetch('/api/debtors/bulk-remove/preview', { method: 'POST', body: form });
+      const payload = await res.json();
+      if (!res.ok) {
+        toast.error(payload.error || 'Could not read this file');
+        return;
+      }
+      setRemovePreview(payload);
+      setRemoveSelectedIds(new Set(payload.matched.map((m: RemoveMatchRow) => m.id)));
+    } catch {
+      toast.error('Could not reach the server — try again');
+    } finally {
+      setIsRemovePreviewing(false);
+    }
+  }
+
+  function onRemoveClientChange(next: string) {
+    setRemoveClientId(next);
+    setRemovePreview(null);
+    setRemoveSelectedIds(new Set());
+    if (removeUploadFile && next) previewRemove(next, removeUploadFile);
+  }
+
+  async function onRemoveFileSelected(file: globalThis.File | null) {
+    setRemoveUploadFile(file);
+    setRemovePreview(null);
+    setRemoveSelectedIds(new Set());
+    if (!file) return;
+    if (!removeClientId) {
+      toast.error('Select the client first');
+      return;
+    }
+    await previewRemove(removeClientId, file);
+  }
+
+  function onDropRemoveUploadFile(e: React.DragEvent<HTMLLabelElement>) {
+    e.preventDefault();
+    setIsRemoveDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) onRemoveFileSelected(file);
+  }
+
+  function toggleRemoveSelected(id: string) {
+    setRemoveSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function onConfirmRemove() {
+    if (removeSelectedIds.size === 0) return;
+    if (!window.confirm(`Permanently delete ${removeSelectedIds.size} account(s) and every call logged against them? There is no undo.`)) return;
+
+    setIsRemoving(true);
+    try {
+      const res = await fetch('/api/debtors/bulk-remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ debtorIds: [...removeSelectedIds] }),
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        toast.error(payload.error || 'Could not remove these accounts');
+        return;
+      }
+      toast.success(`${payload.deletedCount} account(s) removed`);
+      setRemoveModalOpen(false);
+      resetRemoveModalState();
+      refetchFiles();
+      refetchDistribution();
+    } catch {
+      toast.error('Could not reach the server — try again');
+    } finally {
+      setIsRemoving(false);
+    }
+  }
+
   async function retryImport(file: FileRow) {
     const res = await fetch(`/api/files/${file.id}/import`, { method: 'POST' });
     const payload = await res.json();
@@ -703,15 +816,26 @@ export default function FileManagementContent() {
           <h1 className="text-page-title text-foreground">File Management & Distribution</h1>
           <p className="text-sm text-muted-foreground mt-1">Manage client file batches and agent allocation by balance range</p>
         </div>
-        <button
-          onClick={() => setImportModalOpen(true)}
-          disabled={offlineBlocked}
-          title={offlineBlocked ? 'Offline — reconnect to import' : undefined}
-          className="hidden lg:flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-        >
-          <Upload size={15} />
-          Import New File
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setRemoveModalOpen(true)}
+            disabled={offlineBlocked}
+            title={offlineBlocked ? 'Offline — reconnect to remove accounts' : 'Remove accounts a client has insourced, across any of their file batches'}
+            className="flex items-center gap-1.5 px-4 py-2 bg-secondary text-foreground text-sm font-semibold rounded-lg hover:bg-secondary/80 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <Trash2 size={15} />
+            Remove Accounts
+          </button>
+          <button
+            onClick={() => setImportModalOpen(true)}
+            disabled={offlineBlocked}
+            title={offlineBlocked ? 'Offline — reconnect to import' : undefined}
+            className="hidden lg:flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <Upload size={15} />
+            Import New File
+          </button>
+        </div>
       </div>
 
       {/* Summary stats */}
@@ -1776,6 +1900,155 @@ export default function FileManagementContent() {
             delete and re-import under the correct client if this was imported wrong.
           </p>
         </form>
+      </Modal>
+
+      {/* Remove Accounts (insourced) — for a client that's taken a batch of accounts
+          back. Matches a list of loan/account refs against that client's debtors across
+          every file batch they've ever had (not just one), then permanently deletes only
+          what the admin confirms in the preview below. */}
+      <Modal
+        open={removeModalOpen}
+        onClose={() => { setRemoveModalOpen(false); resetRemoveModalState(); }}
+        title="Remove Insourced Accounts"
+        subtitle="Upload the client's list of accounts taken back — matched across all of that client's file batches"
+        size="lg"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => { setRemoveModalOpen(false); resetRemoveModalState(); }}
+              className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onConfirmRemove}
+              disabled={isRemoving || removeSelectedIds.size === 0 || offlineBlocked}
+              className="flex items-center gap-2 px-4 py-2 bg-negative text-white text-sm font-semibold rounded-lg hover:bg-negative/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
+            >
+              {isRemoving ? (
+                <>
+                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  <span>Removing…</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 size={15} />
+                  <span>Delete {removeSelectedIds.size || ''} Account{removeSelectedIds.size === 1 ? '' : 's'}</span>
+                </>
+              )}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-5">
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-foreground">
+              Client <span className="text-negative">*</span>
+            </label>
+            <select
+              value={removeClientId}
+              onChange={(e) => onRemoveClientChange(e.target.value)}
+              className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+            >
+              <option value="">Select client…</option>
+              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-foreground">
+              List of Accounts <span className="text-negative">*</span>
+            </label>
+            <p className="text-xs text-muted-foreground">
+              The loan/account reference in the first column, one per row — a header row is fine and skipped automatically.
+            </p>
+            <label
+              className={`block border-2 border-dashed rounded-xl p-8 text-center transition-colors ${removeClientId ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'} ${isRemoveDragOver ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/50 bg-secondary/20'}`}
+              onDragOver={(e) => { e.preventDefault(); if (removeClientId) setIsRemoveDragOver(true); }}
+              onDragLeave={() => setIsRemoveDragOver(false)}
+              onDrop={removeClientId ? onDropRemoveUploadFile : (e) => e.preventDefault()}
+            >
+              <input
+                type="file"
+                accept=".xlsx,.xlsb,.csv"
+                className="sr-only"
+                disabled={!removeClientId}
+                onChange={(e) => onRemoveFileSelected(e.target.files?.[0] ?? null)}
+              />
+              <Upload size={24} className="text-muted-foreground mx-auto mb-2" />
+              <p className="text-sm font-medium text-foreground">
+                {!removeClientId ? 'Select a client first' : removeUploadFile ? removeUploadFile.name : (isRemoveDragOver ? 'Drop the file here' : 'Click to browse, or drag a file here')}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">Accepts .xlsx, .xlsb, or .csv files</p>
+            </label>
+          </div>
+
+          {isRemovePreviewing && <p className="text-sm text-muted-foreground">Matching accounts…</p>}
+
+          {removePreview && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <p className="text-sm font-semibold text-foreground">
+                  {removePreview.matched.length} account{removePreview.matched.length === 1 ? '' : 's'} matched
+                  {removePreview.unmatchedRefs.length > 0 && `, ${removePreview.unmatchedRefs.length} reference(s) not found`}
+                </p>
+                {removePreview.matched.length > 0 && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <button type="button" onClick={() => setRemoveSelectedIds(new Set(removePreview.matched.map((m) => m.id)))} className="text-primary hover:underline">All</button>
+                    <button type="button" onClick={() => setRemoveSelectedIds(new Set())} className="text-muted-foreground hover:underline">None</button>
+                  </div>
+                )}
+              </div>
+
+              {removePreview.matched.length > 0 && (
+                <div className="max-h-64 overflow-y-auto scrollbar-thin overflow-x-auto border border-border rounded-lg bg-card">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-secondary/90 backdrop-blur">
+                      <tr className="border-b border-border">
+                        <th className="px-2 py-1.5 text-left w-8"></th>
+                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">Loan Ref</th>
+                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">Name</th>
+                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">Batch</th>
+                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">Agent</th>
+                        <th className="px-2 py-1.5 text-right font-semibold text-muted-foreground whitespace-nowrap">Balance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {removePreview.matched.map((m) => (
+                        <tr key={m.id} className="border-b border-border/60 last:border-0">
+                          <td className="px-2 py-1.5">
+                            <input type="checkbox" className="accent-primary" checked={removeSelectedIds.has(m.id)} onChange={() => toggleRemoveSelected(m.id)} />
+                          </td>
+                          <td className="px-2 py-1.5 whitespace-nowrap font-mono-data text-foreground">{m.loanRef}</td>
+                          <td className="px-2 py-1.5 whitespace-nowrap text-foreground">{m.name}</td>
+                          <td className="px-2 py-1.5 whitespace-nowrap text-muted-foreground">{m.batchLabel}</td>
+                          <td className="px-2 py-1.5 whitespace-nowrap text-muted-foreground">{m.agentName ?? '—'}</td>
+                          <td className="px-2 py-1.5 whitespace-nowrap text-right font-tabular text-foreground">{formatUGX(m.balance)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {removePreview.unmatchedRefs.length > 0 && (
+                <div className="p-3 bg-[var(--negative-bg)] border border-negative/30 rounded-lg text-xs text-negative">
+                  <p className="font-semibold mb-1">Not found — check for typos or an already-removed account:</p>
+                  <p className="font-mono-data break-all">{removePreview.unmatchedRefs.join(', ')}</p>
+                </div>
+              )}
+
+              <div className="flex items-start gap-2 p-3 bg-[var(--negative-bg)] border border-negative/30 rounded-lg text-xs text-negative">
+                <span>Deleting is permanent — it removes the selected accounts and every call logged against them. There is no undo.</span>
+              </div>
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   );
