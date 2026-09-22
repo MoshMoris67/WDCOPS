@@ -224,23 +224,24 @@ async function syncPayments(
 
   if (entryData.length > 0) {
     const file = await prisma.file.findUniqueOrThrow({ where: { id: fileId }, select: { clientId: true } });
-    const reconciliation = await prisma.reconciliation.create({
-      data: {
-        clientId: file.clientId,
-        fileId,
-        type: 'partial',
-        receivedAt: new Date(),
-        processedAt: new Date(),
-        recordCount: entryData.length,
-        updatedCount: entryData.length,
-        totalUpdated: entryData.reduce((s, e) => s + e.paidAmount, 0),
-        status: 'processed',
-      },
-    });
-
+    // The reconciliation, its entries and the balance updates commit together — the
+    // entries are what a later delete reverses, so none of them may land without the rest.
     await prisma.$transaction([
+      prisma.reconciliation.create({
+        data: {
+          clientId: file.clientId,
+          fileId,
+          type: 'partial',
+          receivedAt: new Date(),
+          processedAt: new Date(),
+          recordCount: entryData.length,
+          updatedCount: entryData.length,
+          totalUpdated: entryData.reduce((s, e) => s + e.paidAmount, 0),
+          status: 'processed',
+          entries: { createMany: { data: entryData } },
+        },
+      }),
       ...debtorUpdates,
-      ...entryData.map((e) => prisma.reconciliationEntry.create({ data: { reconciliationId: reconciliation.id, ...e } })),
     ]);
   }
 

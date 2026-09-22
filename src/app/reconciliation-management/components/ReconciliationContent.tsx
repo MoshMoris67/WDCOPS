@@ -164,6 +164,7 @@ export default function ReconciliationContent() {
   const [manualAmount, setManualAmount] = useState('');
   const [manualNote, setManualNote] = useState('');
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
+  const [isCheckingUntracked, setIsCheckingUntracked] = useState(false);
 
   const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<UploadFormData>({
     defaultValues: { clientId: '', fileId: '', reconciliationType: 'partial', receivedDate: '', receivedTime: '', notes: '' },
@@ -418,6 +419,42 @@ export default function ReconciliationContent() {
     refetchReconciliations();
   }
 
+  // Recovered money a client's debtors still carry that no reconciliation in this log
+  // accounts for (see lib/untracked-recoveries.ts) — so deleting every reconciliation can
+  // otherwise leave "Recovered" above zero with nothing here to reverse.
+  async function checkUntrackedRecoveries() {
+    const client = clients.find((c) => c.name === filterClient);
+    if (!client) return;
+    setIsCheckingUntracked(true);
+    try {
+      const res = await fetch(`/api/clients/${client.id}/untracked-recoveries`);
+      const payload = await res.json();
+      if (!res.ok) {
+        toast.error(payload.error || 'Could not check recoveries');
+        return;
+      }
+      const found = payload.files as { batchLabel: string | null; debtorCount: number; amount: number }[];
+      if (found.length === 0) {
+        toast.success(`Every recovery on ${client.name} is accounted for by a reconciliation`);
+        return;
+      }
+      const total = found.reduce((s, f) => s + f.amount, 0);
+      const lines = found.map((f) => `• ${f.batchLabel ?? 'Unnamed file'}: ${formatUGX(f.amount)} across ${f.debtorCount} debtor(s)`).join('\n');
+      if (!window.confirm(`${formatUGX(total)} recovered on ${client.name} isn't backed by any reconciliation:\n\n${lines}\n\nReset these debtors to what their reconciliations record? There is no undo.`)) return;
+      const fix = await fetch(`/api/clients/${client.id}/untracked-recoveries`, { method: 'POST' });
+      const fixPayload = await fix.json();
+      if (!fix.ok) {
+        toast.error(fixPayload.error || 'Could not reset recoveries');
+        return;
+      }
+      toast.success(`Reset ${fixPayload.debtorCount} debtor(s) — ${formatUGX(total)} removed from Recovered`);
+    } catch {
+      toast.error('Could not reach the server — try again');
+    } finally {
+      setIsCheckingUntracked(false);
+    }
+  }
+
   const totalProcessed = reconciliations.filter(r => r.status === 'processed').length;
   const totalPending = reconciliations.filter(r => r.status === 'pending').length;
   const totalFailed = reconciliations.filter(r => r.status === 'failed').length;
@@ -480,6 +517,16 @@ export default function ReconciliationContent() {
             <div>
               <h2 className="text-section-header text-foreground">Reconciliation Log</h2>
               <p className="text-xs text-muted-foreground mt-0.5">Every reconciliation event per client — nothing silently lost</p>
+              {filterClient !== 'All' && (
+                <button
+                  onClick={checkUntrackedRecoveries}
+                  disabled={isCheckingUntracked || offlineBlocked}
+                  className="mt-1.5 text-xs font-semibold text-primary hover:underline disabled:opacity-50"
+                  title={offlineBlocked ? 'Offline — reconnect to check' : 'Find recovered amounts no reconciliation in this log accounts for'}
+                >
+                  {isCheckingUntracked ? 'Checking…' : 'Check for untracked recoveries'}
+                </button>
+              )}
             </div>
             <ListToolbar
               search={search}

@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from './db';
 import {
   iterateTable,
@@ -7,7 +8,7 @@ import {
 } from './excel';
 import { assignByCoverageWeight } from './distribution';
 import { agentCoverageWeights } from './coverage';
-import { applyAssignment } from './assignment';
+import { writeAssignment } from './assignment';
 import { loadClientCommissionConfig, priceRow, type ClientCommissionConfig } from './commission';
 
 export interface ProcessResult {
@@ -175,9 +176,16 @@ export async function processReconciliation(
     totalUpdated += paidAmount;
   }
 
-  const newAccountsCount = newAccountRows.length > 0
-    ? await createAndDistributeNewAccounts(reconciliationId, clientId, newAccountRows, (paid) => { totalUpdated += paid; }, commissionConfig)
-    : 0;
+  let newAccountsCount = 0;
+  if (newAccountRows.length > 0) {
+    const ctx = await loadNewAccountContext(clientId);
+    const result = await prisma.$transaction(
+      (tx) => createNewAccounts(tx, reconciliationId, clientId, newAccountRows, commissionConfig, ctx),
+      { timeout: 60_000 }
+    );
+    newAccountsCount = result.createdCount;
+    totalUpdated += result.paidTotal;
+  }
 
   const status: ProcessResult['status'] = updatedCount === 0 && newAccountsCount === 0 && rows.length > 0 ? 'failed' : 'processed';
   const errorSummary =
@@ -213,7 +221,7 @@ const BATCH_SIZE = 500;
  * become new accounts) — this applies the exact same rules, just batched.
  *
  * New-account rows are accumulated in pendingNewAccountRows across every chunk and only
- * turned into real debtors once, on the final chunk — calling createAndDistributeNewAccounts
+ * turned into real debtors once, on the final chunk — calling createNewAccounts
  * once per chunk would create a separate "new accounts" File per chunk instead of one for
  * the whole run.
  */
@@ -334,19 +342,39 @@ export async function processReconciliationTick(reconciliationId: string, timeBu
 
     const done = cursor >= allRows.length;
     if (done) {
-      const newAccountsCount = pendingNewAccountRows.length > 0
-        ? await createAndDistributeNewAccounts(reconciliationId, r.clientId, pendingNewAccountRows, (paid) => { totalUpdated += paid; }, commissionConfig)
-        : 0;
+      const ctx = pendingNewAccountRows.length > 0 ? await loadNewAccountContext(r.clientId) : null;
+      // Finishing (new accounts + the final status) is one transaction, opened by claiming
+      // the still-pending row: two overlapping ticks can both reach this point, and before
+      // this the second one — or a retry after a crash between creating the new accounts
+      // and clearing pendingNewAccountRows — created the same new accounts a second time.
+      // The claim's row lock makes the loser wait, then match nothing and back off.
+      await prisma.$transaction(
+        async (tx) => {
+          const claim = await tx.reconciliation.updateMany({
+            where: { id: reconciliationId, status: 'pending' },
+            data: { pendingNewAccountRows: null },
+          });
+          if (claim.count === 0) return;
 
-      const status: ProcessResult['status'] = updatedCount === 0 && newAccountsCount === 0 && allRows.length > 0 ? 'failed' : 'processed';
-      const errorSummary = unmatchedCount > 0
-        ? `${unmatchedCount} of ${allRows.length} record(s) could not be matched to a debtor or added as a new account (missing name/phone/amount owed).`
-        : null;
+          let newAccountsCount = 0;
+          if (ctx) {
+            const result = await createNewAccounts(tx, reconciliationId, r.clientId, pendingNewAccountRows, commissionConfig, ctx);
+            newAccountsCount = result.createdCount;
+            totalUpdated += result.paidTotal;
+          }
 
-      await prisma.reconciliation.update({
-        where: { id: reconciliationId },
-        data: { status, newAccountsCount, totalUpdated, errorSummary, processedAt: new Date(), pendingNewAccountRows: null },
-      });
+          const status: ProcessResult['status'] = updatedCount === 0 && newAccountsCount === 0 && allRows.length > 0 ? 'failed' : 'processed';
+          const errorSummary = unmatchedCount > 0
+            ? `${unmatchedCount} of ${allRows.length} record(s) could not be matched to a debtor or added as a new account (missing name/phone/amount owed).`
+            : null;
+
+          await tx.reconciliation.update({
+            where: { id: reconciliationId },
+            data: { status, newAccountsCount, totalUpdated, errorSummary, processedAt: new Date() },
+          });
+        },
+        { timeout: 60_000 }
+      );
     }
 
     return { processed: cursor - startCursor, done };
@@ -373,55 +401,75 @@ export async function processReconciliationTick(reconciliationId: string, timeBu
  * reconciliation created as a new account; only reverses its recorded starting payment.
  */
 export async function reverseAndDeleteReconciliation(reconciliationId: string): Promise<{ reversedCount: number }> {
-  const entries = await prisma.reconciliationEntry.findMany({
-    where: { reconciliationId },
-    select: { debtorId: true, paidAmount: true },
+  // One statement: delete this reconciliation's entries and subtract what they paid, with
+  // the subtraction done by Postgres against each debtor's current row rather than a value
+  // read earlier. Reading debtors first and writing back a computed figure (the old version)
+  // let two deletes running at once both start from the same cumulativePaid, so the later
+  // write silently undid the earlier one's reversal and money stayed "recovered". Deleting
+  // via RETURNING also means a repeated delete of the same reconciliation (a double click)
+  // finds no entries left to reverse instead of subtracting them twice.
+  const reversedCount = await prisma.$transaction(async (tx) => {
+    const count = await tx.$executeRaw`
+      WITH removed AS (
+        DELETE FROM "ReconciliationEntry" WHERE "reconciliationId" = ${reconciliationId}
+        RETURNING "debtorId", "paidAmount"
+      ), per_debtor AS (
+        SELECT "debtorId", SUM("paidAmount") AS paid FROM removed GROUP BY "debtorId"
+      )
+      UPDATE "Debtor" d
+      SET "cumulativePaid" = GREATEST(0, d."cumulativePaid" - p.paid),
+          "balance" = GREATEST(0, d."amountOwed" - GREATEST(0, d."cumulativePaid" - p.paid))
+      FROM per_debtor p
+      WHERE d.id = p."debtorId"
+    `;
+    await tx.reconciliation.deleteMany({ where: { id: reconciliationId } });
+    return count;
   });
 
-  if (entries.length === 0) {
-    await prisma.reconciliation.delete({ where: { id: reconciliationId } });
-    return { reversedCount: 0 };
-  }
-
-  const reduceByDebtor = new Map<string, number>();
-  for (const e of entries) {
-    reduceByDebtor.set(e.debtorId, (reduceByDebtor.get(e.debtorId) ?? 0) + e.paidAmount);
-  }
-
-  const debtors = await prisma.debtor.findMany({
-    where: { id: { in: [...reduceByDebtor.keys()] } },
-    select: { id: true, cumulativePaid: true, amountOwed: true },
-  });
-
-  const updates = debtors.map((d) => {
-    const reduceBy = reduceByDebtor.get(d.id) ?? 0;
-    const newCumulativePaid = Math.max(0, d.cumulativePaid - reduceBy);
-    const newBalance = Math.max(0, d.amountOwed - newCumulativePaid);
-    return prisma.debtor.update({ where: { id: d.id }, data: { cumulativePaid: newCumulativePaid, balance: newBalance } });
-  });
-
-  await prisma.$transaction([
-    ...updates,
-    prisma.reconciliationEntry.deleteMany({ where: { reconciliationId } }),
-    prisma.reconciliation.delete({ where: { id: reconciliationId } }),
-  ]);
-
-  return { reversedCount: debtors.length };
+  return { reversedCount };
 }
 
-async function createAndDistributeNewAccounts(
+interface NewAccountContext {
+  clientName: string;
+  weights: Awaited<ReturnType<typeof agentCoverageWeights>>;
+}
+
+// The reads createNewAccounts needs, done before its transaction opens so the transaction
+// holds its locks only for the writes.
+async function loadNewAccountContext(clientId: string): Promise<NewAccountContext> {
+  const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { name: true } });
+  const activeAgentIds = await prisma.debtor
+    .findMany({
+      where: { file: { clientId }, assignedAgentId: { not: null } },
+      distinct: ['assignedAgentId'],
+      select: { assignedAgentId: true },
+    })
+    .then((rows) => rows.map((r) => r.assignedAgentId!));
+  const weights = activeAgentIds.length > 0 ? await agentCoverageWeights(clientId, activeAgentIds) : [];
+  return { clientName: client.name, weights };
+}
+
+/**
+ * Turns unmatched-but-complete rows into new debtors, assigns them, and logs the starting
+ * payment each arrived with — all on the caller's transaction. It has to be one unit: a
+ * new debtor starts with cumulativePaid already set, and before this ran in a transaction
+ * a crash or timeout between creating the debtors and writing their entries left paid
+ * debtors with no entry, which reverseAndDeleteReconciliation (driven by entries) then
+ * could never take back out — "Recovered" stuck on a client whose reconciliations were
+ * all deleted.
+ */
+async function createNewAccounts(
+  tx: Prisma.TransactionClient,
   reconciliationId: string,
   clientId: string,
   newAccountRows: ReconciliationRow[],
-  onPaid: (amount: number) => void,
-  commissionConfig: ClientCommissionConfig | null
-): Promise<number> {
-  const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
-
-  const newFile = await prisma.file.create({
+  commissionConfig: ClientCommissionConfig | null,
+  ctx: NewAccountContext
+): Promise<{ createdCount: number; paidTotal: number }> {
+  const newFile = await tx.file.create({
     data: {
       clientId,
-      batchLabel: `${client.name} — New accounts via reconciliation ${new Date().toISOString().slice(0, 10)}`,
+      batchLabel: `${ctx.clientName} — New accounts via reconciliation ${new Date().toISOString().slice(0, 10)}`,
       receivedDate: new Date(),
       isMidMonthTopup: true,
     },
@@ -429,7 +477,7 @@ async function createAndDistributeNewAccounts(
 
   // createManyAndReturn batches this into one INSERT instead of one per new account —
   // matters just as much here as it does for a fresh file import (see api/files/route.ts).
-  const created = await prisma.debtor.createManyAndReturn({
+  const created = await tx.debtor.createManyAndReturn({
     data: newAccountRows.map((row) => {
       const amountOwed = row.amountOwed!;
       const cumulativePaid = Math.min(row.amount, amountOwed);
@@ -446,48 +494,37 @@ async function createAndDistributeNewAccounts(
     }),
   });
 
-  const activeAgentIds = await prisma.debtor
-    .findMany({
-      where: { file: { clientId }, assignedAgentId: { not: null } },
-      distinct: ['assignedAgentId'],
-      select: { assignedAgentId: true },
-    })
-    .then((rows) => rows.map((r) => r.assignedAgentId!));
-
-  let assignment = new Map<string, string>();
-  if (activeAgentIds.length > 0) {
-    const weights = await agentCoverageWeights(clientId, activeAgentIds);
-    assignment = assignByCoverageWeight(
-      created.map((d) => ({ id: d.id, balance: d.balance })),
-      weights
-    );
-    await applyAssignment(assignment);
-  }
+  const assignment = assignByCoverageWeight(
+    created.map((d) => ({ id: d.id, balance: d.balance })),
+    ctx.weights
+  );
+  await writeAssignment(tx, assignment);
 
   // A new account that arrived already partly paid is a real recovery — log it
   // the same way an ordinary reconciliation entry would, so reports pick it up.
   // Priced off the source row's own bucket, not the new debtor's freshly-assigned agent's
   // usual bucket — `created[i]` and `newAccountRows[i]` stay in step because
   // createManyAndReturn preserves input order.
+  let paidTotal = 0;
+  const entries: Prisma.ReconciliationEntryCreateManyInput[] = [];
   for (let i = 0; i < created.length; i++) {
     const debtor = created[i];
     if (debtor.cumulativePaid > 0) {
       const priced = priceRow(commissionConfig, newAccountRows[i].bucketRaw, debtor.cumulativePaid, assignment.has(debtor.id));
-      await prisma.reconciliationEntry.create({
-        data: {
-          reconciliationId,
-          debtorId: debtor.id,
-          oldBalance: debtor.amountOwed,
-          newBalance: debtor.balance,
-          paidAmount: debtor.cumulativePaid,
-          bucket: priced.bucket,
-          companyCommission: priced.companyCommission,
-          agentCommission: priced.agentCommission,
-        },
+      entries.push({
+        reconciliationId,
+        debtorId: debtor.id,
+        oldBalance: debtor.amountOwed,
+        newBalance: debtor.balance,
+        paidAmount: debtor.cumulativePaid,
+        bucket: priced.bucket,
+        companyCommission: priced.companyCommission,
+        agentCommission: priced.agentCommission,
       });
-      onPaid(debtor.cumulativePaid);
+      paidTotal += debtor.cumulativePaid;
     }
   }
+  if (entries.length > 0) await tx.reconciliationEntry.createMany({ data: entries });
 
-  return created.length;
+  return { createdCount: created.length, paidTotal };
 }
