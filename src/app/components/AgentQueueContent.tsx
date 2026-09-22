@@ -228,21 +228,24 @@ export default function AgentQueueContent() {
             <div>
               <h2 className="text-section-header text-foreground">My Debtor Queue</h2>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="relative">
+            {/* Wraps on narrow screens — as a single non-wrapping row (fixed-width search +
+                select + checkbox) it was wider than a phone, pushing the checkbox off-screen
+                and making the whole page scroll sideways. */}
+            <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+              <div className="relative w-full sm:w-auto">
                 <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
                   placeholder="Search phone (e.g. 077…)"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="pl-8 pr-3 py-1.5 text-sm bg-input border border-border rounded-lg w-52 focus:outline-none focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground"
+                  className="pl-8 pr-3 py-1.5 text-sm bg-input border border-border rounded-lg w-full sm:w-52 focus:outline-none focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground"
                 />
               </div>
               <select
                 value={filterClient}
                 onChange={(e) => setFilterClient(e.target.value)}
-                className="text-sm bg-input border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/50"
+                className="min-w-0 max-w-full text-sm bg-input border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/50"
               >
                 <option value="All">All Clients</option>
                 {clients.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
