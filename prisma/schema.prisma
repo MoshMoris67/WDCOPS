@@ -229,6 +229,10 @@ model Reconciliation {
   // creating its own "new accounts" File once per chunk.
   rowsProcessed         Int     @default(0)
   pendingNewAccountRows String?
+  // Set while a worker tick or "Process now" is working through rawRows — only one may
+  // at a time (see processReconciliationTick). Two running at once each saved their own
+  // running totals over the other's, so the log's amount came out short.
+  processingStartedAt   DateTime?
   status       String    @default("pending") // pending | processed | failed
   branch       String    @default("uganda")
   createdAt    DateTime  @default(now())
