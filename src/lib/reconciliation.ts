@@ -126,6 +126,7 @@ export async function processReconciliation(
   let unmatchedCount = 0;
   const newAccountRows: ReconciliationRow[] = [];
   const commissionConfig = await loadClientCommissionConfig(clientId);
+  const touched = new Set<string>();
 
   for (const row of rows) {
     const debtor = await prisma.debtor.findFirst({
@@ -147,9 +148,10 @@ export async function processReconciliation(
       continue;
     }
 
-    const newCumulativePaid = type === 'full' ? row.amount : debtor.cumulativePaid + row.amount;
+    const newCumulativePaid = type === 'full' && !touched.has(debtor.id) ? row.amount : debtor.cumulativePaid + row.amount;
     const newBalance = Math.max(0, debtor.amountOwed - newCumulativePaid);
     const paidAmount = Math.max(0, newCumulativePaid - debtor.cumulativePaid);
+    touched.add(debtor.id);
 
     const priced = priceRow(commissionConfig, row.bucketRaw, paidAmount, !!debtor.assignedAgentId);
 
@@ -199,7 +201,14 @@ export async function processReconciliation(
 export interface TickResult {
   processed: number;
   done: boolean;
+  /** Another tick or "Process now" is already working on this reconciliation. */
+  busy?: boolean;
 }
+
+// A processing claim older than this is treated as abandoned (the process holding it
+// crashed or was restarted) and can be taken over. Well above any tick's time budget plus
+// the final new-accounts transaction's 60s timeout.
+const STALE_PROCESSING_CLAIM_MS = 5 * 60 * 1000;
 
 // One matching query per this many rows, not one per row — the actual fix here. The
 // original processReconciliation did a `findFirst` *and* its own small transaction for
@@ -226,6 +235,34 @@ const BATCH_SIZE = 500;
  * the whole run.
  */
 export async function processReconciliationTick(reconciliationId: string, timeBudgetMs = 20000): Promise<TickResult> {
+  // Only one worker at a time: the cron tick and "Process now" used to be able to run the
+  // same reconciliation together. Both then started from the same saved cursor and totals,
+  // re-did each other's batches (the second pass recording 0 paid, since the first had
+  // already applied it) and each saved its own running totals over the other's — the
+  // debtors' figures ended up right but the log's amount came out millions short.
+  const claimedAt = new Date();
+  const claim = await prisma.reconciliation.updateMany({
+    where: {
+      id: reconciliationId,
+      OR: [{ processingStartedAt: null }, { processingStartedAt: { lt: new Date(claimedAt.getTime() - STALE_PROCESSING_CLAIM_MS) } }],
+    },
+    data: { processingStartedAt: claimedAt },
+  });
+  if (claim.count === 0) {
+    const exists = await prisma.reconciliation.count({ where: { id: reconciliationId } });
+    return exists ? { processed: 0, done: false, busy: true } : { processed: 0, done: true };
+  }
+
+  try {
+    return await runReconciliationTick(reconciliationId, timeBudgetMs);
+  } finally {
+    await prisma.reconciliation
+      .updateMany({ where: { id: reconciliationId, processingStartedAt: claimedAt }, data: { processingStartedAt: null } })
+      .catch(() => {});
+  }
+}
+
+async function runReconciliationTick(reconciliationId: string, timeBudgetMs: number): Promise<TickResult> {
   const started = Date.now();
   const r = await prisma.reconciliation.findUnique({ where: { id: reconciliationId } });
   if (!r) return { processed: 0, done: true };
@@ -270,6 +307,22 @@ export async function processReconciliationTick(reconciliationId: string, timeBu
           })
         : [];
 
+      // Debtors an earlier batch of this same reconciliation already applied a row to (every
+      // matched row writes an entry, even a 0 one). In a full reconciliation a debtor's first
+      // row sets their cumulative figure and every further row for them in the same file
+      // adds to it: KCB's file lists a loan once per aging bucket it was collected in (e.g.
+      // "Before 60" and "60-89"), sheets thousands of rows apart, and the loan's collections
+      // are the sum of those rows — the second row used to replace the first instead.
+      const touchedEarlier = type === 'full' && candidates.length > 0
+        ? new Set(
+            (await prisma.reconciliationEntry.findMany({
+              where: { reconciliationId, debtorId: { in: candidates.map((d) => d.id) } },
+              select: { debtorId: true },
+              distinct: ['debtorId'],
+            })).map((e) => e.debtorId)
+          )
+        : new Set<string>();
+
       const byLoanRef = new Map(candidates.map((d) => [d.loanRef, d]));
       const byPhone = new Map<string, (typeof candidates)[number]>();
       for (const d of candidates) {
@@ -300,7 +353,8 @@ export async function processReconciliationTick(reconciliationId: string, timeBu
         const alreadyTouched = runningCumulativePaid.has(debtor.id);
         const currentCumulativePaid = runningCumulativePaid.get(debtor.id) ?? debtor.cumulativePaid;
         const oldBalance = alreadyTouched ? Math.max(0, debtor.amountOwed - currentCumulativePaid) : debtor.balance;
-        const newCumulativePaid = type === 'full' ? row.amount : currentCumulativePaid + row.amount;
+        const firstRowForDebtor = !alreadyTouched && !touchedEarlier.has(debtor.id);
+        const newCumulativePaid = type === 'full' && firstRowForDebtor ? row.amount : currentCumulativePaid + row.amount;
         const newBalance = Math.max(0, debtor.amountOwed - newCumulativePaid);
         const paidAmount = Math.max(0, newCumulativePaid - currentCumulativePaid);
         runningCumulativePaid.set(debtor.id, newCumulativePaid);
@@ -322,36 +376,39 @@ export async function processReconciliationTick(reconciliationId: string, timeBu
         totalUpdated += paidAmount;
       }
 
-      if (debtorUpdates.length > 0) {
-        await prisma.$transaction([...debtorUpdates, ...entryCreates]);
-      }
-
       cursor += batch.length;
 
-      await prisma.reconciliation.update({
-        where: { id: reconciliationId },
-        data: {
-          rowsProcessed: cursor,
-          updatedCount,
-          totalUpdated,
-          unmatchedCount,
-          pendingNewAccountRows: JSON.stringify(pendingNewAccountRows),
-        },
-      });
+      // The batch's writes and the cursor past it commit together. Saved separately, a crash
+      // between the two re-ran an already-applied batch on the next tick — now that a full
+      // reconciliation adds a debtor's later rows onto their earlier ones, that would count
+      // the batch twice.
+      await prisma.$transaction([
+        ...debtorUpdates,
+        ...entryCreates,
+        prisma.reconciliation.update({
+          where: { id: reconciliationId },
+          data: {
+            rowsProcessed: cursor,
+            updatedCount,
+            totalUpdated,
+            unmatchedCount,
+            pendingNewAccountRows: JSON.stringify(pendingNewAccountRows),
+          },
+        }),
+      ]);
     }
 
     const done = cursor >= allRows.length;
     if (done) {
       const ctx = pendingNewAccountRows.length > 0 ? await loadNewAccountContext(r.clientId) : null;
       // Finishing (new accounts + the final status) is one transaction, opened by claiming
-      // the still-pending row: two overlapping ticks can both reach this point, and before
-      // this the second one — or a retry after a crash between creating the new accounts
-      // and clearing pendingNewAccountRows — created the same new accounts a second time.
-      // The claim's row lock makes the loser wait, then match nothing and back off.
+      // the not-yet-processed row: a retry after a crash between creating the new accounts
+      // and clearing pendingNewAccountRows used to create the same new accounts a second
+      // time. Overlapping runs are already kept out by the processing claim above.
       await prisma.$transaction(
         async (tx) => {
           const claim = await tx.reconciliation.updateMany({
-            where: { id: reconciliationId, status: 'pending' },
+            where: { id: reconciliationId, status: { not: 'processed' } },
             data: { pendingNewAccountRows: null },
           });
           if (claim.count === 0) return;
@@ -458,14 +515,35 @@ async function loadNewAccountContext(clientId: string): Promise<NewAccountContex
  * could never take back out — "Recovered" stuck on a client whose reconciliations were
  * all deleted.
  */
+// Rows for the same not-yet-existing account (same loan ref, else same phone) become one
+// new debtor, with their amounts added — the same rule the matched rows follow. Without
+// this, a loan listed on two of KCB's bucket sheets became two debtors with one loan ref.
+// amountOwed takes the largest figure: after a loan rolls into the next bucket, its later
+// row's outstanding is already net of what the earlier row collected.
+function mergeNewAccountRows(rows: ReconciliationRow[]): ReconciliationRow[] {
+  const merged = new Map<string, ReconciliationRow>();
+  for (const row of rows) {
+    const key = row.loanRef ? `ref:${row.loanRef}` : `phone:${row.phone}`;
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, { ...row });
+      continue;
+    }
+    existing.amount += row.amount;
+    existing.amountOwed = Math.max(existing.amountOwed ?? 0, row.amountOwed ?? 0);
+  }
+  return [...merged.values()];
+}
+
 async function createNewAccounts(
   tx: Prisma.TransactionClient,
   reconciliationId: string,
   clientId: string,
-  newAccountRows: ReconciliationRow[],
+  unmergedRows: ReconciliationRow[],
   commissionConfig: ClientCommissionConfig | null,
   ctx: NewAccountContext
 ): Promise<{ createdCount: number; paidTotal: number }> {
+  const newAccountRows = mergeNewAccountRows(unmergedRows);
   const newFile = await tx.file.create({
     data: {
       clientId,
@@ -480,7 +558,10 @@ async function createNewAccounts(
   const created = await tx.debtor.createManyAndReturn({
     data: newAccountRows.map((row) => {
       const amountOwed = row.amountOwed!;
-      const cumulativePaid = Math.min(row.amount, amountOwed);
+      // Not capped at amountOwed — a matched debtor's collections aren't either, and a
+      // client's collections figure is taken as reported (KCB's can exceed the listed
+      // outstanding when a paid-off loan appears on two bucket sheets).
+      const cumulativePaid = row.amount;
       const balance = Math.max(0, amountOwed - cumulativePaid);
       return {
         fileId: newFile.id,

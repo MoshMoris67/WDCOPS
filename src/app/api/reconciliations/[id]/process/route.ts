@@ -65,6 +65,14 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const tickResult = await processReconciliationTick(id, TIME_BUDGET_MS);
   const updated = await prisma.reconciliation.findUnique({ where: { id } });
 
+  if (tickResult.busy) {
+    return NextResponse.json({
+      reconciliation: { id, status: updated?.status ?? 'pending', updatedCount: updated?.updatedCount ?? 0, newAccountsCount: updated?.newAccountsCount ?? 0 },
+      inProgress: true,
+      message: `Already being processed in the background — ${updated?.rowsProcessed ?? 0} of ${updated?.recordCount ?? 0} row(s) done so far. It'll finish on its own.`,
+    });
+  }
+
   if (!tickResult.done) {
     return NextResponse.json({
       reconciliation: { id, status: updated?.status ?? 'pending', updatedCount: updated?.updatedCount ?? 0, newAccountsCount: updated?.newAccountsCount ?? 0 },
