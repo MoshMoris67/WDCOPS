@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from './db';
 
 /**
@@ -14,18 +15,6 @@ export async function applyAssignment(
 ): Promise<void> {
   if (assignment.size === 0) return;
 
-  const debtorIdsByAgent = new Map<string, string[]>();
-  for (const [debtorId, agentId] of assignment) {
-    if (!debtorIdsByAgent.has(agentId)) debtorIdsByAgent.set(agentId, []);
-    debtorIdsByAgent.get(agentId)!.push(debtorId);
-  }
-
-  const agents = await prisma.user.findMany({
-    where: { id: { in: [...debtorIdsByAgent.keys()] } },
-    select: { id: true, name: true, email: true },
-  });
-  const agentById = new Map(agents.map((agent) => [agent.id, agent]));
-
   // Prisma's default transaction timeout is 5s — comfortably enough for a small file, but
   // a full-file distribution across tens of thousands of debtors on a resource-constrained
   // self-hosted Postgres can exceed that, rolling back every updateMany and every
@@ -33,21 +22,43 @@ export async function applyAssignment(
   // clearly surfaced, admin and agent alike can be left thinking a distribution "took" when
   // nothing was persisted. The array (batch) form of $transaction only accepts
   // isolationLevel, not timeout, so this uses the interactive callback form instead.
-  await prisma.$transaction(
-    async (tx) => {
-      for (const [agentId, debtorIds] of debtorIdsByAgent) {
-        await tx.debtor.updateMany({ where: { id: { in: debtorIds } }, data: { assignedAgentId: agentId } });
-      }
-      await tx.assignment.createMany({
-        data: [...assignment.entries()].map(([debtorId, agentId]) => ({
-          debtorId,
-          agentId,
-          agentName: agentById.get(agentId)?.name,
-          agentEmail: agentById.get(agentId)?.email,
-          reassignedFromId: reassignedFrom?.get(debtorId) ?? null,
-        })),
-      });
-    },
-    { timeout: 60_000 }
-  );
+  await prisma.$transaction((tx) => writeAssignment(tx, assignment, reassignedFrom), { timeout: 60_000 });
+}
+
+/**
+ * The writes behind applyAssignment, run on a caller-supplied transaction — for callers
+ * that need the assignment to commit or roll back together with their own writes (see
+ * lib/reconciliation.ts's new-account creation).
+ */
+export async function writeAssignment(
+  tx: Prisma.TransactionClient,
+  assignment: Map<string, string>,
+  reassignedFrom?: Map<string, string | null>
+): Promise<void> {
+  if (assignment.size === 0) return;
+
+  const debtorIdsByAgent = new Map<string, string[]>();
+  for (const [debtorId, agentId] of assignment) {
+    if (!debtorIdsByAgent.has(agentId)) debtorIdsByAgent.set(agentId, []);
+    debtorIdsByAgent.get(agentId)!.push(debtorId);
+  }
+
+  const agents = await tx.user.findMany({
+    where: { id: { in: [...debtorIdsByAgent.keys()] } },
+    select: { id: true, name: true, email: true },
+  });
+  const agentById = new Map(agents.map((agent) => [agent.id, agent]));
+
+  for (const [agentId, debtorIds] of debtorIdsByAgent) {
+    await tx.debtor.updateMany({ where: { id: { in: debtorIds } }, data: { assignedAgentId: agentId } });
+  }
+  await tx.assignment.createMany({
+    data: [...assignment.entries()].map(([debtorId, agentId]) => ({
+      debtorId,
+      agentId,
+      agentName: agentById.get(agentId)?.name,
+      agentEmail: agentById.get(agentId)?.email,
+      reassignedFromId: reassignedFrom?.get(debtorId) ?? null,
+    })),
+  });
 }
