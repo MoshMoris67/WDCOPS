@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { buildReportSummary } from '@/lib/reports';
 import { buildReportWorkbook } from '@/lib/excel';
+import { attachmentDisposition } from '@/lib/content-disposition';
 import { prisma } from '@/lib/db';
 
 export async function GET(req: Request) {
@@ -41,7 +42,7 @@ export async function GET(req: Request) {
   return new NextResponse(new Blob([new Uint8Array(buffer)]), {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Disposition': attachmentDisposition(filename),
     },
   });
 }
