@@ -33,7 +33,12 @@ export interface NewMonthPlan {
     totalUpdated: number;
     busy: boolean;
   }[];
+  /** Every row the cleared reconciliations matched — a full reconciliation writes one per
+   *  debtor even when nothing was paid, so this is far larger than the payment count. */
   entryCount: number;
+  /** Entries that actually carried a payment, and how many debtors made them. */
+  paidEntryCount: number;
+  paidDebtorCount: number;
   recoveredTotal: number;
   /** Debtors at zero balance with no payment in a kept (this-month) reconciliation. */
   clearedDebtorCount: number;
@@ -52,7 +57,7 @@ export async function planNewMonth(clientId: string): Promise<NewMonthPlan | nul
   const cutoff = currentMonthStart();
   const busySince = new Date(Date.now() - BUSY_WINDOW_MS);
 
-  const [recons, entryAgg, balanceAgg, files, zeroByFile, totalByFile] = await Promise.all([
+  const [recons, entryAgg, paidAgg, paidDebtors, balanceAgg, files, zeroByFile, totalByFile] = await Promise.all([
     prisma.reconciliation.findMany({
       where: { clientId, receivedAt: { lt: cutoff } },
       include: { file: { select: { batchLabel: true } } },
@@ -63,6 +68,14 @@ export async function planNewMonth(clientId: string): Promise<NewMonthPlan | nul
       _count: true,
       _sum: { paidAmount: true },
     }),
+    prisma.reconciliationEntry.count({
+      where: { paidAmount: { gt: 0 }, reconciliation: { clientId, receivedAt: { lt: cutoff } } },
+    }),
+    prisma.$queryRaw<{ n: bigint }[]>`
+      SELECT COUNT(DISTINCT e."debtorId") AS n
+      FROM "ReconciliationEntry" e JOIN "Reconciliation" r ON r.id = e."reconciliationId"
+      WHERE r."clientId" = ${clientId} AND r."receivedAt" < ${cutoff} AND e."paidAmount" > 0
+    `,
     prisma.debtor.aggregate({
       where: { file: { clientId } },
       _count: true,
@@ -101,6 +114,8 @@ export async function planNewMonth(clientId: string): Promise<NewMonthPlan | nul
       busy: !!r.processingStartedAt && r.processingStartedAt > busySince,
     })),
     entryCount: entryAgg._count,
+    paidEntryCount: paidAgg,
+    paidDebtorCount: Number(paidDebtors[0]?.n ?? 0),
     recoveredTotal: entryAgg._sum.paidAmount ?? 0,
     clearedDebtorCount: [...zeros.values()].reduce((s, n) => s + n, 0),
     keptZeroBalanceCount: keptZero,
@@ -210,7 +225,9 @@ export async function buildNewMonthExport(clientId: string): Promise<{ buffer: B
     { k: 'Exported at', v: new Date().toISOString() },
     { k: 'Reconciliations received before', v: plan.cutoff.toISOString() },
     { k: 'Reconciliations cleared', v: plan.reconciliations.length },
-    { k: 'Payments (entries) cleared', v: plan.entryCount },
+    { k: 'Reconciliation entries cleared (incl. 0-paid rows)', v: plan.entryCount },
+    { k: 'Of which carried a payment (listed in Payments sheet)', v: plan.paidEntryCount },
+    { k: 'Debtors who paid', v: plan.paidDebtorCount },
     { k: 'Recovered by cleared reconciliations', v: plan.recoveredTotal },
     { k: 'Zero-balance debtors removed', v: plan.clearedDebtorCount },
     { k: 'Debtors on the books now', v: plan.debtorCount },
@@ -246,7 +263,10 @@ export async function buildNewMonthExport(clientId: string): Promise<{ buffer: B
   ]);
   for (let cursor: string | undefined; ; ) {
     const page = await prisma.reconciliationEntry.findMany({
-      where: { reconciliation: { clientId, receivedAt: { lt: plan.cutoff } } },
+      // Only entries that carried money: a full reconciliation writes a 0-paid entry for
+      // every debtor it lists (hundreds of thousands of rows), which is noise in a record
+      // of what was recovered and made this export too big to build in one request.
+      where: { paidAmount: { gt: 0 }, reconciliation: { clientId, receivedAt: { lt: plan.cutoff } } },
       include: { reconciliation: { select: { receivedAt: true } }, debtor: { select: { loanRef: true, name: true, phone1: true, file: { select: { batchLabel: true } } } } },
       orderBy: { id: 'asc' },
       take: PAGE,
