@@ -64,6 +64,9 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       // Reconciliations referencing this file stay (they're a client-facing audit log in
       // their own right) — just unlink the file so deleting it doesn't leave a dangling reference.
       await tx.reconciliation.updateMany({ where: { fileId: id }, data: { fileId: null } });
+      // FileSync.fileId is ON DELETE RESTRICT — a file that has ever had a daily sync
+      // could not be deleted until its sync history was removed first.
+      await tx.fileSync.deleteMany({ where: { fileId: id } });
       await chunkedDeleteDebtors(tx, debtorIds);
       await tx.file.delete({ where: { id } });
     },

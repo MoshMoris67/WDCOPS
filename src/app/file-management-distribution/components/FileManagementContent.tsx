@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { FolderOpen, Upload, CheckCircle, Clock, Users, ChevronRight, FileText, Layers, UserPlus, Pencil, Trash2, Undo2, RefreshCcw, Download } from 'lucide-react';
+import { FolderOpen, Upload, CheckCircle, Clock, Users, ChevronRight, FileText, Layers, UserPlus, Pencil, Trash2, Undo2, RefreshCcw, Download, Eraser, CalendarClock } from 'lucide-react';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import Toggle from '@/components/ui/Toggle';
@@ -34,6 +34,46 @@ interface FileRow {
   agentsAllocated: number;
   importStatus: 'queued' | 'processing' | 'complete' | 'failed';
   importError: string | null;
+}
+
+interface NewMonthPlan {
+  clientName: string;
+  cutoff: string;
+  reconciliations: { id: string; batchLabel: string | null; receivedAt: string; busy: boolean }[];
+  entryCount: number;
+  recoveredTotal: number;
+  clearedDebtorCount: number;
+  keptZeroBalanceCount: number;
+  outstandingTotal: number;
+  debtorCount: number;
+  filesEmptied: { id: string; batchLabel: string }[];
+}
+
+/** Saves a server-built export to the user's downloads. Returns false (after toasting)
+ *  when it fails, so a destructive step that depends on it can stop. */
+async function downloadExport(url: string, fallbackName: string): Promise<boolean> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      toast.error(payload.error || 'Export failed — nothing was changed');
+      return false;
+    }
+    const blob = await res.blob();
+    const match = /filename\*=UTF-8''([^;]+)/.exec(res.headers.get('Content-Disposition') ?? '');
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = match ? decodeURIComponent(match[1]) : fallbackName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(objectUrl);
+    return true;
+  } catch {
+    toast.error('Could not reach the server — nothing was changed');
+    return false;
+  }
 }
 
 interface AgentOption {
@@ -276,6 +316,13 @@ export default function FileManagementContent() {
   const [mapping, setMapping] = useState<MappingState>(EMPTY_MAPPING);
   const [editingFile, setEditingFile] = useState<FileRow | null>(null);
   const [isSavingFile, setIsSavingFile] = useState(false);
+
+  const [newMonthOpen, setNewMonthOpen] = useState(false);
+  const [newMonthClientId, setNewMonthClientId] = useState('');
+  const [newMonthPlan, setNewMonthPlan] = useState<NewMonthPlan | null>(null);
+  const [isLoadingNewMonth, setIsLoadingNewMonth] = useState(false);
+  const [newMonthConfirm, setNewMonthConfirm] = useState('');
+  const [isStartingNewMonth, setIsStartingNewMonth] = useState(false);
 
   const [removeModalOpen, setRemoveModalOpen] = useState(false);
   const [removeClientId, setRemoveClientId] = useState('');
@@ -707,6 +754,85 @@ export default function FileManagementContent() {
     refetchFiles();
   }
 
+  async function clearDispositions(file: FileRow) {
+    const res = await fetch(`/api/files/${file.id}/clear-dispositions`);
+    const counts = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast.error(counts.error || 'Could not check this file\'s dispositions');
+      return;
+    }
+    if (counts.callCount === 0) {
+      toast.info(`"${file.batchLabel}" has no dispositions to clear`);
+      return;
+    }
+    if (!window.confirm(`Clear ALL dispositions in "${file.batchLabel}"? This permanently deletes ${counts.callCount.toLocaleString()} logged call(s) across ${counts.debtorCount.toLocaleString()} debtor(s) — notes, promises and corrections included — so every debtor shows as not yet called. Balances and payments are not touched. A copy is downloaded first. There is no undo.`)) return;
+    if (!(await downloadExport(`/api/files/${file.id}/clear-dispositions/export`, `${file.client}-${file.batchLabel}-dispositions.xlsx`))) return;
+    const clearRes = await fetch(`/api/files/${file.id}/clear-dispositions`, { method: 'POST' });
+    const payload = await clearRes.json().catch(() => ({}));
+    if (!clearRes.ok) {
+      toast.error(payload.error || 'Could not clear dispositions');
+      return;
+    }
+    toast.success(`Cleared ${payload.clearedCount.toLocaleString()} disposition(s) in "${file.batchLabel}" — export saved to your downloads`);
+    refetchFiles();
+  }
+
+  function resetNewMonthState() {
+    setNewMonthClientId('');
+    setNewMonthPlan(null);
+    setNewMonthConfirm('');
+  }
+
+  async function onNewMonthClientChange(clientId: string) {
+    setNewMonthClientId(clientId);
+    setNewMonthPlan(null);
+    setNewMonthConfirm('');
+    if (!clientId) return;
+    setIsLoadingNewMonth(true);
+    try {
+      const res = await fetch(`/api/clients/${clientId}/new-month`);
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(payload.error || 'Could not load the new-month preview');
+        return;
+      }
+      setNewMonthPlan(payload.plan);
+    } catch {
+      toast.error('Could not reach the server — try again');
+    } finally {
+      setIsLoadingNewMonth(false);
+    }
+  }
+
+  async function onStartNewMonth() {
+    if (!newMonthPlan || !newMonthClientId) return;
+    setIsStartingNewMonth(true);
+    try {
+      // The export is the safety net — if it can't be saved, nothing gets deleted.
+      if (!(await downloadExport(`/api/clients/${newMonthClientId}/new-month/export`, `${newMonthPlan.clientName}-before-new-month.xlsx`))) return;
+      const res = await fetch(`/api/clients/${newMonthClientId}/new-month`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmName: newMonthConfirm }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(payload.error || 'Could not start the new month');
+        return;
+      }
+      const r = payload.result;
+      toast.success(`New month started for ${newMonthPlan.clientName}: ${r.reconciliationsCleared} reconciliation(s) cleared, ${r.debtorsRemoved} zero-balance debtor(s) removed. Export saved to your downloads.`);
+      if (r.filesEmptied.length > 0) {
+        toast.info(`Now empty and safe to delete: ${r.filesEmptied.map((f: { batchLabel: string }) => f.batchLabel).join(', ')}`);
+      }
+      setNewMonthOpen(false);
+      resetNewMonthState();
+      refetchFiles();
+    } finally {
+      setIsStartingNewMonth(false);
+    }
+  }
+
   function resetRemoveModalState() {
     setRemoveClientId('');
     setRemoveUploadFile(null);
@@ -817,6 +943,15 @@ export default function FileManagementContent() {
           <p className="text-sm text-muted-foreground mt-1">Manage client file batches and agent allocation by balance range</p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setNewMonthOpen(true)}
+            disabled={offlineBlocked}
+            title={offlineBlocked ? 'Offline — reconnect to start a new month' : "Clear last month's reconciliations and zero-balance debtors for one client"}
+            className="flex items-center gap-1.5 px-4 py-2 bg-secondary text-foreground text-sm font-semibold rounded-lg hover:bg-secondary/80 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <CalendarClock size={15} />
+            Start New Month
+          </button>
           <button
             onClick={() => setRemoveModalOpen(true)}
             disabled={offlineBlocked}
@@ -990,6 +1125,14 @@ export default function FileManagementContent() {
                           <Undo2 size={14} />
                         </button>
                         <button
+                          className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40"
+                          title={offlineBlocked ? 'Offline — reconnect' : 'Clear all dispositions'}
+                          disabled={offlineBlocked}
+                          onClick={(e) => { e.stopPropagation(); clearDispositions(file); }}
+                        >
+                          <Eraser size={14} />
+                        </button>
+                        <button
                           className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40"
                           title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'}
                           disabled={offlineBlocked}
@@ -1049,6 +1192,9 @@ export default function FileManagementContent() {
                       </button>
                       <button className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect' : (file.status === 'recalled' ? 'Reactivate' : 'Recall')} disabled={offlineBlocked} onClick={() => toggleRecall(file)}>
                         <Undo2 size={14} />
+                      </button>
+                      <button className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect' : 'Clear all dispositions'} disabled={offlineBlocked} onClick={() => clearDispositions(file)}>
+                        <Eraser size={14} />
                       </button>
                       <button className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'} disabled={offlineBlocked} onClick={() => deleteFile(file)}>
                         <Trash2 size={14} />
@@ -1900,6 +2046,108 @@ export default function FileManagementContent() {
             delete and re-import under the correct client if this was imported wrong.
           </p>
         </form>
+      </Modal>
+
+      {/* Start New Month — per client. Downloads an export of everything it's about to
+          clear, then removes last month's reconciliations (balances are kept, not
+          reversed), rebases what's outstanding as the new total, and drops zero-balance
+          debtors. Deleting a file the client has replaced stays a separate manual step. */}
+      <Modal
+        open={newMonthOpen}
+        onClose={() => { setNewMonthOpen(false); resetNewMonthState(); }}
+        title="Start New Month"
+        subtitle="Reset one client's books for the new month"
+        size="lg"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => { setNewMonthOpen(false); resetNewMonthState(); }}
+              className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onStartNewMonth}
+              disabled={
+                isStartingNewMonth || offlineBlocked || !newMonthPlan ||
+                newMonthPlan.reconciliations.some((r) => r.busy) ||
+                newMonthConfirm.trim().toLowerCase() !== newMonthPlan.clientName.trim().toLowerCase()
+              }
+              className="flex items-center gap-2 px-4 py-2 bg-negative text-white text-sm font-semibold rounded-lg hover:bg-negative/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
+            >
+              <CalendarClock size={15} />
+              <span>{isStartingNewMonth ? 'Exporting & starting…' : 'Export & Start New Month'}</span>
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-5">
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-foreground">
+              Client <span className="text-negative">*</span>
+            </label>
+            <select
+              value={newMonthClientId}
+              onChange={(e) => onNewMonthClientChange(e.target.value)}
+              className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+            >
+              <option value="">Select client…</option>
+              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+
+          {isLoadingNewMonth && <p className="text-sm text-muted-foreground">Checking what would change…</p>}
+
+          {newMonthPlan && (
+            <div className="space-y-4">
+              <ol className="space-y-2 text-sm text-foreground list-decimal pl-5">
+                <li>
+                  <strong>{newMonthPlan.reconciliations.length}</strong> reconciliation(s) received before{' '}
+                  {formatDate(newMonthPlan.cutoff)} are cleared ({newMonthPlan.entryCount.toLocaleString()} payment(s),{' '}
+                  {formatUGX(newMonthPlan.recoveredTotal)} recovered). Balances are <strong>not</strong> put back — last month&apos;s recoveries simply stop counting.
+                </li>
+                <li>
+                  Everything still outstanding becomes the new total: <strong>{formatUGX(newMonthPlan.outstandingTotal)}</strong> across{' '}
+                  {newMonthPlan.debtorCount.toLocaleString()} debtor(s).
+                </li>
+                <li>
+                  <strong>{newMonthPlan.clearedDebtorCount.toLocaleString()}</strong> debtor(s) with a 0 balance are removed, with their calls.
+                  {newMonthPlan.keptZeroBalanceCount > 0 && ` ${newMonthPlan.keptZeroBalanceCount} that paid in a reconciliation received this month are kept so that recovery still shows.`}
+                </li>
+              </ol>
+
+              {newMonthPlan.filesEmptied.length > 0 && (
+                <div className="p-3 bg-secondary/40 border border-border rounded-lg text-xs text-foreground">
+                  <p className="font-semibold mb-1">These batches will be left empty — delete them from the list once you&apos;ve confirmed they&apos;re replaced:</p>
+                  <p>{newMonthPlan.filesEmptied.map((f) => f.batchLabel).join(', ')}</p>
+                </div>
+              )}
+
+              {newMonthPlan.reconciliations.some((r) => r.busy) && (
+                <div className="p-3 bg-[var(--negative-bg)] border border-negative/30 rounded-lg text-xs text-negative">
+                  A reconciliation is still being processed — wait for it to finish before starting the new month.
+                </div>
+              )}
+
+              <div className="p-3 bg-[var(--negative-bg)] border border-negative/30 rounded-lg text-xs text-negative">
+                A workbook of everything above downloads first; if that fails, nothing is changed. This can&apos;t be undone.
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-foreground">
+                  Type <span className="font-semibold">{newMonthPlan.clientName}</span> to confirm
+                </label>
+                <input
+                  value={newMonthConfirm}
+                  onChange={(e) => setNewMonthConfirm(e.target.value)}
+                  className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </Modal>
 
       {/* Remove Accounts (insourced) — for a client that's taken a batch of accounts

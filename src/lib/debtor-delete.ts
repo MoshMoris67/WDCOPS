@@ -6,6 +6,22 @@ import type { Prisma } from '@prisma/client';
 const CHUNK_SIZE = 5000;
 
 /**
+ * Deletes every call log (disposition) logged against the given debtors, including the
+ * correction history hanging off them — CallLogCorrection.callLogId has no cascade, so a
+ * debtor with a corrected call would otherwise fail to delete on the foreign key.
+ */
+async function deleteCallLogsForDebtors(tx: Prisma.TransactionClient, debtorIds: string[]): Promise<number> {
+  let deleted = 0;
+  for (let i = 0; i < debtorIds.length; i += CHUNK_SIZE) {
+    const chunk = debtorIds.slice(i, i + CHUNK_SIZE);
+    await tx.callLogCorrection.deleteMany({ where: { callLog: { debtorId: { in: chunk } } } });
+    const res = await tx.callLog.deleteMany({ where: { debtorId: { in: chunk } } });
+    deleted += res.count;
+  }
+  return deleted;
+}
+
+/**
  * Deletes the given debtors and everything tied to them (call logs, assignments,
  * reconciliation entries), in dependency order, chunked to stay under Postgres's
  * bind-parameter limit — within a caller-supplied transaction, so it can be composed
@@ -20,7 +36,7 @@ async function chunkedDeleteDebtors(tx: Prisma.TransactionClient, debtorIds: str
     await tx.assignment.deleteMany({ where: { debtorId: { in: chunk } } });
     // Must run before debtor.deleteMany — CallLog.debtorId has no cascade, so a debtor
     // with logged calls would otherwise fail to delete on the foreign key.
-    await tx.callLog.deleteMany({ where: { debtorId: { in: chunk } } });
+    await deleteCallLogsForDebtors(tx, chunk);
     await tx.debtor.deleteMany({ where: { id: { in: chunk } } });
   }
 }
@@ -41,4 +57,4 @@ export async function deleteDebtorsByIds(debtorIds: string[]): Promise<void> {
   await prisma.$transaction((tx) => chunkedDeleteDebtors(tx, debtorIds), { timeout: 120_000 });
 }
 
-export { chunkedDeleteDebtors };
+export { chunkedDeleteDebtors, deleteCallLogsForDebtors };
