@@ -41,6 +41,8 @@ interface NewMonthPlan {
   cutoff: string;
   reconciliations: { id: string; batchLabel: string | null; receivedAt: string; busy: boolean }[];
   entryCount: number;
+  paidEntryCount: number;
+  paidDebtorCount: number;
   recoveredTotal: number;
   clearedDebtorCount: number;
   keptZeroBalanceCount: number;
@@ -2105,8 +2107,8 @@ export default function FileManagementContent() {
               <ol className="space-y-2 text-sm text-foreground list-decimal pl-5">
                 <li>
                   <strong>{newMonthPlan.reconciliations.length}</strong> reconciliation(s) received before{' '}
-                  {formatDate(newMonthPlan.cutoff)} are cleared ({newMonthPlan.entryCount.toLocaleString()} payment(s),{' '}
-                  {formatUGX(newMonthPlan.recoveredTotal)} recovered). Balances are <strong>not</strong> put back — last month&apos;s recoveries simply stop counting.
+                  {formatDate(newMonthPlan.cutoff)} are cleared ({newMonthPlan.paidEntryCount.toLocaleString()} payment(s) from{' '}
+                  {newMonthPlan.paidDebtorCount.toLocaleString()} debtor(s), {formatUGX(newMonthPlan.recoveredTotal)} recovered; {(newMonthPlan.entryCount - newMonthPlan.paidEntryCount).toLocaleString()} zero-payment rows also go). Balances are <strong>not</strong> put back — last month&apos;s recoveries simply stop counting.
                 </li>
                 <li>
                   Everything still outstanding becomes the new total: <strong>{formatUGX(newMonthPlan.outstandingTotal)}</strong> across{' '}
