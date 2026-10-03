@@ -150,6 +150,10 @@ model Debtor {
 
 model CallLog {
   id              String    @id @default(cuid())
+  // The offline queue's per-call id (PendingCallLog.clientId) — a retry of a request that
+  // actually reached the server returns the already-saved row instead of creating a
+  // duplicate. Null for calls logged before this existed (and from any older client).
+  clientRequestId String?   @unique
   debtorId        String
   debtor          Debtor    @relation(fields: [debtorId], references: [id])
   agentId         String

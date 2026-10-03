@@ -77,6 +77,13 @@ async function pushEntry(entry: PendingCallLog): Promise<SyncOutcome> {
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
       body: JSON.stringify({
+        // Lets the server recognise a resend of a call it already saved (e.g. this request
+        // timed out client-side after the server had committed it) instead of duplicating it.
+        clientRequestId: entry.clientId,
+        // Both device-clock times, so the server can stamp the call with when it was actually
+        // logged rather than when it finally synced — see resolveCreatedAt in api/call-logs.
+        queuedAt: entry.queuedAt,
+        sentAt: new Date().toISOString(),
         debtorId: entry.debtorId,
         dispositionCode: entry.dispositionCode,
         note: entry.note,
