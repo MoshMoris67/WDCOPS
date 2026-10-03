@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from './db';
 import {
   iterateTable,
@@ -34,7 +35,7 @@ function toDebtorData(fileId: string, r: ImportRow & { assignedAgentId?: string 
     amountOwed: r.amountOwed,
     cumulativePaid: 0,
     balance: r.amountOwed,
-    extra: Object.keys(r.extra).length > 0 ? r.extra : null,
+    extra: Object.keys(r.extra).length > 0 ? r.extra : Prisma.JsonNull,
     // Undefined for a normal import (ImportRow has no such field) — same as never setting
     // it, debtor lands unassigned exactly as before. Only a distributed import supplies a
     // real value (an agent id, or explicit null for "leave unassigned").

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireRole, isSessionPayload } from '@/lib/rbac';
 import { hashPassword } from '@/lib/auth';
+import { clearLoginFailures } from '@/lib/login-rate-limit';
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireRole(['admin']);
@@ -43,6 +44,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   const user = await prisma.user.update({ where: { id }, data }).catch(() => null);
   if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  // A password reset is how an admin unlocks someone who tripped the failed-login limit.
+  if (data.passwordHash) clearLoginFailures(user.email);
 
   return NextResponse.json({
     user: { id: user.id, name: user.name, email: user.email, role: user.role, status: user.status },

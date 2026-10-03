@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from './db';
 import {
   loadNamedSheets,
@@ -143,7 +144,7 @@ async function syncCallingList(fileId: string, clientId: string, table: string[]
         amountOwed: r.amountOwed,
         cumulativePaid: 0,
         balance: r.amountOwed,
-        extra: Object.keys(r.extra).length > 0 ? r.extra : null,
+        extra: Object.keys(r.extra).length > 0 ? r.extra : Prisma.JsonNull,
       })),
       select: { id: true, balance: true },
     });
