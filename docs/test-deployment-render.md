@@ -1,8 +1,12 @@
-# Test copy of WDCOPS on Render (free) + Neon (free Postgres)
+# WDCOPS reserve site on Render (free) + Neon (free Postgres)
 
-Purpose: a throwaway **test** copy while the office internet is sorted out.
-**Use dummy data only.** Do not load real debtor data on a free third-party host
-(personal and financial data; no backup or uptime guarantee; data-protection duties).
+Purpose: a **reserve (standby) copy** that agents can switch to if the office server or
+its internet is down. The office server stays the main site. Steps 1-6 build the site;
+the **Reserve site** section at the end loads the office data into it, keeps it in sync,
+and explains how to fail over and back.
+
+(Free hosts have no uptime or backup guarantee, and real debtor data on a third-party
+host carries data-protection duties. This guide goes ahead on the owner's instruction.)
 
 Free-tier limits change. Check each provider's pricing page before you start.
 
@@ -29,7 +33,11 @@ Do **not** use Render's own free Postgres for anything you want to keep: it has 
 deleted after about 30 days on the free plan.
 
 ## Step 2: Create the tables and the starter users (run once, locally)
-On any computer with the repo cloned:
+If you are building the reserve site, **skip this step** and use the restore in the
+Reserve site section instead (the dump already contains the tables and your real users,
+and seeding on top of it would add the starter users again).
+
+For a plain test copy, on any computer with the repo cloned:
 
 ```bash
 cd WDCOPS
@@ -101,6 +109,72 @@ can fire late, so Option A is more reliable.
   will not fit.
 - **Data usage:** the app refreshes the agent queue every 45 seconds from every open
   tab. On a cloud host this traffic goes over each agent's own internet connection.
+
+## Reserve site: load the office data, keep it in sync, fail over
+
+The office Postgres (container `wellcashops-postgres`) is the master. The reserve is a
+one-way copy of it.
+
+### A. First load (run on the office Linux server)
+```bash
+# 1. Dump the office database (compressed custom format)
+docker exec wellcashops-postgres pg_dump -U wellcashops -d wellcashops -Fc --no-owner --no-acl > ~/wdcops.dump
+ls -lh ~/wdcops.dump            # check the size: it must fit in Neon's free storage
+
+# 2. Restore it into Neon (uses a Postgres 16 client in Docker, nothing to install)
+export NEON_URL='postgresql://USER:PASSWORD@HOST/neondb?sslmode=require'
+docker run --rm -i postgres:16-alpine pg_restore --clean --if-exists --no-owner --no-acl -d "$NEON_URL" < ~/wdcops.dump
+```
+- If you changed the Postgres user or database name from the defaults, use yours
+  (`docker exec wellcashops-postgres env | grep POSTGRES`).
+- The restore replaces everything in the Neon database, including the migration history.
+  Render's build (`prisma migrate deploy`) then finds the schema already up to date.
+- Use the same `SESSION_SECRET` on Render as on the office server if you want agents
+  to stay logged in when they switch; otherwise they simply log in again.
+
+### B. Keep it in sync (nightly)
+Save as `~/sync-reserve.sh` on the server (`chmod +x`), with your real Neon URL:
+```bash
+#!/bin/bash
+set -euo pipefail
+NEON_URL='postgresql://USER:PASSWORD@HOST/neondb?sslmode=require'
+docker exec wellcashops-postgres pg_dump -U wellcashops -d wellcashops -Fc --no-owner --no-acl > /tmp/wdcops.dump
+docker run --rm -i postgres:16-alpine pg_restore --clean --if-exists --no-owner --no-acl -d "$NEON_URL" < /tmp/wdcops.dump
+rm -f /tmp/wdcops.dump
+echo "$(date) reserve sync ok" >> ~/sync-reserve.log
+```
+Schedule it with `crontab -e`, at 00:30 (just after MTN's daily data reset, so the
+upload comes out of the fresh allowance):
+```
+30 0 * * * /home/mosh-moris/sync-reserve.sh
+```
+- Each sync uploads the whole database over the MTN link. Check the dump size first and
+  make sure it is small compared with the daily allowance.
+- The reserve is only as fresh as the last sync (up to a day old). Anything agents did
+  since then is missing from the reserve.
+- Check `~/sync-reserve.log` now and then.
+
+### C. Background jobs on the reserve
+Keep the tick job (Step 5) **paused** while the office server is the main site, so the
+reserve does not process imports from stale data. Turn it on during a failover.
+
+### D. Failing over (office server or its internet is down)
+1. Open the Render URL and confirm it loads (the first load after sleeping is slow).
+2. Resume the cron-job.org tick job (Step 5).
+3. Tell all agents to use `https://<name>.onrender.com` until further notice.
+4. Stop the nightly sync if the office machine is reachable but unreliable, so a bad
+   office copy does not overwrite the reserve (`crontab -e`, comment the line).
+
+### E. Failing back (office is working again)
+Work done on the reserve must come back first, or it is lost:
+```bash
+# On the office server
+docker run --rm postgres:16-alpine pg_dump -Fc --no-owner --no-acl "$NEON_URL" > ~/from-reserve.dump
+docker exec -i wellcashops-postgres pg_restore -U wellcashops -d wellcashops --clean --if-exists --no-owner --no-acl < ~/from-reserve.dump
+```
+Stop the app first (`docker stop wellcashops-app`) so nothing writes during the restore,
+then start it again and pause the reserve's tick job. Re-enable the nightly sync last.
+This overwrites the office database, so make a dump of it first (Step A.1) and keep it.
 
 ## Updating and shutting down
 - Redeploy: push to `main`; Render rebuilds automatically.
