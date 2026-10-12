@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { requireRole, isSessionPayload } from '@/lib/rbac';
+import { liveReconciliationStats } from '@/lib/reconciliation';
 import { SUPPORTED_IMPORT_EXTENSIONS, type ReconciliationMapping } from '@/lib/excel';
 
 export async function GET() {
@@ -13,6 +14,8 @@ export async function GET() {
     orderBy: { receivedAt: 'desc' },
   });
 
+  const live = await liveReconciliationStats(reconciliations);
+
   return NextResponse.json({
     reconciliations: reconciliations.map((r) => ({
       id: r.id,
@@ -23,9 +26,9 @@ export async function GET() {
       receivedAt: r.receivedAt,
       processedAt: r.processedAt,
       recordCount: r.recordCount,
-      updatedCount: r.updatedCount,
+      updatedCount: live.get(r.id)?.updatedCount ?? r.updatedCount,
       newAccountsCount: r.newAccountsCount,
-      totalAmountUpdated: r.totalUpdated,
+      totalAmountUpdated: live.get(r.id)?.totalUpdated ?? r.totalUpdated,
       status: r.status,
       errorSummary: r.errorSummary,
       notes: r.notes,
