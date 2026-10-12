@@ -12,6 +12,7 @@ import DispositionBadge from '@/components/ui/DispositionBadge';
 import BrandWordmark from '@/components/ui/BrandWordmark';
 import { toast } from 'sonner';
 import { clearReadCache } from '@/lib/offline-cache';
+import { DEPLOYMENT } from '@/config/deployment';
 
 interface LoginFormData {
   email: string;
@@ -19,7 +20,7 @@ interface LoginFormData {
   rememberMe: boolean;
 }
 
-function useKampalaClock() {
+function useBranchClock() {
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
     setNow(new Date());
@@ -28,8 +29,8 @@ function useKampalaClock() {
   }, []);
   if (!now) return { time: '--:--', date: '' };
   return {
-    time: new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Kampala', hour: '2-digit', minute: '2-digit' }).format(now),
-    date: new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Kampala', weekday: 'short', day: '2-digit', month: 'short' }).format(now),
+    time: new Intl.DateTimeFormat('en-GB', { timeZone: DEPLOYMENT.timeZone, hour: '2-digit', minute: '2-digit' }).format(now),
+    date: new Intl.DateTimeFormat('en-GB', { timeZone: DEPLOYMENT.timeZone, weekday: 'short', day: '2-digit', month: 'short' }).format(now),
   };
 }
 
@@ -38,7 +39,7 @@ export default function LoginContent() {
   const searchParams = useSearchParams();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const kampala = useKampalaClock();
+  const clock = useBranchClock();
 
   const { register, handleSubmit, formState: { errors }, setError } = useForm<LoginFormData>({
     defaultValues: { email: '', password: '', rememberMe: false },
@@ -101,12 +102,12 @@ export default function LoginContent() {
             </div>
             <div>
               <BrandWordmark />
-              <span className="text-xs text-blue-300/80 block mt-1.5">Uganda Branch · Collections Platform</span>
+              <span className="text-xs text-blue-300/80 block mt-1.5">{DEPLOYMENT.branchName} Branch · Collections Platform</span>
             </div>
           </div>
           <div className="hidden xl:flex flex-col items-end shrink-0 pl-4">
-            <span className="font-mono-data text-lg text-white tabular-nums">{kampala.time}</span>
-            <span className="text-[11px] text-blue-300/70">{kampala.date} · Kampala</span>
+            <span className="font-mono-data text-lg text-white tabular-nums">{clock.time}</span>
+            <span className="text-[11px] text-blue-300/70">{clock.date} · {DEPLOYMENT.clockLabel}</span>
           </div>
         </div>
 
@@ -114,11 +115,10 @@ export default function LoginContent() {
         <div className="relative z-10 space-y-8">
           <div>
             <h1 className="text-[2.15rem] leading-[1.15] font-bold text-white text-balance">
-              Every call logged.<br />Every shilling tracked.<br />One system.
+              {DEPLOYMENT.loginTagline[0]}<br />{DEPLOYMENT.loginTagline[1]}<br />{DEPLOYMENT.loginTagline[2]}
             </h1>
             <p className="text-blue-200/90 mt-4 text-sm leading-relaxed max-w-sm">
-              Replaces the Excel-and-OneDrive workflow with one offline-first platform, purpose-built
-              for the Uganda branch — and ready to extend to any Wellcash country branch next.
+              {DEPLOYMENT.loginBlurb}
             </p>
           </div>
 
@@ -133,10 +133,7 @@ export default function LoginContent() {
                 </span>
               </div>
               <div className="space-y-2.5">
-                {[
-                  { name: 'Nakato Josephine', balance: 'UGX 2.4M', code: 'PTP', color: '#16A34A' },
-                  { name: 'Mukasa Emmanuel', balance: 'UGX 1.2M', code: 'CB', color: '#1D4ED8' },
-                ].map((row) => (
+                {DEPLOYMENT.previewDebtors.map((row) => (
                   <div key={row.name} className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-xs font-semibold text-slate-800 truncate">{row.name}</p>
@@ -185,7 +182,7 @@ export default function LoginContent() {
             <AppLogo size={64} />
             <div>
               <BrandWordmark size="sm" />
-              <span className="text-xs text-muted-foreground block mt-1">Uganda Branch</span>
+              <span className="text-xs text-muted-foreground block mt-1">{DEPLOYMENT.branchName} Branch</span>
             </div>
           </div>
 
@@ -215,7 +212,7 @@ export default function LoginContent() {
                   id="email"
                   type="email"
                   autoComplete="email"
-                  placeholder="yourname@wellcash.ug"
+                  placeholder={DEPLOYMENT.emailPlaceholder}
                   className={`w-full pl-9 pr-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground transition-colors ${errors.email ? 'border-negative' : 'border-border'}`}
                   {...register('email', {
                     required: 'Email is required',

@@ -14,6 +14,8 @@ import { useClients } from '@/lib/use-clients';
 import { debtorRowTint } from '@/lib/format-rules';
 import { useCachedQuery } from '@/lib/use-cached-query';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
+import { formatMoneyMB } from '@/lib/money';
+import { DEPLOYMENT } from '@/config/deployment';
 
 const ReportDispositionChart = dynamic(() => import('./ReportDispositionChart'), { ssr: false });
 const RecoveryRadialChart = dynamic(() => import('./RecoveryRadialChart'), { ssr: false });
@@ -65,12 +67,6 @@ const frequencies: { key: FrequencyKey; label: string }[] = [
   { key: 'weekly', label: 'Weekly' },
   { key: 'monthly', label: 'Monthly' },
 ];
-
-function formatUGX(amount: number) {
-  if (amount >= 1000000000) return `UGX ${(amount / 1000000000).toFixed(2)}B`;
-  if (amount >= 1000000) return `UGX ${(amount / 1000000).toFixed(1)}M`;
-  return 'UGX ' + amount.toLocaleString('en-UG');
-}
 
 function formatDate(iso: string | null) {
   if (!iso) return '—';
@@ -348,7 +344,7 @@ export default function ReportsContent() {
             {[
               { label: 'Total Debtors', value: data.totalDebtors.toLocaleString(), icon: Users, sub: selectedAgentName ? `${selectedAgentName}'s book` : `${selectedClient?.name ?? ''} active file`, variant: 'info' as const },
               { label: 'Contact Rate', value: `${contactRate}%`, icon: TrendingUp, sub: `${data.contacted} of ${data.totalDebtors} contacted`, variant: 'positive' as const },
-              { label: 'PTP Rate', value: `${ptpRate}%`, icon: CheckCircle, sub: `${data.ptpCount} PTPs · ${formatUGX(data.ptpAmount)} committed`, variant: 'positive' as const },
+              { label: 'PTP Rate', value: `${ptpRate}%`, icon: CheckCircle, sub: `${data.ptpCount} PTPs · ${formatMoneyMB(data.ptpAmount)} committed`, variant: 'positive' as const },
             ].map((kpi) => (
               <div key={`rpt-kpi-${kpi.label}`} className={`bg-card rounded-xl border shadow-card p-4 ${kpi.variant === 'positive' ? 'border-[#BBF7D0]' : 'border-[#BFDBFE]'}`}>
                 <div className="flex items-center justify-between mb-2">
@@ -483,7 +479,7 @@ export default function ReportsContent() {
                             <span className="font-tabular text-sm text-foreground">{agentPtpRate}%</span>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="font-tabular font-semibold text-foreground">{formatUGX(agent.recovered)}</span>
+                            <span className="font-tabular font-semibold text-foreground">{formatMoneyMB(agent.recovered)}</span>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <div className="flex items-center gap-2">
@@ -512,7 +508,7 @@ export default function ReportsContent() {
                           <div className="grid grid-cols-2 gap-2 text-xs">
                             <span className="text-muted-foreground">Calls: <span className="font-tabular font-semibold text-foreground">{agent.calls}</span></span>
                             <span className="text-muted-foreground">PTPs: <span className="font-tabular font-semibold text-positive">{agent.ptps}</span> ({agentPtpRate}%)</span>
-                            <span className="text-muted-foreground col-span-2">Recovered: <span className="font-tabular font-semibold text-foreground">{formatUGX(agent.recovered)}</span> ({agentRecoveryPct}%)</span>
+                            <span className="text-muted-foreground col-span-2">Recovered: <span className="font-tabular font-semibold text-foreground">{formatMoneyMB(agent.recovered)}</span> ({agentRecoveryPct}%)</span>
                           </div>
                         </div>
                       );
@@ -531,9 +527,9 @@ export default function ReportsContent() {
                   <RecoveryRadialChart percentage={recoveryPct} label={selectedClient?.name ?? ''} />
                   <div className="w-full space-y-2">
                     {[
-                      { label: 'Total Owed', value: formatUGX(data.totalOwed), color: 'text-foreground' },
-                      { label: 'Recovered', value: formatUGX(data.recovered), color: 'text-positive' },
-                      { label: 'Outstanding', value: formatUGX(data.totalOwed - data.recovered), color: 'text-negative' },
+                      { label: 'Total Owed', value: formatMoneyMB(data.totalOwed), color: 'text-foreground' },
+                      { label: 'Recovered', value: formatMoneyMB(data.recovered), color: 'text-positive' },
+                      { label: 'Outstanding', value: formatMoneyMB(data.totalOwed - data.recovered), color: 'text-negative' },
                     ].map((item) => (
                       <div key={`rec-${item.label}`} className="flex items-center justify-between py-1.5 border-b border-border/60">
                         <span className="text-xs text-muted-foreground">{item.label}</span>
@@ -605,8 +601,8 @@ export default function ReportsContent() {
                   Report Schedule
                 </h3>
                 {[
-                  { freq: 'Daily', time: '08:00 EAT', status: 'active', nextRun: 'Tomorrow 08:00' },
-                  { freq: 'Weekly', time: 'Mon 07:00 EAT', status: 'active', nextRun: 'Mon 18 Aug 07:00' },
+                  { freq: 'Daily', time: `08:00 ${DEPLOYMENT.zoneAbbrev}`, status: 'active', nextRun: 'Tomorrow 08:00' },
+                  { freq: 'Weekly', time: `Mon 07:00 ${DEPLOYMENT.zoneAbbrev}`, status: 'active', nextRun: 'Mon 18 Aug 07:00' },
                   { freq: 'Monthly', time: '1st of month 07:00', status: 'active', nextRun: '01 Sep 07:00' },
                 ].map((sched) => (
                   <div key={`sched-${sched.freq}`} className="flex items-center justify-between py-2 border-b border-border/60 last:border-0">
@@ -671,7 +667,7 @@ export default function ReportsContent() {
                     </div>
                     <p className="text-xs text-muted-foreground">{d.loanRef}</p>
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap font-tabular text-sm text-foreground">{formatUGX(d.balance)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap font-tabular text-sm text-foreground">{formatMoneyMB(d.balance)}</td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     {d.lastDisposition ? <Badge variant={dispositionVariantMap[d.lastDisposition] || 'default'}>{d.lastDisposition}</Badge> : <span className="text-xs text-muted-foreground">—</span>}
                   </td>
@@ -699,7 +695,7 @@ export default function ReportsContent() {
                     {d.lastDisposition ? <Badge variant={dispositionVariantMap[d.lastDisposition] || 'default'}>{d.lastDisposition}</Badge> : <span className="text-xs text-muted-foreground">No calls yet</span>}
                   </div>
                   <div className="flex items-center justify-between mt-3">
-                    <span className="font-tabular text-sm text-foreground">{formatUGX(d.balance)}</span>
+                    <span className="font-tabular text-sm text-foreground">{formatMoneyMB(d.balance)}</span>
                     <span className="text-xs text-muted-foreground">{formatDate(d.lastCallDate)}</span>
                   </div>
                   <div className="mt-3 pt-3 border-t border-border/60">

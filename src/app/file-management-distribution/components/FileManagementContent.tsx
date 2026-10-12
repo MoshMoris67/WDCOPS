@@ -19,6 +19,8 @@ import { clientBadgeVariant } from '@/lib/client-badge';
 import { useViewMode } from '@/lib/use-view-mode';
 import { useCachedQuery } from '@/lib/use-cached-query';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
+import { formatMoneyMB } from '@/lib/money';
+import { DEPLOYMENT } from '@/config/deployment';
 
 interface FileRow {
   id: string;
@@ -269,12 +271,6 @@ function fileStatusBadge(file: FileRow): { label: string; variant: 'positive' | 
   if (file.importStatus === 'queued' || file.importStatus === 'processing') return { label: 'Importing…', variant: 'warning' };
   if (file.importStatus === 'failed') return { label: 'Import Failed', variant: 'negative' };
   return statusConfig[file.status];
-}
-
-function formatUGX(amount: number) {
-  if (amount >= 1000000000) return `UGX ${(amount / 1000000000).toFixed(2)}B`;
-  if (amount >= 1000000) return `UGX ${(amount / 1000000).toFixed(1)}M`;
-  return 'UGX ' + amount.toLocaleString('en-UG');
 }
 
 function formatDate(iso: string) {
@@ -1083,7 +1079,7 @@ export default function FileManagementContent() {
                       )}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="font-tabular text-sm text-foreground">{formatUGX(file.totalBalance)}</span>
+                      <span className="font-tabular text-sm text-foreground">{formatMoneyMB(file.totalBalance)}</span>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className="font-tabular text-sm text-foreground">{file.agentsAllocated}</span>
@@ -1176,7 +1172,7 @@ export default function FileManagementContent() {
                       </div>
                       <div>
                         <span className="text-muted-foreground block">Balance</span>
-                        <span className="font-tabular font-semibold text-foreground">{formatUGX(file.totalBalance)}</span>
+                        <span className="font-tabular font-semibold text-foreground">{formatMoneyMB(file.totalBalance)}</span>
                       </div>
                       <div>
                         <span className="text-muted-foreground block">Agents</span>
@@ -1784,7 +1780,7 @@ export default function FileManagementContent() {
             <p className="text-xs text-muted-foreground">A unique name for this batch, e.g. KCB-Aug-2026-Batch1</p>
             <input
               type="text"
-              placeholder="e.g. KCB-Aug-2026-Batch1"
+              placeholder={DEPLOYMENT.batchPlaceholder}
               className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 font-mono-data ${errors.batchLabel ? 'border-negative' : 'border-border'}`}
               {...register('batchLabel', { required: 'Enter a batch label' })}
             />
@@ -2108,10 +2104,10 @@ export default function FileManagementContent() {
                 <li>
                   <strong>{newMonthPlan.reconciliations.length}</strong> reconciliation(s) received before{' '}
                   {formatDate(newMonthPlan.cutoff)} are cleared ({newMonthPlan.paidEntryCount.toLocaleString()} payment(s) from{' '}
-                  {newMonthPlan.paidDebtorCount.toLocaleString()} debtor(s), {formatUGX(newMonthPlan.recoveredTotal)} recovered; {(newMonthPlan.entryCount - newMonthPlan.paidEntryCount).toLocaleString()} zero-payment rows also go). Balances are <strong>not</strong> put back — last month&apos;s recoveries simply stop counting.
+                  {newMonthPlan.paidDebtorCount.toLocaleString()} debtor(s), {formatMoneyMB(newMonthPlan.recoveredTotal)} recovered; {(newMonthPlan.entryCount - newMonthPlan.paidEntryCount).toLocaleString()} zero-payment rows also go). Balances are <strong>not</strong> put back — last month&apos;s recoveries simply stop counting.
                 </li>
                 <li>
-                  Everything still outstanding becomes the new total: <strong>{formatUGX(newMonthPlan.outstandingTotal)}</strong> across{' '}
+                  Everything still outstanding becomes the new total: <strong>{formatMoneyMB(newMonthPlan.outstandingTotal)}</strong> across{' '}
                   {newMonthPlan.debtorCount.toLocaleString()} debtor(s).
                 </li>
                 <li>
@@ -2278,7 +2274,7 @@ export default function FileManagementContent() {
                           <td className="px-2 py-1.5 whitespace-nowrap text-foreground">{m.name}</td>
                           <td className="px-2 py-1.5 whitespace-nowrap text-muted-foreground">{m.batchLabel}</td>
                           <td className="px-2 py-1.5 whitespace-nowrap text-muted-foreground">{m.agentName ?? '—'}</td>
-                          <td className="px-2 py-1.5 whitespace-nowrap text-right font-tabular text-foreground">{formatUGX(m.balance)}</td>
+                          <td className="px-2 py-1.5 whitespace-nowrap text-right font-tabular text-foreground">{formatMoneyMB(m.balance)}</td>
                         </tr>
                       ))}
                     </tbody>

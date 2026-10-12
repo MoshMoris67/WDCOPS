@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { Readable } from 'stream';
 import * as XLSX from 'xlsx';
+import { DEPLOYMENT } from '@/config/deployment';
 
 function normalizeHeader(raw: string): string {
   return raw.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -1102,7 +1103,7 @@ export async function buildReportWorkbook(input: {
     { header: 'Agent', key: 'name', width: 24 },
     { header: 'Calls Logged', key: 'calls', width: 14 },
     { header: 'PTPs', key: 'ptps', width: 10 },
-    { header: 'Recovered (UGX)', key: 'recovered', width: 18 },
+    { header: `Recovered (${DEPLOYMENT.currencyCode})`, key: 'recovered', width: 18 },
   ];
   agentSheet.getRow(1).font = { bold: true };
   input.agents.forEach((row) => agentSheet.addRow(row));

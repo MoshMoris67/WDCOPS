@@ -8,6 +8,8 @@ import Badge from '@/components/ui/Badge';
 import { useCachedQuery } from '@/lib/use-cached-query';
 import { clientBadgeVariant } from '@/lib/client-badge';
 import { toDialFormat } from '@/lib/phone';
+import { formatMoneyM } from '@/lib/money';
+import { DEPLOYMENT } from '@/config/deployment';
 
 interface PtpRow {
   id: string;
@@ -42,13 +44,8 @@ interface PtpResponse {
   byClient?: BreakdownRow[];
 }
 
-function formatUGX(amount: number) {
-  if (amount >= 1000000) return `UGX ${(amount / 1000000).toFixed(1)}M`;
-  return 'UGX ' + amount.toLocaleString('en-UG');
-}
-
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-UG', { day: 'numeric', month: 'short', year: 'numeric' });
+  return new Date(iso).toLocaleDateString(DEPLOYMENT.locale, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function PtpSection({ title, icon: Icon, tone, bucket, showAgent }: {
@@ -84,7 +81,7 @@ function PtpSection({ title, icon: Icon, tone, bucket, showAgent }: {
                 </div>
               </div>
               <div className="flex items-center gap-3 shrink-0">
-                <span className="font-tabular text-sm font-semibold text-foreground">{formatUGX(r.promisedAmount ?? 0)}</span>
+                <span className="font-tabular text-sm font-semibold text-foreground">{formatMoneyM(r.promisedAmount ?? 0)}</span>
                 <a
                   href={`tel:${toDialFormat(r.phone)}`}
                   onClick={(e) => e.stopPropagation()}
@@ -117,7 +114,7 @@ function BreakdownTable({ title, rows }: { title: string; rows: BreakdownRow[] }
               <tr key={r.id}>
                 <td className="px-4 py-2.5 text-foreground">{r.name}</td>
                 <td className="px-4 py-2.5 text-muted-foreground text-right">{r.count} PTP{r.count === 1 ? '' : 's'}</td>
-                <td className="px-4 py-2.5 font-tabular font-semibold text-foreground text-right">{formatUGX(r.total)}</td>
+                <td className="px-4 py-2.5 font-tabular font-semibold text-foreground text-right">{formatMoneyM(r.total)}</td>
               </tr>
             ))}
           </tbody>
@@ -145,9 +142,9 @@ export default function PtpTrackerContent() {
       ) : data ? (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-            <KPICard label="Overdue" value={data.overdue.count} subtext={formatUGX(data.overdue.total)} icon={AlertTriangle} variant="negative" />
-            <KPICard label="Due Today" value={data.dueToday.count} subtext={formatUGX(data.dueToday.total)} icon={Clock} variant="warning" />
-            <KPICard label="Upcoming" value={data.upcoming.count} subtext={formatUGX(data.upcoming.total)} icon={CalendarClock} variant="info" />
+            <KPICard label="Overdue" value={data.overdue.count} subtext={formatMoneyM(data.overdue.total)} icon={AlertTriangle} variant="negative" />
+            <KPICard label="Due Today" value={data.dueToday.count} subtext={formatMoneyM(data.dueToday.total)} icon={Clock} variant="warning" />
+            <KPICard label="Upcoming" value={data.upcoming.count} subtext={formatMoneyM(data.upcoming.total)} icon={CalendarClock} variant="info" />
           </div>
 
           <div className="space-y-4">

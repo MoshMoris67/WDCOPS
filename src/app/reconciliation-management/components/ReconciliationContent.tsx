@@ -14,6 +14,8 @@ import { useClients } from '@/lib/use-clients';
 import { clientBadgeVariant } from '@/lib/client-badge';
 import { useCachedQuery } from '@/lib/use-cached-query';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
+import { formatMoneyM } from '@/lib/money';
+import { DEPLOYMENT } from '@/config/deployment';
 
 interface ReconRow {
   id: string;
@@ -128,11 +130,6 @@ const statusConfig = {
   failed: { label: 'Failed — Ref mismatch', variant: 'negative' as const, icon: AlertCircle },
 };
 
-function formatUGX(amount: number) {
-  if (amount >= 1000000) return `UGX ${(amount / 1000000).toFixed(1)}M`;
-  return 'UGX ' + amount.toLocaleString('en-UG');
-}
-
 function formatDateTime(iso: string | null) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -242,7 +239,7 @@ export default function ReconciliationContent() {
         toast.error(payload.error || 'Could not record this payment');
         return;
       }
-      toast.success(`${formatUGX(amount)} recorded for ${manualSelectedDebtor.name}`);
+      toast.success(`${formatMoneyM(amount)} recorded for ${manualSelectedDebtor.name}`);
       closeManualEntry();
       refetchReconciliations();
     } catch {
@@ -439,15 +436,15 @@ export default function ReconciliationContent() {
         return;
       }
       const total = found.reduce((s, f) => s + f.amount, 0);
-      const lines = found.map((f) => `• ${f.batchLabel ?? 'Unnamed file'}: ${formatUGX(f.amount)} across ${f.debtorCount} debtor(s)`).join('\n');
-      if (!window.confirm(`${formatUGX(total)} recovered on ${client.name} isn't backed by any reconciliation:\n\n${lines}\n\nReset these debtors to what their reconciliations record? There is no undo.`)) return;
+      const lines = found.map((f) => `• ${f.batchLabel ?? 'Unnamed file'}: ${formatMoneyM(f.amount)} across ${f.debtorCount} debtor(s)`).join('\n');
+      if (!window.confirm(`${formatMoneyM(total)} recovered on ${client.name} isn't backed by any reconciliation:\n\n${lines}\n\nReset these debtors to what their reconciliations record? There is no undo.`)) return;
       const fix = await fetch(`/api/clients/${client.id}/untracked-recoveries`, { method: 'POST' });
       const fixPayload = await fix.json();
       if (!fix.ok) {
         toast.error(fixPayload.error || 'Could not reset recoveries');
         return;
       }
-      toast.success(`Reset ${fixPayload.debtorCount} debtor(s) — ${formatUGX(total)} removed from Recovered`);
+      toast.success(`Reset ${fixPayload.debtorCount} debtor(s) — ${formatMoneyM(total)} removed from Recovered`);
     } catch {
       toast.error('Could not reach the server — try again');
     } finally {
@@ -496,7 +493,7 @@ export default function ReconciliationContent() {
           { label: 'Processed', value: totalProcessed, icon: CheckCircle, color: 'text-positive', bg: 'bg-[var(--positive-bg)]' },
           { label: 'Pending Processing', value: totalPending, icon: Clock, color: 'text-warning', bg: 'bg-[var(--warning-bg)]' },
           { label: 'Failed / Error', value: totalFailed, icon: AlertCircle, color: 'text-negative', bg: 'bg-[var(--negative-bg)]' },
-          { label: 'Total Recovered — All Clients', value: formatUGX(totalAmountRecovered), icon: BarChart2, color: 'text-primary', bg: 'bg-[var(--info-bg)]' },
+          { label: 'Total Recovered — All Clients', value: formatMoneyM(totalAmountRecovered), icon: BarChart2, color: 'text-primary', bg: 'bg-[var(--info-bg)]' },
         ].map((stat) => (
           <div key={`recon-stat-${stat.label}`} className="bg-card rounded-xl border border-border shadow-card p-4 flex items-center gap-3">
             <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${stat.bg} ${stat.color}`}>
@@ -588,7 +585,7 @@ export default function ReconciliationContent() {
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className="font-tabular text-sm text-foreground">
-                        {recon.totalAmountUpdated > 0 ? formatUGX(recon.totalAmountUpdated) : '—'}
+                        {recon.totalAmountUpdated > 0 ? formatMoneyM(recon.totalAmountUpdated) : '—'}
                       </span>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-xs text-muted-foreground">{formatDateTime(recon.receivedAt)}</td>
@@ -647,7 +644,7 @@ export default function ReconciliationContent() {
                       </div>
                       <div>
                         <span className="text-muted-foreground block">Amount</span>
-                        <span className="font-tabular font-semibold text-foreground">{recon.totalAmountUpdated > 0 ? formatUGX(recon.totalAmountUpdated) : '—'}</span>
+                        <span className="font-tabular font-semibold text-foreground">{recon.totalAmountUpdated > 0 ? formatMoneyM(recon.totalAmountUpdated) : '—'}</span>
                       </div>
                     </div>
                     <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/60">
@@ -737,7 +734,7 @@ export default function ReconciliationContent() {
                     { label: 'Records In', value: selectedRecon.recordCount.toString() },
                     { label: 'Debtors Updated', value: selectedRecon.updatedCount.toString() },
                     { label: 'New Accounts Added', value: selectedRecon.newAccountsCount.toString() },
-                    { label: 'Amount Recovered', value: selectedRecon.totalAmountUpdated > 0 ? formatUGX(selectedRecon.totalAmountUpdated) : '—' },
+                    { label: 'Amount Recovered', value: selectedRecon.totalAmountUpdated > 0 ? formatMoneyM(selectedRecon.totalAmountUpdated) : '—' },
                   ].map((item) => (
                     <div key={`sum-${item.label}`}>
                       <p className="text-xs text-muted-foreground uppercase tracking-wider mb-0.5">{item.label}</p>
@@ -802,8 +799,8 @@ export default function ReconciliationContent() {
                             <p className="text-xs font-mono-data text-muted-foreground">{d.loanRef}</p>
                           </div>
                           <div className="text-right">
-                            <p className="text-xs text-positive font-semibold">−{formatUGX(d.paid)}</p>
-                            <p className="text-xs text-muted-foreground">{formatUGX(d.newBalance)} remaining</p>
+                            <p className="text-xs text-positive font-semibold">−{formatMoneyM(d.paid)}</p>
+                            <p className="text-xs text-muted-foreground">{formatMoneyM(d.newBalance)} remaining</p>
                           </div>
                         </div>
                         <div className="mt-2 h-1.5 bg-secondary rounded-full overflow-hidden">
@@ -1160,7 +1157,7 @@ export default function ReconciliationContent() {
                   autoFocus
                   value={manualSearch}
                   onChange={(e) => setManualSearch(e.target.value)}
-                  placeholder="e.g. Nakato Grace, or KCB-2024-0091"
+                  placeholder={DEPLOYMENT.debtorSearchPlaceholder}
                   className="w-full pl-9 pr-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
                 />
               </div>
@@ -1183,7 +1180,7 @@ export default function ReconciliationContent() {
                       </div>
                       <div className="flex items-center justify-between gap-2 mt-0.5">
                         <span className="text-xs font-mono-data text-muted-foreground">{d.loanRef}</span>
-                        <span className="text-xs font-tabular text-muted-foreground">Balance: {formatUGX(d.balance)}</span>
+                        <span className="text-xs font-tabular text-muted-foreground">Balance: {formatMoneyM(d.balance)}</span>
                       </div>
                     </button>
                   ))}
@@ -1196,7 +1193,7 @@ export default function ReconciliationContent() {
                 <div>
                   <p className="text-sm font-semibold text-foreground">{manualSelectedDebtor.name}</p>
                   <p className="text-xs font-mono-data text-muted-foreground">{manualSelectedDebtor.loanRef}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Current balance: {formatUGX(manualSelectedDebtor.balance)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Current balance: {formatMoneyM(manualSelectedDebtor.balance)}</p>
                 </div>
                 <button
                   type="button"
@@ -1207,7 +1204,7 @@ export default function ReconciliationContent() {
                 </button>
               </div>
               <div className="space-y-1.5">
-                <label className="block text-sm font-medium text-foreground">Amount Collected (UGX) <span className="text-negative">*</span></label>
+                <label className="block text-sm font-medium text-foreground">Amount Collected ({DEPLOYMENT.currencyCode}) <span className="text-negative">*</span></label>
                 <input
                   type="number"
                   autoFocus

@@ -1,7 +1,7 @@
 {
   "name": "WellcashOps",
   "short_name": "WellcashOps",
-  "description": "Centralized debt collections platform for Wellcash Uganda — offline-first agent queue management, live admin oversight, and automated client reporting.",
+  "description": "Centralized debt collections platform for Wellcash — offline-first agent queue management, live admin oversight, and automated client reporting.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

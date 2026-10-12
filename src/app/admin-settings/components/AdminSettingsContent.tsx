@@ -10,6 +10,7 @@ import Modal from '@/components/ui/Modal';
 import { toast } from 'sonner';
 import { getCached, setCached } from '@/lib/offline-cache';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
+import { DEPLOYMENT } from '@/config/deployment';
 
 interface ClientOption {
   id: string;
@@ -301,7 +302,7 @@ export default function AdminSettingsContent() {
     <div className="p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto space-y-6">
       <div>
         <h1 className="text-page-title text-foreground">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">System configuration for the Uganda branch</p>
+        <p className="text-sm text-muted-foreground mt-1">System configuration for the {DEPLOYMENT.branchName} branch</p>
       </div>
 
       <div className="bg-card rounded-xl shadow-card border border-border p-5">
@@ -312,7 +313,7 @@ export default function AdminSettingsContent() {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <div>
             <p className="text-xs text-muted-foreground uppercase tracking-wider">Branch</p>
-            <p className="text-sm font-semibold text-foreground">Uganda</p>
+            <p className="text-sm font-semibold text-foreground">{DEPLOYMENT.branchName}</p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground uppercase tracking-wider">Clients</p>
@@ -320,8 +321,7 @@ export default function AdminSettingsContent() {
           </div>
         </div>
         <p className="text-xs text-muted-foreground mt-3">
-          Every record carries this branch field from day one, per the requirements doc — Uganda is the only
-          value in use today, but the schema is ready if WellcashOps is adopted by other country branches.
+          {DEPLOYMENT.branchNote}
         </p>
       </div>
 

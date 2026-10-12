@@ -1,5 +1,6 @@
 import React from 'react';
 import { FileText } from 'lucide-react';
+import { formatMoneyM } from '@/lib/money';
 
 interface RecentFile {
   id: string;
@@ -43,11 +44,6 @@ function accentFor(name: string) {
   return ACCENTS[hash % ACCENTS.length];
 }
 
-function formatUGX(amount: number) {
-  if (amount >= 1000000) return `UGX ${(amount / 1000000).toFixed(1)}M`;
-  return 'UGX ' + amount.toLocaleString('en-UG');
-}
-
 export default function ClientCard({ name, categoryLabel, debtorCount, contactRate, recovered, totalOwed, totalBalance, recentFiles, onClick }: ClientCardProps) {
   const accent = accentFor(name);
   const recoveryPct = totalOwed > 0 ? Math.round((recovered / totalOwed) * 100) : 0;
@@ -72,7 +68,7 @@ export default function ClientCard({ name, categoryLabel, debtorCount, contactRa
         <div className="grid grid-cols-3 gap-3 my-4 rounded-lg p-3.5 border border-border/60" style={{ background: 'linear-gradient(135deg, var(--secondary), transparent)' }}>
           <div>
             <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">Book Value</span>
-            <span className="text-sm font-bold text-foreground font-tabular">{formatUGX(totalBalance)}</span>
+            <span className="text-sm font-bold text-foreground font-tabular">{formatMoneyM(totalBalance)}</span>
           </div>
           <div>
             <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">Contact Rate</span>
@@ -80,7 +76,7 @@ export default function ClientCard({ name, categoryLabel, debtorCount, contactRa
           </div>
           <div>
             <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">Recovered</span>
-            <span className="text-sm font-bold text-positive font-tabular">{formatUGX(recovered)}</span>
+            <span className="text-sm font-bold text-positive font-tabular">{formatMoneyM(recovered)}</span>
           </div>
         </div>
 

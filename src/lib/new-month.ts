@@ -1,11 +1,12 @@
 import ExcelJS from 'exceljs';
 import { prisma } from '@/lib/db';
 import { chunkedDeleteDebtors } from '@/lib/debtor-delete';
+import { DEPLOYMENT } from '@/config/deployment';
 
-// The business runs on Kampala time (UTC+3, no DST), so "the start of this month" is
-// midnight there — not midnight UTC, which would put a reconciliation received at 01:00 on
-// the 1st on the wrong side of the cutoff.
-const KAMPALA_OFFSET_MS = 3 * 60 * 60 * 1000;
+// The business runs on a fixed-offset time zone (Kampala, UTC+3, no DST, for Uganda — see
+// config/deployment.ts), so "the start of this month" is midnight there — not midnight UTC,
+// which would put a reconciliation received at 01:00 on the 1st on the wrong side of the cutoff.
+const BUSINESS_OFFSET_MS = DEPLOYMENT.utcOffsetHours * 60 * 60 * 1000;
 // A reconciliation a worker tick or "Process now" claimed this recently may still be
 // writing entries — deleting it underneath would let those entries reappear.
 const BUSY_WINDOW_MS = 10 * 60 * 1000;
@@ -13,8 +14,8 @@ const BUSY_WINDOW_MS = 10 * 60 * 1000;
 const CLEARED = 0.005;
 
 export function currentMonthStart(now = new Date()): Date {
-  const k = new Date(now.getTime() + KAMPALA_OFFSET_MS);
-  return new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), 1) - KAMPALA_OFFSET_MS);
+  const k = new Date(now.getTime() + BUSINESS_OFFSET_MS);
+  return new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), 1) - BUSINESS_OFFSET_MS);
 }
 
 export interface NewMonthPlan {

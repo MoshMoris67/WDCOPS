@@ -14,15 +14,12 @@ import { useDebtorQueue, STANDALONE_QUEUE_KEY } from '@/lib/use-debtor-queue';
 import { useCachedQuery } from '@/lib/use-cached-query';
 import { useIsWide } from '@/lib/use-media-query';
 import DebtorDetailContent from '@/app/debtor-detail-call-logging/components/DebtorDetailContent';
+import { formatMoney } from '@/lib/money';
 
 interface DispositionCodeOption {
   code: string;
   label: string;
   color: string;
-}
-
-function formatUGX(amount: number) {
-  return 'UGX ' + amount.toLocaleString('en-UG');
 }
 
 // `lastCallDate` is really the full createdAt timestamp of the latest call log (see
@@ -318,7 +315,7 @@ export default function AgentQueueContent() {
                         <span className="font-mono-data text-xs text-muted-foreground">{debtor.loanRef}</span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="font-tabular font-semibold text-foreground text-sm">{formatUGX(debtor.balance)}</span>
+                        <span className="font-tabular font-semibold text-foreground text-sm">{formatMoney(debtor.balance)}</span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         {debtor.lastDisposition ? (

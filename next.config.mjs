@@ -2,7 +2,9 @@ import { imageHosts } from './image-hosts.config.mjs';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  productionBrowserSourceMaps: true,
+  // Source maps carry the original source (including the Uganda settings in
+  // config/deployment.ts), so the neutral demo build leaves them out.
+  productionBrowserSourceMaps: process.env.NEXT_PUBLIC_DEMO_MODE !== 'true',
   distDir: process.env.DIST_DIR || '.next',
 
   typescript: {

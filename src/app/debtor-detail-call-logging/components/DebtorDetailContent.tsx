@@ -16,6 +16,8 @@ import { useCachedDebtorLite, useStandaloneQueueNav } from '@/lib/use-debtor-que
 import { useCurrentUser } from '@/lib/use-current-user';
 import { clientBadgeVariant } from '@/lib/client-badge';
 import { toDialFormat } from '@/lib/phone';
+import { formatMoney } from '@/lib/money';
+import { DEPLOYMENT } from '@/config/deployment';
 
 // How long after logging a disposition an agent may correct it themselves — must match
 // SELF_CORRECTION_WINDOW_MS in src/app/api/call-logs/[id]/route.ts.
@@ -37,10 +39,6 @@ interface DispositionCodeOption {
   color: string;
   requiresCallback: boolean;
   requiresPtp: boolean;
-}
-
-function formatUGX(amount: number) {
-  return 'UGX ' + amount.toLocaleString('en-UG');
 }
 
 function formatDateTime(iso: string | null) {
@@ -381,7 +379,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
               </p>
               <div className="space-y-1.5">
                 <label className="block text-xs font-medium text-foreground">
-                  Promised Amount (UGX) <span className="text-negative">*</span>
+                  Promised Amount ({DEPLOYMENT.currencyCode}) <span className="text-negative">*</span>
                 </label>
                 <input
                   type="number"
@@ -561,7 +559,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
               <div className="flex items-center gap-4 flex-wrap">
                 <div className="text-right">
                   <p className="text-xs text-muted-foreground uppercase tracking-wider">Balance</p>
-                  <p className="font-tabular font-bold text-xl text-negative">{formatUGX(liteRow.balance)}</p>
+                  <p className="font-tabular font-bold text-xl text-negative">{formatMoney(liteRow.balance)}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-xs text-muted-foreground uppercase tracking-wider">Recovery</p>
@@ -682,11 +680,11 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
           <div className="flex items-center gap-4 flex-wrap">
             <div className="text-right">
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Balance</p>
-              <p className="font-tabular font-bold text-xl text-negative">{formatUGX(debtor.balance)}</p>
+              <p className="font-tabular font-bold text-xl text-negative">{formatMoney(debtor.balance)}</p>
             </div>
             <div className="text-right">
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Paid</p>
-              <p className="font-tabular font-bold text-xl text-positive">{formatUGX(debtor.cumulativePaid)}</p>
+              <p className="font-tabular font-bold text-xl text-positive">{formatMoney(debtor.cumulativePaid)}</p>
             </div>
             <div className="text-right">
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Recovery</p>
@@ -703,7 +701,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
           {debtor.activePTP && (
             <span className="flex items-center gap-1 text-positive font-medium">
               <CheckCircle size={12} />
-              PTP: {formatUGX(debtor.activePTP.amount)} due {formatDateOnly(debtor.activePTP.date)}
+              PTP: {formatMoney(debtor.activePTP.amount)} due {formatDateOnly(debtor.activePTP.date)}
             </span>
           )}
           <span className="ml-auto flex items-center gap-1.5">
@@ -753,9 +751,9 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                   { label: 'Loan Reference', value: debtor.loanRef, mono: true },
                   { label: 'Client', value: debtor.client },
                   { label: 'Branch', value: debtor.branch },
-                  { label: 'Amount Owed', value: formatUGX(debtor.amountOwed), tabular: true },
-                  { label: 'Cumulative Paid', value: formatUGX(debtor.cumulativePaid), tabular: true },
-                  { label: 'Outstanding Balance', value: formatUGX(debtor.balance), tabular: true },
+                  { label: 'Amount Owed', value: formatMoney(debtor.amountOwed), tabular: true },
+                  { label: 'Cumulative Paid', value: formatMoney(debtor.cumulativePaid), tabular: true },
+                  { label: 'Outstanding Balance', value: formatMoney(debtor.balance), tabular: true },
                   { label: 'Recovery Rate', value: `${recoveryPct}%`, tabular: true },
                 ].map((field) => (
                   <div key={`field-${field.label}`} className="space-y-0.5">
@@ -773,7 +771,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                   <div>
                     <p className="text-sm font-semibold text-positive">Active Promise To Pay</p>
                     <p className="text-xs text-positive/80 mt-0.5">
-                      {formatUGX(debtor.activePTP.amount)} promised on {formatDateOnly(debtor.activePTP.date)}. Follow up if not received.
+                      {formatMoney(debtor.activePTP.amount)} promised on {formatDateOnly(debtor.activePTP.date)}. Follow up if not received.
                     </p>
                   </div>
                 </div>
@@ -843,7 +841,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                     )}
                     {log.disposition === 'PTP' && log.promisedAmount && (
                       <p className="text-xs text-positive mt-1 font-medium">
-                        PTP: {formatUGX(log.promisedAmount)} on {formatDateOnly(log.promisedDate)}
+                        PTP: {formatMoney(log.promisedAmount)} on {formatDateOnly(log.promisedDate)}
                       </p>
                     )}
                     {log.disposition === 'CB' && log.promisedDate && (
@@ -885,9 +883,9 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
               <h3 className="text-section-header text-foreground">Payment Summary</h3>
               <div className="grid grid-cols-3 gap-4">
                 {[
-                  { label: 'Original Debt', value: formatUGX(debtor.amountOwed), color: 'text-foreground' },
-                  { label: 'Total Paid', value: formatUGX(debtor.cumulativePaid), color: 'text-positive' },
-                  { label: 'Balance Due', value: formatUGX(debtor.balance), color: 'text-negative' },
+                  { label: 'Original Debt', value: formatMoney(debtor.amountOwed), color: 'text-foreground' },
+                  { label: 'Total Paid', value: formatMoney(debtor.cumulativePaid), color: 'text-positive' },
+                  { label: 'Balance Due', value: formatMoney(debtor.balance), color: 'text-negative' },
                 ].map((item) => (
                   <div key={`pay-${item.label}`} className="bg-secondary/40 rounded-lg p-4 text-center">
                     <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">{item.label}</p>

@@ -17,6 +17,7 @@ import { useViewMode } from '@/lib/use-view-mode';
 import { useCachedQuery } from '@/lib/use-cached-query';
 import { getCached, setCached } from '@/lib/offline-cache';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
+import { formatMoneyM } from '@/lib/money';
 
 interface ClientSummary {
   id: string;
@@ -96,11 +97,6 @@ interface CommissionCard {
 const dispositionVariantMap: Record<string, 'cb' | 'ptp' | 'np' | 'na' | 'hu' | 'nb' | 'db' | 'so' | 'os'> = {
   CB: 'cb', PTP: 'ptp', NP: 'np', NA: 'na', HU: 'hu', NB: 'nb', DB: 'db', SO: 'so', OS: 'os',
 };
-
-function formatUGX(amount: number) {
-  if (amount >= 1000000) return `UGX ${(amount / 1000000).toFixed(1)}M`;
-  return 'UGX ' + amount.toLocaleString('en-UG');
-}
 
 function formatDate(iso: string | null) {
   if (!iso) return '—';
@@ -368,7 +364,7 @@ export default function TeamDashboardContent() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: 'Total Debtors', value: totalDebtors.toLocaleString(), icon: Users, from: '#DBEAFE', to: '#EFF6FF', color: '#1D4ED8' },
-          { label: 'Recovered', value: formatUGX(totalRecovered), icon: Wallet, from: '#DCFCE7', to: '#F0FDF4', color: '#16A34A' },
+          { label: 'Recovered', value: formatMoneyM(totalRecovered), icon: Wallet, from: '#DCFCE7', to: '#F0FDF4', color: '#16A34A' },
           { label: 'Recovery Rate', value: totalOwed > 0 ? `${Math.round((totalRecovered / totalOwed) * 100)}%` : '0%', icon: TrendingUp, from: '#FEF3C7', to: '#FFFBEB', color: '#D97706' },
         ].map((stat) => (
           <div key={stat.label} className="bg-card rounded-xl border border-border shadow-card p-4 flex items-center gap-3">
@@ -540,7 +536,7 @@ export default function TeamDashboardContent() {
                   <td className="px-4 py-3 whitespace-nowrap">
                     <Badge variant={clientBadgeVariant(d.client)}>{d.client}</Badge>
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap font-tabular text-sm text-foreground">{formatUGX(d.balance)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap font-tabular text-sm text-foreground">{formatMoneyM(d.balance)}</td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     {d.lastDisposition ? <Badge variant={dispositionVariantMap[d.lastDisposition] || 'default'}>{d.lastDisposition}</Badge> : <span className="text-xs text-muted-foreground">—</span>}
                   </td>
@@ -577,7 +573,7 @@ export default function TeamDashboardContent() {
                   </div>
                   <div className="flex items-center justify-between mt-3">
                     <div>
-                      <span className="font-tabular text-sm text-foreground block">{formatUGX(d.balance)}</span>
+                      <span className="font-tabular text-sm text-foreground block">{formatMoneyM(d.balance)}</span>
                       <span className="text-xs text-muted-foreground">{formatDate(d.lastCallDate)}</span>
                     </div>
                     {d.lastDisposition ? <Badge variant={dispositionVariantMap[d.lastDisposition] || 'default'}>{d.lastDisposition}</Badge> : <span className="text-xs text-muted-foreground">No calls yet</span>}
@@ -671,7 +667,7 @@ export default function TeamDashboardContent() {
                     <Badge variant={clientBadgeVariant(r.clientName)}>{r.clientName}</Badge>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap font-tabular text-sm text-foreground">{r.assignedCount}</td>
-                  <td className="px-4 py-3 whitespace-nowrap font-tabular text-sm font-semibold text-positive">{formatUGX(r.recovered)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap font-tabular text-sm font-semibold text-positive">{formatMoneyM(r.recovered)}</td>
                 </tr>
               ))}
               {!perfLoading && perfRows.length === 0 && (
@@ -698,7 +694,7 @@ export default function TeamDashboardContent() {
             <div className="px-5 py-4 border-b border-border">
               <h2 className="text-section-header text-foreground">Commission — {card.clientName}</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {formatUGX(totalCompany)} company commission · {formatUGX(totalAgent)} agent commission (20% share)
+                {formatMoneyM(totalCompany)} company commission · {formatMoneyM(totalAgent)} agent commission (20% share)
               </p>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border">
@@ -716,9 +712,9 @@ export default function TeamDashboardContent() {
                       <tr key={b.bucket} className="border-b border-border/60">
                         <td className="px-3 py-2 whitespace-nowrap text-sm text-foreground">{b.label}</td>
                         <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{b.loans}</td>
-                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{formatUGX(b.collections)}</td>
-                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm font-semibold text-positive">{formatUGX(b.companyCommission)}</td>
-                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{formatUGX(b.agentCommission)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{formatMoneyM(b.collections)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm font-semibold text-positive">{formatMoneyM(b.companyCommission)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{formatMoneyM(b.agentCommission)}</td>
                       </tr>
                     ))}
                     {card.buckets.length === 0 && (
@@ -741,9 +737,9 @@ export default function TeamDashboardContent() {
                       <tr key={a.agentId} className="border-b border-border/60">
                         <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-foreground">{a.agentName}</td>
                         <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{a.loans}</td>
-                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{formatUGX(a.collections)}</td>
-                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm font-semibold text-positive">{formatUGX(a.companyCommission)}</td>
-                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm font-semibold text-foreground">{formatUGX(a.agentCommission)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{formatMoneyM(a.collections)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm font-semibold text-positive">{formatMoneyM(a.companyCommission)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm font-semibold text-foreground">{formatMoneyM(a.agentCommission)}</td>
                       </tr>
                     ))}
                     {card.agents.length === 0 && (

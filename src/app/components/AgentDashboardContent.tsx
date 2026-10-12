@@ -8,6 +8,8 @@ import { useOnlineStatus, usePendingSyncCount } from '@/lib/use-offline';
 import { useDebtorQueue } from '@/lib/use-debtor-queue';
 import { useCachedQuery } from '@/lib/use-cached-query';
 import { toDialFormat } from '@/lib/phone';
+import { formatMoneyM } from '@/lib/money';
+import { DEPLOYMENT } from '@/config/deployment';
 
 const DispositionChart = dynamic(() => import('./DispositionChart'), { ssr: false });
 const DailyCallsTrend = dynamic(() => import('./DailyCallsTrend'), { ssr: false });
@@ -44,11 +46,6 @@ interface DashboardSummary {
   fileBreakdown: FileBreakdownRow[];
 }
 
-function formatUGX(amount: number) {
-  if (amount >= 1000000) return `UGX ${(amount / 1000000).toFixed(1)}M`;
-  return 'UGX ' + amount.toLocaleString('en-UG');
-}
-
 export default function AgentDashboardContent() {
   // Only activePTP is needed here (for the KPI cards) — the full queue table moved to
   // /my-queue (AgentQueueContent), which reads this same cached queue itself.
@@ -81,7 +78,7 @@ export default function AgentDashboardContent() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-page-title text-foreground">Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-1">{todayLabel} — Uganda Branch</p>
+          <p className="text-sm text-muted-foreground mt-1">{todayLabel} — {DEPLOYMENT.branchName} Branch</p>
         </div>
         <div className="flex items-center gap-2">
           <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium ${isOnline ? 'sync-online' : 'sync-offline'}`}>
@@ -178,8 +175,8 @@ export default function AgentDashboardContent() {
                       <p className="text-xs text-muted-foreground">{f.clientName}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-sm font-tabular font-semibold text-foreground">{formatUGX(f.myCollected)}</p>
-                      <p className="text-xs text-muted-foreground font-tabular">of {formatUGX(f.totalCollected)} total</p>
+                      <p className="text-sm font-tabular font-semibold text-foreground">{formatMoneyM(f.myCollected)}</p>
+                      <p className="text-xs text-muted-foreground font-tabular">of {formatMoneyM(f.totalCollected)} total</p>
                     </div>
                   </div>
                   <div className="h-1.5 bg-secondary rounded-full overflow-hidden">

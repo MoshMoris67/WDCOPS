@@ -12,6 +12,7 @@ import ResponsiveList from '@/components/ui/ResponsiveList';
 import { toast } from 'sonner';
 import { getCached, setCached } from '@/lib/offline-cache';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
+import { DEPLOYMENT } from '@/config/deployment';
 
 interface UserRow {
   id: string;
@@ -174,7 +175,7 @@ export default function AdminUsersContent() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-page-title text-foreground">Users</h1>
-          <p className="text-sm text-muted-foreground mt-1">Manage admin and agent accounts for the Uganda branch</p>
+          <p className="text-sm text-muted-foreground mt-1">Manage admin and agent accounts for the {DEPLOYMENT.branchName} branch</p>
         </div>
         <button
           onClick={() => setCreateOpen(true)}
