@@ -28,7 +28,7 @@ const DEVELOPER_ONLY = (s) =>
   s === 'DATABASE_URL' ||
   /^[a-z].*( (is|are) required| must be | is not a valid)/.test(s);
 // wording that only exists in the Uganda deployment's JSX (the demo never shows it)
-const UGANDA_ONLY = (s) => /self-hosted PostgreSQL|SQLite|KCB, HFB|currently KCB Mopesa|Local dev uses/.test(s);
+const UGANDA_ONLY = (s) => /self-hosted PostgreSQL|SQLite|KCB, HFB|currently KCB Mopesa|Every shilling tracked|Local dev uses/.test(s);
 
 function walk(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -97,6 +97,11 @@ export function extractKeys() {
   for (const m of cur.matchAll(/name:\s*'([^']+)'/g)) add(m[1], 'src/config/currencies.ts');
   const note = cur.match(/RATES_NOTE\s*=\s*'([^']+)'/);
   if (note) add(note[1], 'src/config/currencies.ts');
+  // texts rendered through t(variable) (table headers, option labels, …) that the scan above cannot see
+  for (const text of JSON.parse(fs.readFileSync(path.join(ROOT, 'src/i18n/indirect-keys.json'), 'utf8'))) {
+    if (!keys.has(text)) keys.set(text, new Set());
+    keys.get(text).add('src/i18n/indirect-keys.json');
+  }
   return keys;
 }
 

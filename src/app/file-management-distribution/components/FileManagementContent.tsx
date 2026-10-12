@@ -21,7 +21,7 @@ import { useCachedQuery } from '@/lib/use-cached-query';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
 import { formatMoneyMB } from '@/lib/money';
 import { DEPLOYMENT } from '@/config/deployment';
-import { t } from '@/i18n';
+import { t , localeFor } from '@/i18n';
 import { tx } from '@/i18n/tx';
 import { BALANCE_BANDS, BAND_RANGE_LABELS } from '@/lib/distribution';
 
@@ -147,7 +147,7 @@ interface LastSync {
 }
 
 function formatSyncTime(iso: string) {
-  return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleString(localeFor('en-GB'), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 interface PaymentMappingState {
@@ -277,7 +277,7 @@ function fileStatusBadge(file: FileRow): { label: string; variant: 'positive' | 
 }
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB');
+  return new Date(iso).toLocaleDateString(localeFor('en-GB'));
 }
 
 export default function FileManagementContent() {
@@ -1032,8 +1032,8 @@ export default function FileManagementContent() {
               renderTableHead={() => (
                 <tr className="border-b border-border bg-secondary/30">
                   {['Batch Label', 'Client', 'Received', 'Debtors', 'Total Balance', 'Agents', 'Status', ''].map((col) => (
-                    <th key={`fth-${col}`} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
-                      {col}
+                    <th key={`fth-${t(col)}`} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                      {t(col)}
                     </th>
                   ))}
                 </tr>
@@ -1623,7 +1623,7 @@ export default function FileManagementContent() {
                         onChange={(e) => setMapping((m) => ({ ...m, [field]: e.target.value }))}
                         className="w-full px-2 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
                       >
-                        <option value="">{['First…', 'Last…', 'Middle (optional)…'][idx]}</option>
+                        <option value="">{t(['First…', 'Last…', 'Middle (optional)…'][idx])}</option>
                         {preview.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
                       </select>
                     ))}
@@ -1639,7 +1639,7 @@ export default function FileManagementContent() {
                   ['amountOwedCol', 'Amount Owed', true],
                 ] as const).map(([field, label, required]) => (
                   <div key={field} className="space-y-1">
-                    <label className="text-xs font-semibold text-foreground uppercase tracking-wide">{label}{required && <span className="text-negative"> *</span>}</label>
+                    <label className="text-xs font-semibold text-foreground uppercase tracking-wide">{t(label)}{required && <span className="text-negative"> *</span>}</label>
                     <select
                       value={mapping[field]}
                       onChange={(e) => setMapping((m) => ({ ...m, [field]: e.target.value }))}
@@ -1930,7 +1930,7 @@ export default function FileManagementContent() {
                           onChange={(e) => setCallingListMapping((m) => ({ ...m, [field]: e.target.value }))}
                           className="w-full px-2 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
                         >
-                          <option value="">{['First…', 'Last…', 'Middle (optional)…'][idx]}</option>
+                          <option value="">{t(['First…', 'Last…', 'Middle (optional)…'][idx])}</option>
                           {syncPreview.callingList.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
                         </select>
                       ))}
@@ -1945,7 +1945,7 @@ export default function FileManagementContent() {
                     ['amountOwedCol', 'Amount Owed', true],
                   ] as const).map(([field, label, required]) => (
                     <div key={field} className="space-y-1">
-                      <label className="text-xs font-semibold text-foreground uppercase tracking-wide">{label}{required && <span className="text-negative"> *</span>}</label>
+                      <label className="text-xs font-semibold text-foreground uppercase tracking-wide">{t(label)}{required && <span className="text-negative"> *</span>}</label>
                       <select
                         value={callingListMapping[field]}
                         onChange={(e) => setCallingListMapping((m) => ({ ...m, [field]: e.target.value }))}
@@ -1973,7 +1973,7 @@ export default function FileManagementContent() {
                     ['companyCommissionCol', 'Company Commission (optional)', false],
                   ] as const).map(([field, label, required]) => (
                     <div key={field} className="space-y-1">
-                      <label className="text-xs font-semibold text-foreground uppercase tracking-wide">{label}{required && <span className="text-negative"> *</span>}</label>
+                      <label className="text-xs font-semibold text-foreground uppercase tracking-wide">{t(label)}{required && <span className="text-negative"> *</span>}</label>
                       <select
                         value={paymentMapping[field]}
                         onChange={(e) => setPaymentMapping((m) => ({ ...m, [field]: e.target.value }))}

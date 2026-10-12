@@ -96,7 +96,7 @@ export default function AdminUsersContent() {
         toast.error(payload.error || t('Could not create user'));
         return;
       }
-      toast.success(t('{0} added as {1}', data.name, roleLabel[data.role]));
+      toast.success(t('{0} added as {1}', data.name, t(roleLabel[data.role])));
       setCreateOpen(false);
       createForm.reset();
       await loadUsers();
@@ -202,7 +202,7 @@ export default function AdminUsersContent() {
             renderTableHead={() => (
               <tr className="border-b border-border bg-secondary/30">
                 {['Name', 'Email', 'Role', 'Assigned', 'Status', ''].map((col) => (
-                  <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                  <th key={t(col)} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{t(col)}</th>
                 ))}
               </tr>
             )}
@@ -212,7 +212,7 @@ export default function AdminUsersContent() {
                 <td className="px-4 py-3 whitespace-nowrap text-sm text-muted-foreground font-mono-data">{u.email}</td>
                 <td className="px-4 py-3 whitespace-nowrap">
                   <Badge variant={u.role === 'admin' ? 'info' : 'default'}>
-                    {roleLabel[u.role]}
+                    {t(roleLabel[u.role])}
                   </Badge>
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap font-tabular text-sm text-foreground">{u.assignedDebtorCount}</td>
@@ -269,7 +269,7 @@ export default function AdminUsersContent() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 mt-3">
-                  <Badge variant={u.role === 'admin' ? 'info' : 'default'}>{roleLabel[u.role]}</Badge>
+                  <Badge variant={u.role === 'admin' ? 'info' : 'default'}>{t(roleLabel[u.role])}</Badge>
                   <Badge variant={u.status === 'active' ? 'positive' : 'muted'} dot>{u.status === 'active' ? t('Active') : t('Inactive')}</Badge>
                   <span className="text-xs text-muted-foreground ml-auto">{t('{0} assigned', u.assignedDebtorCount)}</span>
                 </div>
@@ -394,7 +394,7 @@ export default function AdminUsersContent() {
               type="password"
               placeholder={t('Leave blank to keep the current password')}
               className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${editForm.formState.errors.password ? 'border-negative' : 'border-border'}`}
-              {...editForm.register('password', { validate: (v) => !v || v.length >= 8 || 'At least 8 characters' })}
+              {...editForm.register('password', { validate: (v) => !v || v.length >= 8 || t('At least 8 characters') })}
             />
             {editForm.formState.errors.password && <p className="text-xs text-negative">{t(editForm.formState.errors.password.message)}</p>}
           </div>

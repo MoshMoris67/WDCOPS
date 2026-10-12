@@ -15,7 +15,7 @@ import { useCachedQuery } from '@/lib/use-cached-query';
 import { useIsWide } from '@/lib/use-media-query';
 import DebtorDetailContent from '@/app/debtor-detail-call-logging/components/DebtorDetailContent';
 import { formatMoney } from '@/lib/money';
-import { t } from '@/i18n';
+import { t , localeFor } from '@/i18n';
 
 interface DispositionCodeOption {
   code: string;
@@ -30,7 +30,7 @@ interface DispositionCodeOption {
 // each one's call history individually.
 function formatCallTimestamp(iso: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleString(localeFor('en-GB'), { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 const PAGE_SIZE = 50;

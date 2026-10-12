@@ -16,7 +16,7 @@ import { DEPLOYMENT } from '@/config/deployment';
 import { formatMoneyM } from '@/lib/money';
 import { useCurrencyCode } from '@/lib/currency-store';
 import PreferencesMenu from '@/components/ui/PreferencesMenu';
-import { t } from '@/i18n';
+import { t, localeFor, useLanguage } from '@/i18n';
 
 interface LoginFormData {
   email: string;
@@ -33,8 +33,8 @@ function useBranchClock() {
   }, []);
   if (!now) return { time: '--:--', date: '' };
   return {
-    time: new Intl.DateTimeFormat('en-GB', { timeZone: DEPLOYMENT.timeZone, hour: '2-digit', minute: '2-digit' }).format(now),
-    date: new Intl.DateTimeFormat('en-GB', { timeZone: DEPLOYMENT.timeZone, weekday: 'short', day: '2-digit', month: 'short' }).format(now),
+    time: new Intl.DateTimeFormat(localeFor('en-GB'), { timeZone: DEPLOYMENT.timeZone, hour: '2-digit', minute: '2-digit' }).format(now),
+    date: new Intl.DateTimeFormat(localeFor('en-GB'), { timeZone: DEPLOYMENT.timeZone, weekday: 'short', day: '2-digit', month: 'short' }).format(now),
   };
 }
 
@@ -45,6 +45,7 @@ export default function LoginContent() {
   const [isLoading, setIsLoading] = useState(false);
   const clock = useBranchClock();
   useCurrencyCode(); // re-render the preview amounts when the demo currency changes
+  useLanguage(); // and the text when the demo language changes
 
   const { register, handleSubmit, formState: { errors }, setError } = useForm<LoginFormData>({
     defaultValues: { email: '', password: '', rememberMe: false },
@@ -60,7 +61,7 @@ export default function LoginContent() {
       });
       const payload = await res.json();
       if (!res.ok) {
-        setError('root', { message: payload.error || 'Invalid credentials — use a demo account below to sign in' });
+        setError('root', { message: payload.error || t('Invalid credentials — use a demo account below to sign in') });
         return;
       }
       // Belt and braces alongside the sign-out-time clear in Sidebar.tsx: covers signing

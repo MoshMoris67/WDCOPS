@@ -137,7 +137,7 @@ export default function TeamCoverageSection({ agents }: TeamCoverageSectionProps
           <thead>
             <tr className="border-b border-border bg-secondary/30">
               {['Agent', 'Assigned', 'Contacted', 'Coverage', 'Calls', 'PTPs', ''].map((col) => (
-                <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                <th key={t(col)} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{t(col)}</th>
               ))}
             </tr>
           </thead>

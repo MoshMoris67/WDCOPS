@@ -347,7 +347,7 @@ export default function AdminSettingsContent() {
             <thead>
               <tr className="border-b border-border bg-secondary/30">
                 {['Client', 'Reconciliation Format', 'Reporting Frequency', ''].map((col) => (
-                  <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{col}</th>
+                  <th key={t(col)} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t(col)}</th>
                 ))}
               </tr>
             </thead>
@@ -360,7 +360,7 @@ export default function AdminSettingsContent() {
                       {c.reconciliationType === 'full' ? t('Full') : t('Partial')}
                     </Badge>
                   </td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground capitalize">{c.reportingFrequency}</td>
+                  <td className="px-4 py-3 text-sm text-muted-foreground capitalize">{t(c.reportingFrequency.charAt(0).toUpperCase() + c.reportingFrequency.slice(1))}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => openEditClient(c)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? t('Offline — reconnect to edit') : t('Edit')}>
@@ -402,7 +402,7 @@ export default function AdminSettingsContent() {
             <thead>
               <tr className="border-b border-border bg-secondary/30">
                 {['Code', 'Label', 'Description', 'Callback', 'PTP', ''].map((col) => (
-                  <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{col}</th>
+                  <th key={t(col)} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t(col)}</th>
                 ))}
               </tr>
             </thead>
@@ -465,7 +465,7 @@ export default function AdminSettingsContent() {
             <thead>
               <tr className="border-b border-border bg-secondary/30">
                 {['Aging Band', 'Rate', ''].map((col) => (
-                  <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{col}</th>
+                  <th key={t(col)} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t(col)}</th>
                 ))}
               </tr>
             </thead>
@@ -693,7 +693,7 @@ export default function AdminSettingsContent() {
                 required: t('Enter a commission rate'),
                 validate: (v) => {
                   const n = Number(v);
-                  return (Number.isFinite(n) && n > 0 && n <= 100) || 'Enter a percentage between 0 and 100';
+                  return (Number.isFinite(n) && n > 0 && n <= 100) || t('Enter a percentage between 0 and 100');
                 },
               })}
             />

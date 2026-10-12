@@ -16,7 +16,7 @@ import { useCachedQuery } from '@/lib/use-cached-query';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
 import { formatMoneyM } from '@/lib/money';
 import { DEPLOYMENT } from '@/config/deployment';
-import { t } from '@/i18n';
+import { t , localeFor } from '@/i18n';
 
 interface ReconRow {
   id: string;
@@ -133,7 +133,7 @@ const statusConfig = {
 
 function formatDateTime(iso: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleString(localeFor('en-GB'), { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 export default function ReconciliationContent() {
@@ -349,16 +349,16 @@ export default function ReconciliationContent() {
     const request = fetch(`/api/reconciliations/${id}/process`, { method: 'POST' })
       .then(async (res) => {
         const payload = await res.json();
-        if (!res.ok) throw new Error(payload.error || 'Processing failed');
+        if (!res.ok) throw new Error(payload.error || t('Processing failed'));
         refetchReconciliations();
         return payload;
       })
       .finally(() => setProcessingId(null));
 
     toast.promise(request, {
-      loading: 'Processing reconciliation…',
-      success: (payload) => payload.inProgress ? payload.message : 'Reconciliation processed — balances updated',
-      error: (e) => e.message || 'Processing failed — check loan reference matching',
+      loading: t('Processing reconciliation…'),
+      success: (payload) => payload.inProgress ? payload.message : t('Reconciliation processed — balances updated'),
+      error: (e) => e.message || t('Processing failed — check loan reference matching'),
     });
   }
 
@@ -552,8 +552,8 @@ export default function ReconciliationContent() {
               renderTableHead={() => (
                 <tr className="border-b border-border bg-secondary/30">
                   {['Client', 'Batch', 'Type', 'Records', 'Updated', 'Amount', 'Received', 'Status', ''].map((col) => (
-                    <th key={`rth-${col}`} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
-                      {col}
+                    <th key={`rth-${t(col)}`} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                      {t(col)}
                     </th>
                   ))}
                 </tr>
@@ -731,9 +731,9 @@ export default function ReconciliationContent() {
 
                 <div className="grid grid-cols-2 gap-3">
                   {[
-                    { label: 'Type', value: selectedRecon.type === 'full' ? 'Full Reconciliation' : 'Partial (Paid-Only)' },
+                    { label: 'Type', value: selectedRecon.type === 'full' ? t('Full Reconciliation') : t('Partial (Paid-Only)') },
                     { label: 'Received', value: formatDateTime(selectedRecon.receivedAt) },
-                    { label: 'Processed', value: selectedRecon.processedAt ? formatDateTime(selectedRecon.processedAt) : 'Not yet processed' },
+                    { label: 'Processed', value: selectedRecon.processedAt ? formatDateTime(selectedRecon.processedAt) : t('Not yet processed') },
                     { label: 'Records In', value: selectedRecon.recordCount.toString() },
                     { label: 'Debtors Updated', value: selectedRecon.updatedCount.toString() },
                     { label: 'New Accounts Added', value: selectedRecon.newAccountsCount.toString() },
@@ -944,7 +944,7 @@ export default function ReconciliationContent() {
                   ['amountOwedCol', 'Amount Owed (new accounts)', false],
                 ] as const).map(([field, label, required]) => (
                   <div key={field} className="space-y-1">
-                    <label className="text-xs font-semibold text-foreground uppercase tracking-wide">{label}</label>
+                    <label className="text-xs font-semibold text-foreground uppercase tracking-wide">{t(label)}</label>
                     <select
                       value={reconMapping[field]}
                       onChange={(e) => setReconMapping((m) => ({ ...m, [field]: e.target.value }))}

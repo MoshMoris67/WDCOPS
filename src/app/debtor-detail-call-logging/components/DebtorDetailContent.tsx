@@ -18,7 +18,7 @@ import { clientBadgeVariant } from '@/lib/client-badge';
 import { toDialFormat } from '@/lib/phone';
 import { formatMoney } from '@/lib/money';
 import { DEPLOYMENT } from '@/config/deployment';
-import { t as translate } from '@/i18n';
+import { t as translate , localeFor } from '@/i18n';
 
 // How long after logging a disposition an agent may correct it themselves — must match
 // SELF_CORRECTION_WINDOW_MS in src/app/api/call-logs/[id]/route.ts.
@@ -44,12 +44,12 @@ interface DispositionCodeOption {
 
 function formatDateTime(iso: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleString(localeFor('en-GB'), { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function formatDateOnly(iso: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB');
+  return new Date(iso).toLocaleDateString(localeFor('en-GB'));
 }
 
 // Native date inputs have no built-in upper bound — without `max`, a stray mouse-wheel
@@ -344,7 +344,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                       ? 'border-primary bg-primary/5' :'border-border hover:border-primary/40 hover:bg-secondary/50'
                     }
                   `}
-                  title={d.description ?? undefined}
+                  title={d.description ? translate(d.description) : undefined}
                 >
                   <input
                     type="radio"
@@ -353,7 +353,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                     {...register('dispositionCode', { required: translate('Select a disposition code') })}
                   />
                   <DispositionBadge code={d.code} color={d.color} className="mb-0.5" />
-                  <span className="text-xs text-muted-foreground leading-tight mt-0.5">{d.label.split(' ').slice(0, 2).join(' ')}</span>
+                  <span className="text-xs text-muted-foreground leading-tight mt-0.5">{translate(d.label).split(' ').slice(0, 2).join(' ')}</span>
                 </label>
               ))}
             </div>
@@ -387,7 +387,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                   placeholder="e.g. 400000"
                   className={`w-full px-3 py-2 text-sm bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 font-tabular ${errors.promisedAmount ? 'border-negative' : 'border-border'}`}
                   {...register('promisedAmount', {
-                    required: selectedDispo?.requiresPtp ? 'Enter the promised amount' : false,
+                    required: selectedDispo?.requiresPtp ? translate('Enter the promised amount') : false,
                     min: { value: 1, message: translate('Amount must be positive') },
                   })}
                 />
@@ -402,7 +402,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                   max={maxFutureDate(2)}
                   className={`w-full px-3 py-2 text-sm bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${errors.promisedDate ? 'border-negative' : 'border-border'}`}
                   {...register('promisedDate', {
-                    required: selectedDispo?.requiresPtp ? 'Select the payment date' : false,
+                    required: selectedDispo?.requiresPtp ? translate('Select the payment date') : false,
                   })}
                 />
                 {errors.promisedDate && <p className="text-xs text-negative">{translate(errors.promisedDate.message)}</p>}
@@ -425,7 +425,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                     max={maxFutureDate(2)}
                     className="w-full px-2 py-2 text-sm bg-white border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
                     {...register('callbackDate', {
-                      required: selectedDispo?.requiresCallback ? 'Select callback date' : false,
+                      required: selectedDispo?.requiresCallback ? translate('Select callback date') : false,
                     })}
                   />
                 </div>

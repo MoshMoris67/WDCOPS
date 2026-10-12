@@ -10,6 +10,7 @@ interface BrandWordmarkProps {
 // The black comes from the glass container itself; white/red are the two text rows.
 export default function BrandWordmark({ size = 'md' }: BrandWordmarkProps) {
   const isSm = size === 'sm';
+  const tagline = t('Debt Collectors');
   return (
     <div
       style={{
@@ -41,13 +42,13 @@ export default function BrandWordmark({ size = 'md' }: BrandWordmarkProps) {
           fontSize: isSm ? 8 : 9,
           fontWeight: 700,
           color: '#EF4444',
-          letterSpacing: '0.13em',
+          letterSpacing: tagline.length > 15 ? '0.03em' : '0.13em', // longer translations need tighter spacing to fit the badge
           textTransform: 'uppercase',
           lineHeight: 1.3,
           whiteSpace: 'nowrap',
         }}
       >
-        {t('Debt Collectors')}
+        {tagline}
       </span>
     </div>
   );

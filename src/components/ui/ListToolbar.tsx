@@ -50,7 +50,7 @@ export default function ListToolbar({ search, onSearchChange, searchPlaceholder 
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
-            placeholder={searchPlaceholder}
+            placeholder={t(searchPlaceholder)}
             value={localSearch}
             onChange={(e) => setLocalSearch(e.target.value)}
             className="pl-8 pr-3 py-1.5 text-sm bg-input border border-border rounded-lg w-40 focus:outline-none focus:ring-2 focus:ring-ring/50"

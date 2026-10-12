@@ -91,6 +91,27 @@ on phones, and on the login page). Choices: USD, EUR, MZN, KES, TZS, ZMW, ZAR, A
   that way, so what is typed or exported is never ambiguous.
 - The Uganda system has no switcher and prints UGX exactly as before.
 
-## Still to come
+## Language switcher
 
-Language switcher (English, Portuguese, Swahili, Shona).
+The same menu (globe icon, "Language and currency") offers **English, Portuguese (Mozambique),
+Swahili and Shona**. The choice is remembered in the browser and applies to screens, buttons,
+messages and dates.
+
+- How it works: English text in the code is the lookup key. `t('English text')` returns the
+  translation from `src/i18n/dict/<code>.json` (`pt`, `sw`, `sn`), or the English text itself if
+  there is none, so nothing is ever blank. On the Uganda system `t()` returns the English text
+  untouched.
+- **The translations are a first draft for review**, especially Shona. They are in
+  `translations/pt.csv`, `sw.csv`, `sn.csv` (columns: English, translation, where it is used).
+  Have the Mozambique, Kenya/Tanzania and Zimbabwe teams correct them, then load the corrected file:
+  `node scripts/i18n/i18n.mjs import pt translations/pt.csv` (same for `sw`, `sn`), and
+  `node scripts/i18n/i18n.mjs check` to validate. `report --missing` lists anything untranslated.
+- New screen text: wrap it in `t('...')`, run `node scripts/i18n/i18n.mjs report --missing`, and
+  add the translations (or re-export the CSVs for the reviewers). Text shown through a variable
+  (for example a table header array) cannot be found automatically: add it to
+  `src/i18n/indirect-keys.json`.
+- Dates follow the language (`pt-MZ`, `sw-KE`; English and Shona use day-first `en-GB`, as browsers
+  have no Shona date data). Debtor names, client names and call notes are data and are never
+  translated. Disposition names are translated when the text matches a known one.
+- Exports (Excel downloads) stay in English.
+- The Uganda system has no switcher and is unchanged.

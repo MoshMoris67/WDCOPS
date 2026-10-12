@@ -1,7 +1,7 @@
 import React from 'react';
 import { FileText } from 'lucide-react';
 import { formatMoneyM } from '@/lib/money';
-import { t } from '@/i18n';
+import { t , localeFor } from '@/i18n';
 
 interface RecentFile {
   id: string;
@@ -22,7 +22,7 @@ interface ClientCardProps {
 }
 
 function formatShortDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+  return new Date(iso).toLocaleDateString(localeFor('en-GB'), { day: '2-digit', month: 'short' });
 }
 
 // A handful of accent pairs (bar + soft badge tint), picked deterministically per

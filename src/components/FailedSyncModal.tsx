@@ -5,10 +5,10 @@ import { RefreshCcw, Trash2 } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { QUEUE_CHANGED_EVENT, discardFailedLog, getFailedLogs, retryFailed, syncOneNow } from '@/lib/offline-sync';
 import type { PendingCallLog } from '@/lib/offline-db';
-import { t } from '@/i18n';
+import { t , localeFor } from '@/i18n';
 
 function formatQueuedAt(iso: string) {
-  return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleString(localeFor('en-GB'), { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 interface FailedSyncModalProps {

@@ -19,15 +19,15 @@ export interface Language {
   native: string;
   /** English name (for translators and docs). */
   english: string;
-  /** Locale used for dates and numbers in this language. */
+  /** Locale used for dates and numbers in this language (Shona has no browser date data, so it uses day-first English dates). */
   locale: string;
 }
 
 export const LANGUAGES: Language[] = [
-  { code: 'en', native: 'English', english: 'English', locale: 'en-US' },
+  { code: 'en', native: 'English', english: 'English', locale: 'en-GB' },
   { code: 'pt', native: 'Português', english: 'Portuguese (Mozambique)', locale: 'pt-MZ' },
   { code: 'sw', native: 'Kiswahili', english: 'Swahili', locale: 'sw-KE' },
-  { code: 'sn', native: 'chiShona', english: 'Shona', locale: 'sn-ZW' },
+  { code: 'sn', native: 'chiShona', english: 'Shona', locale: 'en-GB' },
 ];
 
 const STORAGE_KEY = 'wellcash-demo-language';

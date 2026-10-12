@@ -10,7 +10,7 @@ import { useCachedQuery } from '@/lib/use-cached-query';
 import { toDialFormat } from '@/lib/phone';
 import { formatMoneyM } from '@/lib/money';
 import { DEPLOYMENT } from '@/config/deployment';
-import { t } from '@/i18n';
+import { t , localeFor } from '@/i18n';
 
 const DispositionChart = dynamic(() => import('./DispositionChart'), { ssr: false });
 const DailyCallsTrend = dynamic(() => import('./DailyCallsTrend'), { ssr: false });
@@ -61,15 +61,15 @@ export default function AgentDashboardContent() {
   const todayIso = new Date().toISOString().slice(0, 10);
   const ptpDueToday = debtorQueue.filter(d => d.activePTP?.date?.slice(0, 10) === todayIso).length;
   const callbacksToday = (callbacksData?.callbacks ?? []).filter((cb) => cb.callbackDate.slice(0, 10) === todayIso);
-  const todayLabel = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
-  const nowLabel = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const todayLabel = new Date().toLocaleDateString(localeFor('en-GB'), { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+  const nowLabel = new Date().toLocaleTimeString(localeFor('en-GB'), { hour: '2-digit', minute: '2-digit' });
 
   const dispositionChartData = (summary?.dispositionBreakdownToday ?? []).map((d) => {
     const known = dispositionCodes.find((c) => c.code === d.code);
     return { code: d.code, label: known?.label ?? d.code, count: d.count, color: known?.color ?? '#94A3B8' };
   });
   const trendChartData = (summary?.dailyTrend ?? []).map((d) => ({
-    day: new Date(`${d.date}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
+    day: new Date(`${d.date}T00:00:00`).toLocaleDateString(localeFor('en-GB'), { day: '2-digit', month: 'short' }),
     calls: d.count,
   }));
 
@@ -208,7 +208,7 @@ export default function AgentDashboardContent() {
               <div key={cb.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-secondary/50 transition-colors group">
                 <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                   <span className="text-xs font-bold text-primary font-mono-data">
-                    {new Date(cb.callbackDate).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                    {new Date(cb.callbackDate).toLocaleTimeString(localeFor('en-GB'), { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
                 <div className="flex-1 min-w-0">

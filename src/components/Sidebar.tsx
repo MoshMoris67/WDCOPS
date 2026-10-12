@@ -232,7 +232,7 @@ function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, fa
           {(!collapsed || isMobile) && (
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-foreground truncate">{user?.name ?? t('Loading…')}</p>
-              <p className="text-xs text-muted-foreground truncate">{user ? displayRole(user) : ''}</p>
+              <p className="text-xs text-muted-foreground truncate">{user ? t(displayRole(user)) : ''}</p>
             </div>
           )}
           {(!collapsed || isMobile) && (

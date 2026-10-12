@@ -3,10 +3,11 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import Icon from '@/components/ui/AppIcon';
-import { t } from '@/i18n';
+import { t, useLanguage } from '@/i18n';
 
 export default function NotFound() {
     const router = useRouter();
+    useLanguage();
 
     const handleGoHome = () => {
         router?.push('/');

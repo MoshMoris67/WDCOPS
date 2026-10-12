@@ -16,7 +16,7 @@ import { useCachedQuery } from '@/lib/use-cached-query';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
 import { formatMoneyMB } from '@/lib/money';
 import { DEPLOYMENT } from '@/config/deployment';
-import { t } from '@/i18n';
+import { t , localeFor } from '@/i18n';
 
 const ReportDispositionChart = dynamic(() => import('./ReportDispositionChart'), { ssr: false });
 const RecoveryRadialChart = dynamic(() => import('./RecoveryRadialChart'), { ssr: false });
@@ -71,7 +71,7 @@ const frequencies: { key: FrequencyKey; label: string }[] = [
 
 function formatDate(iso: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB');
+  return new Date(iso).toLocaleDateString(localeFor('en-GB'));
 }
 
 function isoDate(d: Date) {
@@ -167,7 +167,7 @@ export default function ReportsContent() {
   const { data: summaryPayload } = useCachedQuery<{ summary: ReportSummary }>(summaryUrl);
   const data = summaryPayload?.summary ?? null;
   useEffect(() => {
-    if (data) setLastGenerated(new Date().toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }));
+    if (data) setLastGenerated(new Date().toLocaleString(localeFor('en-GB'), { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }));
   }, [data]);
 
   const selectedClient = clients.find((c) => c.id === selectedClientId);
@@ -347,7 +347,7 @@ export default function ReportsContent() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
               { label: 'Total Debtors', value: data.totalDebtors.toLocaleString(), icon: Users, sub: selectedAgentName ? t("{0}'s book", selectedAgentName) : t('{0} active file', selectedClient?.name ?? ''), variant: 'info' as const },
-              { label: 'Contact Rate', value: `${contactRate}%`, icon: TrendingUp, sub: `${data.contacted} of ${data.totalDebtors} contacted`, variant: 'positive' as const },
+              { label: 'Contact Rate', value: `${contactRate}%`, icon: TrendingUp, sub: t('{0} of {1} contacted', data.contacted, data.totalDebtors), variant: 'positive' as const },
               { label: 'PTP Rate', value: `${ptpRate}%`, icon: CheckCircle, sub: t('{0} PTPs · {1} committed', data.ptpCount, formatMoneyMB(data.ptpAmount)), variant: 'positive' as const },
             ].map((kpi) => (
               <div key={`rpt-kpi-${kpi.label}`} className={`bg-card rounded-xl border shadow-card p-4 ${kpi.variant === 'positive' ? 'border-[#BBF7D0]' : 'border-[#BFDBFE]'}`}>
@@ -388,8 +388,8 @@ export default function ReportsContent() {
                     renderTableHead={() => (
                       <tr className="border-t border-b border-border bg-secondary/30">
                         {['Code', 'Disposition', 'Count', '% of Total', 'Bar'].map((col) => (
-                          <th key={`dth-${col}`} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
-                            {col}
+                          <th key={`dth-${t(col)}`} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                            {t(col)}
                           </th>
                         ))}
                       </tr>
@@ -450,8 +450,8 @@ export default function ReportsContent() {
                     renderTableHead={() => (
                       <tr className="border-b border-border bg-secondary/30">
                         {['Agent', 'Calls Logged', 'PTPs', 'PTP Rate', 'Recovered', 'Recovery %'].map((col) => (
-                          <th key={`ath-${col}`} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
-                            {col}
+                          <th key={`ath-${t(col)}`} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                            {t(col)}
                           </th>
                         ))}
                       </tr>
@@ -558,7 +558,7 @@ export default function ReportsContent() {
                     { label: 'Include PTP Schedule', checked: true },
                   ].map((config) => (
                     <div key={`cfg-${'label' in config ? config.label : ''}`} className="flex items-center justify-between gap-2">
-                      <span className="text-sm text-foreground">{'label' in config ? config.label : ''}</span>
+                      <span className="text-sm text-foreground">{'label' in config ? t(config.label) : ''}</span>
                       {'checked' in config ? (
                         <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${config.checked ? 'bg-primary border-primary' : 'border-border'}`}>
                           {config.checked && <CheckCircle size={10} className="text-white" />}
@@ -611,7 +611,7 @@ export default function ReportsContent() {
                 ].map((sched) => (
                   <div key={`sched-${sched.freq}`} className="flex items-center justify-between py-2 border-b border-border/60 last:border-0">
                     <div>
-                      <p className="text-sm font-medium text-foreground">{sched.freq}</p>
+                      <p className="text-sm font-medium text-foreground">{t(sched.freq)}</p>
                       <p className="text-xs text-muted-foreground">{t('{0} · Next: {1}', sched.time, sched.nextRun)}</p>
                     </div>
                     <Badge variant="positive" dot>{t('Active')}</Badge>
@@ -659,7 +659,7 @@ export default function ReportsContent() {
               renderTableHead={() => (
                 <tr className="border-b border-border bg-secondary/30">
                   {['Debtor', 'Balance', 'Last Disp.', 'Last Call', 'Reassign'].map((col) => (
-                    <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                    <th key={t(col)} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{t(col)}</th>
                   ))}
                 </tr>
               )}

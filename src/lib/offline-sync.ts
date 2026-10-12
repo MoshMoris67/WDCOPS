@@ -102,7 +102,7 @@ async function pushEntry(entry: PendingCallLog): Promise<SyncOutcome> {
   } catch (err) {
     // Network error, timeout, or genuinely offline — always retryable, this says nothing
     // about whether the record itself is valid.
-    return { ok: false, retryable: true, message: err instanceof Error ? err.message : 'Network error' };
+    return { ok: false, retryable: true, message: err instanceof Error ? err.message : t('Network error') };
   } finally {
     clearTimeout(timeout);
   }

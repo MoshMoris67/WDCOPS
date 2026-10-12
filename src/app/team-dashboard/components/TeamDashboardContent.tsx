@@ -18,7 +18,7 @@ import { useCachedQuery } from '@/lib/use-cached-query';
 import { getCached, setCached } from '@/lib/offline-cache';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
 import { formatMoneyM } from '@/lib/money';
-import { t } from '@/i18n';
+import { t , localeFor } from '@/i18n';
 
 interface ClientSummary {
   id: string;
@@ -101,7 +101,7 @@ const dispositionVariantMap: Record<string, 'cb' | 'ptp' | 'np' | 'na' | 'hu' | 
 
 function formatDate(iso: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB');
+  return new Date(iso).toLocaleDateString(localeFor('en-GB'));
 }
 
 export default function TeamDashboardContent() {
@@ -389,7 +389,7 @@ export default function TeamDashboardContent() {
           <ClientCard
             key={c.id}
             name={c.name}
-            categoryLabel={c.reconciliationType === 'full' ? 'Full Reconciliation' : 'Partial Reconciliation'}
+            categoryLabel={c.reconciliationType === 'full' ? t('Full Reconciliation') : t('Partial Reconciliation')}
             debtorCount={c.debtorCount}
             contactRate={c.contactRate}
             recovered={c.recovered}
@@ -514,7 +514,7 @@ export default function TeamDashboardContent() {
                     />
                   </th>
                   {['Debtor', 'Client', 'Balance', 'Last Disp.', 'Last Call', 'Reassign'].map((col) => (
-                    <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                    <th key={t(col)} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{t(col)}</th>
                   ))}
                 </tr>
               )}
@@ -547,7 +547,7 @@ export default function TeamDashboardContent() {
                       value=""
                       displayValue={t('Reassign…')}
                       disabled={mutationsBlocked}
-                      options={[{ value: '', label: 'Reassign…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: `${a.name}${a.role === 'admin' ? ' (Admin)' : ''} — ${a.assignedCount} assigned` }))]}
+                      options={[{ value: '', label: 'Reassign…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: `${a.name}${a.role === 'admin' ? ' ' + t('(Admin)') : ''} ${t('— {0} assigned', a.assignedCount)}` }))]}
                       onSave={async (agentId) => { if (agentId) await reassignDebtor(d, agentId); }}
                     />
                   </td>
@@ -584,7 +584,7 @@ export default function TeamDashboardContent() {
                       value=""
                       displayValue={t('Reassign to another agent…')}
                       disabled={mutationsBlocked}
-                      options={[{ value: '', label: 'Reassign to another agent…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: `${a.name}${a.role === 'admin' ? ' (Admin)' : ''} — ${a.assignedCount} assigned` }))]}
+                      options={[{ value: '', label: 'Reassign to another agent…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: `${a.name}${a.role === 'admin' ? ' ' + t('(Admin)') : ''} ${t('— {0} assigned', a.assignedCount)}` }))]}
                       onSave={async (agentId) => { if (agentId) await reassignDebtor(d, agentId); }}
                     />
                   </div>
@@ -655,7 +655,7 @@ export default function TeamDashboardContent() {
             <thead>
               <tr className="border-b border-border bg-secondary/30">
                 {['Agent', 'File', 'Client', 'Assigned', 'Collected'].map((col) => (
-                  <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                  <th key={t(col)} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{t(col)}</th>
                 ))}
               </tr>
             </thead>
@@ -704,7 +704,7 @@ export default function TeamDashboardContent() {
                   <thead>
                     <tr className="border-b border-border bg-secondary/30">
                       {['Band', 'Loans', 'Collections', 'Company', 'Agent (20%)'].map((col) => (
-                        <th key={col} className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                        <th key={t(col)} className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{t(col)}</th>
                       ))}
                     </tr>
                   </thead>
@@ -729,7 +729,7 @@ export default function TeamDashboardContent() {
                   <thead>
                     <tr className="border-b border-border bg-secondary/30">
                       {['Agent', 'Loans', 'Collections', 'Company', 'Agent (20%)'].map((col) => (
-                        <th key={col} className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                        <th key={t(col)} className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{t(col)}</th>
                       ))}
                     </tr>
                   </thead>

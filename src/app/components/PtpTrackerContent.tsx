@@ -10,7 +10,7 @@ import { clientBadgeVariant } from '@/lib/client-badge';
 import { toDialFormat } from '@/lib/phone';
 import { formatMoneyM } from '@/lib/money';
 import { DEPLOYMENT } from '@/config/deployment';
-import { t } from '@/i18n';
+import { t, localeFor } from '@/i18n';
 
 interface PtpRow {
   id: string;
@@ -46,7 +46,7 @@ interface PtpResponse {
 }
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString(DEPLOYMENT.locale, { day: 'numeric', month: 'short', year: 'numeric' });
+  return new Date(iso).toLocaleDateString(localeFor(DEPLOYMENT.locale), { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function PtpSection({ title, icon: Icon, tone, bucket, showAgent }: {
