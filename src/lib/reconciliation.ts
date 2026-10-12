@@ -446,6 +446,44 @@ async function runReconciliationTick(reconciliationId: string, timeBudgetMs: num
   }
 }
 
+export interface LiveReconciliationStats {
+  updatedCount: number;
+  totalUpdated: number;
+}
+
+/**
+ * What each reconciliation's log row should show, from the entries that still exist. The
+ * stored updatedCount/totalUpdated are frozen at processing time, but removing debtors
+ * afterwards (bulk-remove, deleting a file, "Start new month"'s zero-balance cleanup)
+ * deletes their entries without touching the log row — so the log kept claiming payments the
+ * debtors no longer carry (Equity: 91 records / UGX 20.1M logged, 61 entries / 2.77M left).
+ * Only processed reconciliations are overridden; updatedCount is capped by the stored value
+ * because new-account entries are not counted in it.
+ */
+export async function liveReconciliationStats(
+  recons: { id: string; status: string; updatedCount: number; totalUpdated: number }[]
+): Promise<Map<string, LiveReconciliationStats>> {
+  const result = new Map<string, LiveReconciliationStats>();
+  const processed = recons.filter((r) => r.status === 'processed');
+  if (processed.length === 0) return result;
+
+  const groups = await prisma.reconciliationEntry.groupBy({
+    by: ['reconciliationId'],
+    where: { reconciliationId: { in: processed.map((r) => r.id) } },
+    _count: { _all: true },
+    _sum: { paidAmount: true },
+  });
+  const byId = new Map(groups.map((g) => [g.reconciliationId, g]));
+  for (const r of processed) {
+    const g = byId.get(r.id);
+    result.set(r.id, {
+      updatedCount: Math.min(r.updatedCount, g?._count._all ?? 0),
+      totalUpdated: g?._sum.paidAmount ?? 0,
+    });
+  }
+  return result;
+}
+
 /**
  * Deletes a reconciliation and reverses the balance changes it made — see
  * api/reconciliations/[id]/route.ts's DELETE handler for the full reasoning. The reversal

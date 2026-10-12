@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { requireRole, isSessionPayload } from '@/lib/rbac';
-import { reverseAndDeleteReconciliation } from '@/lib/reconciliation';
+import { reverseAndDeleteReconciliation, liveReconciliationStats } from '@/lib/reconciliation';
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
@@ -11,6 +11,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const r = await prisma.reconciliation.findUnique({ where: { id }, include: { client: true, file: true } });
   if (!r) return NextResponse.json({ error: 'Reconciliation not found' }, { status: 404 });
+
+  const live = (await liveReconciliationStats([r])).get(r.id);
 
   return NextResponse.json({
     reconciliation: {
@@ -22,9 +24,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       receivedAt: r.receivedAt,
       processedAt: r.processedAt,
       recordCount: r.recordCount,
-      updatedCount: r.updatedCount,
+      updatedCount: live?.updatedCount ?? r.updatedCount,
       newAccountsCount: r.newAccountsCount,
-      totalAmountUpdated: r.totalUpdated,
+      totalAmountUpdated: live?.totalUpdated ?? r.totalUpdated,
       status: r.status,
       errorSummary: r.errorSummary,
       notes: r.notes,
