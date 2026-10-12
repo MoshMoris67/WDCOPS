@@ -457,8 +457,8 @@ export default function AdminSettingsContent() {
           </div>
         </div>
         <p className="text-xs text-muted-foreground px-5 pt-3">
-          Only applies to a client whose reconciliation files carry aging buckets by sheet (currently
-          KCB Mopesa) — a client with no rates configured here is completely unaffected. A bucket left
+          Only applies to a client whose reconciliation files carry aging buckets by sheet
+          {DEPLOYMENT.commissionClientHint} — a client with no rates configured here is completely unaffected. A bucket left
           unconfigured falls back to a standard rate (4/7/9/10/10%) rather than earning nothing.
         </p>
         <div className="overflow-x-auto scrollbar-thin">
@@ -503,11 +503,17 @@ export default function AdminSettingsContent() {
           <Server size={16} className="text-primary" />
           <h2 className="text-section-header text-foreground">Hosting</h2>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Local dev uses a SQLite file. Production must point <code className="font-mono-data">DATABASE_URL</code> at
-          a self-hosted PostgreSQL instance — no third-party service may hold client data (a standing
-          requirement from KCB, HFB, and other clients).
-        </p>
+        {/* Tested directly against the build-time variable (not a config property) so the
+            Uganda-only wording below is removed from the demo bundle entirely. */}
+        {process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? (
+          <p className="text-xs text-muted-foreground">{DEPLOYMENT.hostingNote}</p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Local dev uses a SQLite file. Production must point <code className="font-mono-data">DATABASE_URL</code> at
+            a self-hosted PostgreSQL instance — no third-party service may hold client data (a standing
+            requirement from KCB, HFB, and other clients).
+          </p>
+        )}
       </div>
 
       {/* Client add/edit modal */}
@@ -540,7 +546,7 @@ export default function AdminSettingsContent() {
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-foreground">Client Name <span className="text-negative">*</span></label>
             <input
-              placeholder="e.g. Airtel"
+              placeholder={DEPLOYMENT.clientNamePlaceholder}
               className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${clientForm.formState.errors.name ? 'border-negative' : 'border-border'}`}
               {...clientForm.register('name', { required: 'Enter a client name' })}
             />

@@ -15,7 +15,7 @@ set -euo pipefail
 : "${SESSION_SECRET:=check-only}"
 export DATABASE_URL SESSION_SECRET NEXT_TELEMETRY_DISABLED=1
 
-FORBIDDEN='Uganda|uganda|UGX|Kampala|shilling|wellcash\.ug|en-UG|Nakato|Mukasa'
+FORBIDDEN='Uganda|uganda|UGX|Kampala|Every shilling|wellcash\.ug|en-UG|Nakato|Mukasa|KCB|HFB|Mopesa'
 DEMO_DIST=".check-demo-build"
 UG_DIST=".check-uganda-build"
 trap 'rm -rf "$DEMO_DIST" "$UG_DIST"' EXIT
@@ -33,7 +33,7 @@ echo "OK: demo build is free of country-specific text."
 
 echo "== Building the DEFAULT (Uganda) deployment =="
 DIST_DIR="$UG_DIST" npx next build > /dev/null
-for expected in "UGX" "Every shilling tracked" "yourname@wellcash.ug"; do
+for expected in "UGX" "Every shilling tracked" "yourname@wellcash.ug" "currently KCB Mopesa" "No client data leaves Wellcash infrastructure"; do
   if ! grep -rIlq "$expected" "$UG_DIST/static" 2>/dev/null; then
     echo "FAIL: the Uganda build no longer contains \"$expected\" — its behaviour changed."
     exit 1

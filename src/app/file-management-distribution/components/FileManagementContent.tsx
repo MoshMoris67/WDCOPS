@@ -1777,7 +1777,7 @@ export default function FileManagementContent() {
             <label className="block text-sm font-medium text-foreground">
               Batch Label <span className="text-negative">*</span>
             </label>
-            <p className="text-xs text-muted-foreground">A unique name for this batch, e.g. KCB-Aug-2026-Batch1</p>
+            <p className="text-xs text-muted-foreground">A unique name for this batch, {DEPLOYMENT.batchPlaceholder}</p>
             <input
               type="text"
               placeholder={DEPLOYMENT.batchPlaceholder}

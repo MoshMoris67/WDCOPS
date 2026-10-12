@@ -19,6 +19,7 @@ import {
   AlertTriangle,
   LogOut,
 } from 'lucide-react';
+import CurrencySwitcher from '@/components/ui/CurrencySwitcher';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -215,6 +216,7 @@ function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, fa
       {/* Bottom */}
       <div className="border-t border-border p-2 space-y-1">
         <ThemeToggle collapsed={collapsed && !isMobile} />
+        <CurrencySwitcher collapsed={collapsed && !isMobile} />
 
         {(!collapsed || isMobile) && (
           <NotificationsButton scope={user?.role === 'agent' ? 'mine' : 'branch'} />

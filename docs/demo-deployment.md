@@ -77,7 +77,20 @@ day you run the seed. Running it again resets everything to the same starting st
 - `npm run check:deployments` builds both versions and fails if the demo build contains any
   country-specific text, or if the Uganda build lost its own. Run it before merging changes.
 
+## Currency switcher
+
+The demo shows a **Currency** control next to the theme toggle in the sidebar (and in the top bar
+on phones, and on the login page). Choices: USD, EUR, MZN, KES, TZS, ZMW, ZAR, AED and ZWG.
+
+- Amounts are stored in **USD**. Switching currency only changes how they are *shown*: stored
+  amount x rate. The choice is remembered in the browser; the page may show USD for a
+  fraction of a second on load before the saved currency applies.
+- The rates are **fixed, indicative figures**, not live. They live in
+  `src/config/currencies.ts`; edit that file and redeploy to refresh them. The dropdown says so.
+- Entry fields (promised amount, manual payment) and Excel downloads stay in USD and are labelled
+  that way, so what is typed or exported is never ambiguous.
+- The Uganda system has no switcher and prints UGX exactly as before.
+
 ## Still to come
 
-Currency switcher (USD, EUR, MZN, KES, TZS, ZMW, ZAR, AED, ZWG) and language switcher
-(English, Portuguese, Swahili, Shona).
+Language switcher (English, Portuguese, Swahili, Shona).

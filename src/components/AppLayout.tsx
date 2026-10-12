@@ -8,6 +8,9 @@ import BrandWordmark from '@/components/ui/BrandWordmark';
 import { flushQueue } from '@/lib/offline-sync';
 import { revalidateEssentials } from '@/lib/offline-cache';
 import { useCurrentUser } from '@/lib/use-current-user';
+import CurrencySwitcher from '@/components/ui/CurrencySwitcher';
+import CurrencyBoundary from '@/components/CurrencyBoundary';
+import { DEPLOYMENT } from '@/config/deployment';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -104,11 +107,16 @@ export default function AppLayout({ children }: AppLayoutProps) {
             </svg>
           </button>
           <BrandWordmark size="sm" />
+          {DEPLOYMENT.demo && (
+            <div className="ml-auto">
+              <CurrencySwitcher variant="pill" />
+            </div>
+          )}
         </div>
 
         {/* Page content */}
         <main className="flex-1 overflow-y-auto scrollbar-thin pb-16 lg:pb-0">
-          {children}
+          <CurrencyBoundary>{children}</CurrencyBoundary>
         </main>
       </div>
 

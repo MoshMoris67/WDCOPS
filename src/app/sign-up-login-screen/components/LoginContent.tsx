@@ -13,6 +13,9 @@ import BrandWordmark from '@/components/ui/BrandWordmark';
 import { toast } from 'sonner';
 import { clearReadCache } from '@/lib/offline-cache';
 import { DEPLOYMENT } from '@/config/deployment';
+import { formatMoneyM } from '@/lib/money';
+import { useCurrencyCode } from '@/lib/currency-store';
+import CurrencySwitcher from '@/components/ui/CurrencySwitcher';
 
 interface LoginFormData {
   email: string;
@@ -40,6 +43,7 @@ export default function LoginContent() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const clock = useBranchClock();
+  useCurrencyCode(); // re-render the preview amounts when the demo currency changes
 
   const { register, handleSubmit, formState: { errors }, setError } = useForm<LoginFormData>({
     defaultValues: { email: '', password: '', rememberMe: false },
@@ -137,7 +141,7 @@ export default function LoginContent() {
                   <div key={row.name} className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-xs font-semibold text-slate-800 truncate">{row.name}</p>
-                      <p className="text-[11px] text-slate-500 font-mono-data">{row.balance}</p>
+                      <p className="text-[11px] text-slate-500 font-mono-data">{formatMoneyM(row.amount)}</p>
                     </div>
                     <DispositionBadge code={row.code} color={row.color} />
                   </div>
@@ -169,7 +173,7 @@ export default function LoginContent() {
           </div>
           <div className="flex items-center gap-2 pt-5 border-t border-white/10">
             <RadioTower size={13} className="text-blue-300/60" />
-            <p className="text-[11px] text-blue-300/60">Hosted internally · No client data leaves Wellcash infrastructure</p>
+            <p className="text-[11px] text-blue-300/60">{DEPLOYMENT.loginFooter}</p>
           </div>
         </div>
       </div>
@@ -177,6 +181,11 @@ export default function LoginContent() {
       {/* Right form panel */}
       <div className="flex-1 flex flex-col justify-center px-6 py-10 sm:px-12 lg:px-16 xl:px-20 bg-background overflow-y-auto scrollbar-thin">
         <div className="max-w-md w-full mx-auto fade-in">
+          {DEPLOYMENT.demo && (
+            <div className="flex justify-end mb-6">
+              <CurrencySwitcher variant="pill" />
+            </div>
+          )}
           {/* Mobile logo */}
           <div className="flex items-center gap-2.5 mb-8 lg:hidden">
             <AppLogo size={64} />
@@ -294,7 +303,7 @@ export default function LoginContent() {
           {/* Trust row */}
           <div className="mt-4 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--info-bg)] border border-[#BFDBFE] text-xs text-info">
             <ShieldCheck size={13} className="shrink-0" />
-            <span>Data stays on Wellcash infrastructure. Once signed in, the app keeps working offline — call logs sync when you reconnect.</span>
+            <span>{DEPLOYMENT.loginDataNote}</span>
           </div>
           </div>
         </div>

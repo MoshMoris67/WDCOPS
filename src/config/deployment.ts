@@ -28,13 +28,22 @@ interface Deployment {
   /** Login-page marketing copy. */
   loginTagline: [string, string, string];
   loginBlurb: string;
-  /** Sample rows on the login-page preview card. */
-  previewDebtors: { name: string; balance: string; code: string; color: string }[];
+  /** Small print under the login page's feature list. */
+  loginFooter: string;
+  /** Notice box under the sign-in button. */
+  loginDataNote: string;
+  /** Sample rows on the login-page preview card (amounts in the deployment's base currency). */
+  previewDebtors: { name: string; amount: number; code: string; color: string }[];
   /** Placeholder examples in forms. */
   batchPlaceholder: string;
   debtorSearchPlaceholder: string;
   /** Explanation under the Branch card in Settings. */
   branchNote: string;
+  /** Settings > Hosting card (shown instead of the standard hosting note when set). */
+  hostingNote: string | null;
+  /** Settings > commission rates: which client the aging-bucket commission applies to. */
+  commissionClientHint: string;
+  clientNamePlaceholder: string;
 }
 
 const UGANDA: Deployment = {
@@ -53,14 +62,20 @@ const UGANDA: Deployment = {
   loginTagline: ['Every call logged.', 'Every shilling tracked.', 'One system.'],
   loginBlurb:
     'Replaces the Excel-and-OneDrive workflow with one offline-first platform, purpose-built for the Uganda branch — and ready to extend to any Wellcash country branch next.',
+  loginFooter: 'Hosted internally · No client data leaves Wellcash infrastructure',
+  loginDataNote:
+    'Data stays on Wellcash infrastructure. Once signed in, the app keeps working offline — call logs sync when you reconnect.',
   previewDebtors: [
-    { name: 'Nakato Josephine', balance: 'UGX 2.4M', code: 'PTP', color: '#16A34A' },
-    { name: 'Mukasa Emmanuel', balance: 'UGX 1.2M', code: 'CB', color: '#1D4ED8' },
+    { name: 'Nakato Josephine', amount: 2400000, code: 'PTP', color: '#16A34A' },
+    { name: 'Mukasa Emmanuel', amount: 1200000, code: 'CB', color: '#1D4ED8' },
   ],
   batchPlaceholder: 'e.g. KCB-Aug-2026-Batch1',
   debtorSearchPlaceholder: 'e.g. Nakato Grace, or KCB-2024-0091',
   branchNote:
     'Every record carries this branch field from day one, per the requirements doc — Uganda is the only value in use today, but the schema is ready if WellcashOps is adopted by other country branches.',
+  hostingNote: null,
+  commissionClientHint: ' (currently KCB Mopesa)',
+  clientNamePlaceholder: 'e.g. Airtel',
 };
 
 const DEMO: Deployment = {
@@ -79,14 +94,21 @@ const DEMO: Deployment = {
   loginTagline: ['Every call logged.', 'Every payment tracked.', 'One system.'],
   loginBlurb:
     'Replaces the Excel-and-OneDrive workflow with one offline-first platform, built to run any Wellcash country branch.',
+  loginFooter: 'Demo environment · All data shown is fictional',
+  loginDataNote:
+    'Demo environment — all data shown is fictional. Once signed in, the app keeps working offline — call logs sync when you reconnect.',
   previewDebtors: [
-    { name: 'Amina Hassan', balance: 'USD 2.4K', code: 'PTP', color: '#16A34A' },
-    { name: 'Carlos Mabunda', balance: 'USD 1.2K', code: 'CB', color: '#1D4ED8' },
+    { name: 'Amina Hassan', amount: 2400, code: 'PTP', color: '#16A34A' },
+    { name: 'Carlos Mabunda', amount: 1200, code: 'CB', color: '#1D4ED8' },
   ],
   batchPlaceholder: 'e.g. ClientA-Aug-2026-Batch1',
   debtorSearchPlaceholder: 'e.g. Amina Hassan, or LN-2026-000123',
   branchNote:
     'Every record carries this branch field, so one WellcashOps platform can serve several country branches side by side.',
+  hostingNote:
+    'This demo runs on a hosted test environment and holds fictional data only. A production deployment keeps client data on a self-hosted PostgreSQL instance.',
+  commissionClientHint: ' (in this demo, Savanna Bank)',
+  clientNamePlaceholder: 'e.g. Northwind Microfinance',
 };
 
 export const DEPLOYMENT: Deployment = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? DEMO : UGANDA;
