@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next';
 import { IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google';
 import '../styles/tailwind.css';
 import { Toaster } from 'sonner';
+import { DEPLOYMENT } from '@/config/deployment';
 
 const ibmPlexSans = IBM_Plex_Sans({
   subsets: ['latin'],
@@ -26,7 +27,7 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: 'WellcashOps',
-  description: 'Centralized debt collections platform for Wellcash Uganda — offline-first agent queue management, live admin oversight dashboard, and automated client reporting.',
+  description: DEPLOYMENT.appDescription,
   manifest: '/manifest.json',
   icons: {
     icon: [

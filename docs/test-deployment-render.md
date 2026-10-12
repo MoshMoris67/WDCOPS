@@ -1,5 +1,10 @@
 # WDCOPS reserve site on Render (free) + Neon (free Postgres)
 
+> **Update:** the Render + Neon site described below is now used as the neutral **demo**
+> (see [demo-deployment.md](demo-deployment.md)) and holds fake data only. A reserve copy
+> of the real system needs its own self-hosted database, as the schema header requires.
+> The steps below are kept for reference.
+
 Purpose: a **reserve (standby) copy** that agents can switch to if the office server or
 its internet is down. The office server stays the main site. Steps 1-6 build the site;
 the **Reserve site** section at the end loads the office data into it, keeps it in sync,

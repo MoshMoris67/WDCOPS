@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
-import { BALANCE_BANDS, type BandKey } from '@/lib/distribution';
+import { BALANCE_BANDS, BAND_RANGES as BAND_RANGE, type BandKey } from '@/lib/distribution';
 
 // One numeric range per band — kept in sync with lib/distribution.ts's bandForBalance,
 // which this route used to replicate in JS after fetching every debtor row (including the
@@ -9,12 +9,6 @@ import { BALANCE_BANDS, type BandKey } from '@/lib/distribution';
 // debtors that's the same unbounded-fetch anti-pattern already fixed for file import and
 // reconciliation processing elsewhere this session — counting per band in the database via
 // groupBy avoids ever materializing more than a handful of rows per agent.
-const BAND_RANGE: Record<BandKey, { gt?: number; lte?: number }> = {
-  band0_500k: { lte: 500_000 },
-  band500k_2m: { gt: 500_000, lte: 2_000_000 },
-  band2m_5m: { gt: 2_000_000, lte: 5_000_000 },
-  band5m_plus: { gt: 5_000_000 },
-};
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();

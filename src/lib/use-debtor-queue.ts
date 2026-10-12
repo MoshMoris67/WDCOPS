@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { CACHE_CHANGED_EVENT, getCachedDebtor, getCachedDebtors, getCachedQueueOrder, putCachedDebtors } from './offline-cache';
 import { type CachedDebtorRow } from './offline-db';
+import { t } from '@/i18n';
 
 interface UseDebtorQueueResult {
   debtors: CachedDebtorRow[];
@@ -49,7 +50,7 @@ export function useDebtorQueue(): UseDebtorQueueResult {
       const timeout = setTimeout(() => controller.abort(), 25000);
       try {
         const res = await fetch('/api/debtors?scope=mine', { signal: controller.signal });
-        if (!res.ok) throw new Error(`Request failed (${res.status})`);
+        if (!res.ok) throw new Error(t('Request failed ({0})', res.status));
         const payload: { debtors: Omit<CachedDebtorRow, 'cachedAt'>[] } = await res.json();
         if (cancelled) return;
         await putCachedDebtors(payload.debtors);
@@ -61,7 +62,7 @@ export function useDebtorQueue(): UseDebtorQueueResult {
         setCachedAt(refreshed[0]?.cachedAt ?? null);
       } catch (err) {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'Request failed');
+        setError(err instanceof Error ? err.message : t('Request failed'));
       } finally {
         clearTimeout(timeout);
         if (!cancelled) setIsLoading(false);

@@ -8,6 +8,10 @@ import BrandWordmark from '@/components/ui/BrandWordmark';
 import { flushQueue } from '@/lib/offline-sync';
 import { revalidateEssentials } from '@/lib/offline-cache';
 import { useCurrentUser } from '@/lib/use-current-user';
+import PreferencesMenu from '@/components/ui/PreferencesMenu';
+import CurrencyBoundary from '@/components/CurrencyBoundary';
+import { DEPLOYMENT } from '@/config/deployment';
+import { t } from '@/i18n';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -95,7 +99,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
           <button
             onClick={() => setMobileSidebarOpen(true)}
             className="p-2 rounded-md hover:bg-secondary transition-colors"
-            aria-label="Open menu"
+            aria-label={t('Open menu')}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="3" y1="6" x2="21" y2="6" />
@@ -104,11 +108,16 @@ export default function AppLayout({ children }: AppLayoutProps) {
             </svg>
           </button>
           <BrandWordmark size="sm" />
+          {DEPLOYMENT.demo && (
+            <div className="ml-auto">
+              <PreferencesMenu variant="pill" />
+            </div>
+          )}
         </div>
 
         {/* Page content */}
         <main className="flex-1 overflow-y-auto scrollbar-thin pb-16 lg:pb-0">
-          {children}
+          <CurrencyBoundary>{children}</CurrencyBoundary>
         </main>
       </div>
 

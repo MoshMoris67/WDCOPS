@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { RadialBarChart, RadialBar, ResponsiveContainer, PolarAngleAxis } from 'recharts';
+import { t } from '@/i18n';
 
 interface Props {
   percentage: number;
@@ -29,7 +30,7 @@ export default function RecoveryRadialChart({ percentage, label }: Props) {
       </ResponsiveContainer>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="font-tabular font-bold text-xl text-foreground">{percentage}%</span>
-        <span className="text-xs text-muted-foreground">recovered</span>
+        <span className="text-xs text-muted-foreground">{t('recovered')}</span>
       </div>
     </div>
   );

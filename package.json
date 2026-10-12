@@ -50,7 +50,9 @@
     "lint:fix": "next lint --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,md,json}\"",
     "serve": "next start",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "seed:demo": "node prisma/seed-demo.js",
+    "check:deployments": "bash scripts/check-deployments.sh"
   },
   "dependencies": {
     "@dhiwise/component-tagger": "^1.0.16",

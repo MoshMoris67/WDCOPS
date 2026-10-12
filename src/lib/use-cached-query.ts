@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCached, getCachedMeta, setCached, CACHE_CHANGED_EVENT } from './offline-cache';
+import { t } from '@/i18n';
 
 interface UseCachedQueryOptions<T> {
   /** Set to false to skip fetching entirely — e.g. while a required id is still null. */
@@ -29,7 +30,7 @@ async function defaultFetcher<T>(url: string, timeoutMs: number): Promise<T> {
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) throw new Error(`Request failed (${res.status})`);
+    if (!res.ok) throw new Error(t('Request failed ({0})', res.status));
     return await res.json();
   } finally {
     clearTimeout(timeout);
@@ -84,7 +85,7 @@ export function useCachedQuery<T>(url: string | null, options?: UseCachedQueryOp
         await setCached(url, fresh);
       } catch (err) {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'Request failed');
+        setError(err instanceof Error ? err.message : t('Request failed'));
         setIsLoading(false); // cached data (if any) is already showing — this is informational only
       }
     })();

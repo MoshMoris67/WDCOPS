@@ -1,16 +1,39 @@
+import { DEPLOYMENT } from '@/config/deployment';
+
+// The three thresholds (in the deployment's base currency) that split balances into four
+// bands: 500K / 2M / 5M for the Uganda system, scaled to the demo's USD amounts there.
+const [LOW, MID, HIGH] = DEPLOYMENT.balanceBands;
+
+function compact(n: number): string {
+  if (n >= 1_000_000) return `${Number((n / 1_000_000).toFixed(2))}M`;
+  if (n >= 1_000) return `${Number((n / 1_000).toFixed(2))}K`;
+  return String(n);
+}
+
 export const BALANCE_BANDS = [
-  { key: 'band0_500k', label: '≤ 500K' },
-  { key: 'band500k_2m', label: '500K–2M' },
-  { key: 'band2m_5m', label: '2M–5M' },
-  { key: 'band5m_plus', label: '5M+' },
-] as const;
+  { key: 'band0_500k' as const, label: `≤ ${compact(LOW)}` },
+  { key: 'band500k_2m' as const, label: `${compact(LOW)}–${compact(MID)}` },
+  { key: 'band2m_5m' as const, label: `${compact(MID)}–${compact(HIGH)}` },
+  { key: 'band5m_plus' as const, label: `${compact(HIGH)}+` },
+];
+
+/** The same four ranges without spaces, for table headers and sentences: ≤500K, 500K–2M, 2M–5M, 5M+. */
+export const BAND_RANGE_LABELS = [`≤${compact(LOW)}`, `${compact(LOW)}–${compact(MID)}`, `${compact(MID)}–${compact(HIGH)}`, `${compact(HIGH)}+`];
+
+/** Numeric range per band, for database queries (see api/files/[id]/distribution). */
+export const BAND_RANGES: Record<BandKey, { gt?: number; lte?: number }> = {
+  band0_500k: { lte: LOW },
+  band500k_2m: { gt: LOW, lte: MID },
+  band2m_5m: { gt: MID, lte: HIGH },
+  band5m_plus: { gt: HIGH },
+};
 
 export type BandKey = (typeof BALANCE_BANDS)[number]['key'];
 
 export function bandForBalance(balance: number): BandKey {
-  if (balance <= 500_000) return 'band0_500k';
-  if (balance <= 2_000_000) return 'band500k_2m';
-  if (balance <= 5_000_000) return 'band2m_5m';
+  if (balance <= LOW) return 'band0_500k';
+  if (balance <= MID) return 'band500k_2m';
+  if (balance <= HIGH) return 'band2m_5m';
   return 'band5m_plus';
 }
 

@@ -11,6 +11,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts';
+import { t } from '@/i18n';
 
 export interface DispositionDatum {
   code: string;
@@ -29,15 +30,15 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
   const d = payload[0].payload;
   return (
     <div className="bg-card border border-border rounded-lg shadow-dropdown px-3 py-2">
-      <p className="text-xs font-semibold text-foreground">{d.label}</p>
-      <p className="text-xs text-muted-foreground">{d.count} calls today</p>
+      <p className="text-xs font-semibold text-foreground">{t(d.label)}</p>
+      <p className="text-xs text-muted-foreground">{t('{0} calls today', d.count)}</p>
     </div>
   );
 }
 
 export default function DispositionChart({ data }: { data: DispositionDatum[] }) {
   if (data.length === 0) {
-    return <p className="text-xs text-muted-foreground text-center py-8">No calls logged today yet.</p>;
+    return <p className="text-xs text-muted-foreground text-center py-8">{t('No calls logged today yet.')}</p>;
   }
   return (
     <ResponsiveContainer width="100%" height={200}>

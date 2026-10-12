@@ -8,6 +8,9 @@ import { useOnlineStatus, usePendingSyncCount } from '@/lib/use-offline';
 import { useDebtorQueue } from '@/lib/use-debtor-queue';
 import { useCachedQuery } from '@/lib/use-cached-query';
 import { toDialFormat } from '@/lib/phone';
+import { formatMoneyM } from '@/lib/money';
+import { DEPLOYMENT } from '@/config/deployment';
+import { t , localeFor } from '@/i18n';
 
 const DispositionChart = dynamic(() => import('./DispositionChart'), { ssr: false });
 const DailyCallsTrend = dynamic(() => import('./DailyCallsTrend'), { ssr: false });
@@ -44,11 +47,6 @@ interface DashboardSummary {
   fileBreakdown: FileBreakdownRow[];
 }
 
-function formatUGX(amount: number) {
-  if (amount >= 1000000) return `UGX ${(amount / 1000000).toFixed(1)}M`;
-  return 'UGX ' + amount.toLocaleString('en-UG');
-}
-
 export default function AgentDashboardContent() {
   // Only activePTP is needed here (for the KPI cards) — the full queue table moved to
   // /my-queue (AgentQueueContent), which reads this same cached queue itself.
@@ -63,15 +61,15 @@ export default function AgentDashboardContent() {
   const todayIso = new Date().toISOString().slice(0, 10);
   const ptpDueToday = debtorQueue.filter(d => d.activePTP?.date?.slice(0, 10) === todayIso).length;
   const callbacksToday = (callbacksData?.callbacks ?? []).filter((cb) => cb.callbackDate.slice(0, 10) === todayIso);
-  const todayLabel = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
-  const nowLabel = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const todayLabel = new Date().toLocaleDateString(localeFor('en-GB'), { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+  const nowLabel = new Date().toLocaleTimeString(localeFor('en-GB'), { hour: '2-digit', minute: '2-digit' });
 
   const dispositionChartData = (summary?.dispositionBreakdownToday ?? []).map((d) => {
     const known = dispositionCodes.find((c) => c.code === d.code);
     return { code: d.code, label: known?.label ?? d.code, count: d.count, color: known?.color ?? '#94A3B8' };
   });
   const trendChartData = (summary?.dailyTrend ?? []).map((d) => ({
-    day: new Date(`${d.date}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
+    day: new Date(`${d.date}T00:00:00`).toLocaleDateString(localeFor('en-GB'), { day: '2-digit', month: 'short' }),
     calls: d.count,
   }));
 
@@ -80,13 +78,13 @@ export default function AgentDashboardContent() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-page-title text-foreground">Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-1">{todayLabel} — Uganda Branch</p>
+          <h1 className="text-page-title text-foreground">{t('Dashboard')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t('{0} — {1} Branch', todayLabel, DEPLOYMENT.branchName)}</p>
         </div>
         <div className="flex items-center gap-2">
           <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium ${isOnline ? 'sync-online' : 'sync-offline'}`}>
             {isOnline ? <Wifi size={13} /> : <WifiOff size={13} />}
-            <span>{isOnline ? `Synced ${nowLabel}` : `Offline${pendingSync > 0 ? ` — ${pendingSync} pending` : ''}`}</span>
+            <span>{isOnline ? t('Synced {0}', nowLabel) : `Offline${pendingSync > 0 ? ` — ${pendingSync} pending` : ''}`}</span>
           </div>
         </div>
       </div>
@@ -97,9 +95,9 @@ export default function AgentDashboardContent() {
           <WifiOff size={16} className="text-warning shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-warning">
-              Working offline{pendingSync > 0 ? ` — ${pendingSync} call log${pendingSync === 1 ? '' : 's'} pending sync` : ''}
+              {t('Working offline')}{pendingSync > 0 ? ' ' + (pendingSync === 1 ? t('— {0} call log pending sync', pendingSync) : t('— {0} call logs pending sync', pendingSync)) : ''}
             </p>
-            <p className="text-xs text-warning/80">Your logs are saved locally. They will sync automatically when you reconnect.</p>
+            <p className="text-xs text-warning/80">{t('Your logs are saved locally. They will sync automatically when you reconnect.')}</p>
           </div>
         </div>
       )}
@@ -109,9 +107,9 @@ export default function AgentDashboardContent() {
         {/* Hero: Calls Today spans 2 cols */}
         <div className="col-span-1 md:col-span-2 lg:col-span-2 xl:col-span-2 2xl:col-span-2">
           <KPICard
-            label="Calls Today"
+            label={t('Calls Today')}
             value={String(summary?.callsToday ?? 0)}
-            subtext={`7-day total: ${(summary?.dailyTrend ?? []).reduce((s, d) => s + d.count, 0)} calls`}
+            subtext={t('7-day total: {0} calls', (summary?.dailyTrend ?? []).reduce((s, d) => s + d.count, 0))}
             trend="neutral"
             trendValue=""
             icon={Phone}
@@ -120,9 +118,9 @@ export default function AgentDashboardContent() {
           />
         </div>
         <KPICard
-          label="PTP Due Today"
+          label={t('PTP Due Today')}
           value={String(ptpDueToday)}
-          subtext="Promise dates matching today"
+          subtext={t('Promise dates matching today')}
           trend="neutral"
           trendValue=""
           icon={Clock}
@@ -138,9 +136,9 @@ export default function AgentDashboardContent() {
             </div>
           </div>
           <div>
-            <p className="text-card-label text-muted-foreground uppercase tracking-wider mb-1">File Coverage</p>
+            <p className="text-card-label text-muted-foreground uppercase tracking-wider mb-1">{t('File Coverage')}</p>
             <p className="font-tabular font-bold text-hero-value text-positive">{summary?.contactRate ?? 0}%</p>
-            <p className="text-xs text-muted-foreground mt-1">{summary?.contacted ?? 0} of {summary?.totalAssigned ?? 0} contacted</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('{0} of {1} contacted', summary?.contacted ?? 0, summary?.totalAssigned ?? 0)}</p>
           </div>
           <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
             <div
@@ -150,9 +148,9 @@ export default function AgentDashboardContent() {
           </div>
         </div>
         <KPICard
-          label="Pending Sync"
+          label={t('Pending Sync')}
           value={String(pendingSync)}
-          subtext={pendingSync > 0 ? 'Saved locally, not sent yet' : 'All logs synced to server'}
+          subtext={pendingSync > 0 ? t('Saved locally, not sent yet') : t('All logs synced to server')}
           trend="neutral"
           trendValue=""
           icon={RefreshCw}
@@ -164,8 +162,8 @@ export default function AgentDashboardContent() {
       {summary && summary.fileBreakdown.length > 0 && (
         <div className="bg-card rounded-xl shadow-card border border-border">
           <div className="px-5 py-4 border-b border-border">
-            <h3 className="text-section-header text-foreground">My Collections by File</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">What you've personally recovered on each file you're assigned to, against the file's total</p>
+            <h3 className="text-section-header text-foreground">{t('My Collections by File')}</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">{t('What you\'ve personally recovered on each file you\'re assigned to, against the file\'s total')}</p>
           </div>
           <div className="divide-y divide-border">
             {summary.fileBreakdown.map((f) => {
@@ -178,8 +176,8 @@ export default function AgentDashboardContent() {
                       <p className="text-xs text-muted-foreground">{f.clientName}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-sm font-tabular font-semibold text-foreground">{formatUGX(f.myCollected)}</p>
-                      <p className="text-xs text-muted-foreground font-tabular">of {formatUGX(f.totalCollected)} total</p>
+                      <p className="text-sm font-tabular font-semibold text-foreground">{formatMoneyM(f.myCollected)}</p>
+                      <p className="text-xs text-muted-foreground font-tabular">{t('of {0} total', formatMoneyM(f.totalCollected))}</p>
                     </div>
                   </div>
                   <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
@@ -198,19 +196,19 @@ export default function AgentDashboardContent() {
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
               <Calendar size={15} className="text-primary" />
-              Callbacks Today
+              {t('Callbacks Today')}
             </h3>
             <span className="text-xs font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">{callbacksToday.length}</span>
           </div>
           <div className="space-y-2">
             {callbacksToday.length === 0 && (
-              <p className="text-xs text-muted-foreground py-2">No callbacks scheduled for today</p>
+              <p className="text-xs text-muted-foreground py-2">{t('No callbacks scheduled for today')}</p>
             )}
             {callbacksToday.map((cb) => (
               <div key={cb.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-secondary/50 transition-colors group">
                 <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                   <span className="text-xs font-bold text-primary font-mono-data">
-                    {new Date(cb.callbackDate).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                    {new Date(cb.callbackDate).toLocaleTimeString(localeFor('en-GB'), { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
                 <div className="flex-1 min-w-0">
@@ -220,7 +218,7 @@ export default function AgentDashboardContent() {
                 <a
                   href={`tel:${toDialFormat(cb.phone)}`}
                   className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-primary/10 text-primary transition-all"
-                  title="Call now"
+                  title={t('Call now')}
                 >
                   <Phone size={14} />
                 </a>
@@ -231,14 +229,14 @@ export default function AgentDashboardContent() {
 
         {/* Disposition breakdown chart */}
         <div className="bg-card rounded-xl shadow-card border border-border p-4">
-          <h3 className="text-sm font-semibold text-foreground mb-3">Today's Dispositions</h3>
+          <h3 className="text-sm font-semibold text-foreground mb-3">{t('Today\'s Dispositions')}</h3>
           <DispositionChart data={dispositionChartData} />
         </div>
 
         {/* 7-day trend */}
         <div className="bg-card rounded-xl shadow-card border border-border p-4">
-          <h3 className="text-sm font-semibold text-foreground mb-1">7-Day Call Trend</h3>
-          <p className="text-xs text-muted-foreground mb-3">Daily call log count</p>
+          <h3 className="text-sm font-semibold text-foreground mb-1">{t('7-Day Call Trend')}</h3>
+          <p className="text-xs text-muted-foreground mb-3">{t('Daily call log count')}</p>
           <DailyCallsTrend data={trendChartData} />
         </div>
       </div>

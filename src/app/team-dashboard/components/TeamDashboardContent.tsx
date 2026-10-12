@@ -10,13 +10,15 @@ import ResponsiveList from '@/components/ui/ResponsiveList';
 import ListToolbar from '@/components/ui/ListToolbar';
 import InlineEditCell from '@/components/ui/InlineEditCell';
 import ViewToggle from '@/components/ui/ViewToggle';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { clientBadgeVariant } from '@/lib/client-badge';
 import { debtorRowTint } from '@/lib/format-rules';
 import { useViewMode } from '@/lib/use-view-mode';
 import { useCachedQuery } from '@/lib/use-cached-query';
 import { getCached, setCached } from '@/lib/offline-cache';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
+import { formatMoneyM } from '@/lib/money';
+import { t , localeFor } from '@/i18n';
 
 interface ClientSummary {
   id: string;
@@ -97,14 +99,9 @@ const dispositionVariantMap: Record<string, 'cb' | 'ptp' | 'np' | 'na' | 'hu' | 
   CB: 'cb', PTP: 'ptp', NP: 'np', NA: 'na', HU: 'hu', NB: 'nb', DB: 'db', SO: 'so', OS: 'os',
 };
 
-function formatUGX(amount: number) {
-  if (amount >= 1000000) return `UGX ${(amount / 1000000).toFixed(1)}M`;
-  return 'UGX ' + amount.toLocaleString('en-UG');
-}
-
 function formatDate(iso: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB');
+  return new Date(iso).toLocaleDateString(localeFor('en-GB'));
 }
 
 export default function TeamDashboardContent() {
@@ -271,10 +268,10 @@ export default function TeamDashboardContent() {
     });
     const payload = await res.json();
     if (!res.ok) {
-      toast.error(payload.error || 'Reassignment failed');
+      toast.error(payload.error || t('Reassignment failed'));
       return;
     }
-    toast.success(`${debtor.name} reassigned — call history preserved`);
+    toast.success(t('{0} reassigned — call history preserved', debtor.name));
     await loadOverview();
     refetchDebtors();
     refetchPerf();
@@ -294,7 +291,7 @@ export default function TeamDashboardContent() {
       const res = await fetch(`/api/debtors?${params.toString()}`);
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Could not select all matching debtors');
+        toast.error(payload.error || t('Could not select all matching debtors'));
         return;
       }
       setSelectedIds(new Set(payload.ids as string[]));
@@ -308,7 +305,7 @@ export default function TeamDashboardContent() {
   async function bulkReassign() {
     if (selectedIds.size === 0 || !bulkTargetAgentId) return;
     const targetAgent = agents.find((a) => a.id === bulkTargetAgentId);
-    if (!window.confirm(`Reassign ${selectedIds.size} debtor(s) to ${targetAgent?.name ?? 'this agent'}? Call history stays with each debtor.`)) return;
+    if (!window.confirm(t('Reassign {0} debtor(s) to {1}? Call history stays with each debtor.', selectedIds.size, targetAgent?.name ?? t('this agent')))) return;
 
     setIsBulkReassigning(true);
     try {
@@ -319,13 +316,13 @@ export default function TeamDashboardContent() {
       });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Bulk reassignment failed');
+        toast.error(payload.error || t('Bulk reassignment failed'));
         return;
       }
       toast.success(
         payload.alreadyAssignedCount > 0
-          ? `${payload.movedCount} debtor(s) reassigned — ${payload.alreadyAssignedCount} were already with that agent`
-          : `${payload.movedCount} debtor(s) reassigned to ${targetAgent?.name ?? 'the selected agent'}`
+          ? t('{0} debtor(s) reassigned — {1} were already with that agent', payload.movedCount, payload.alreadyAssignedCount)
+          : t('{0} debtor(s) reassigned to {1}', payload.movedCount, targetAgent?.name ?? t('the selected agent'))
       );
       setSelectedIds(new Set());
       setBulkTargetAgentId('');
@@ -340,7 +337,7 @@ export default function TeamDashboardContent() {
   }
 
   if (authorized === null) {
-    return <div className="p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto"><p className="text-sm text-muted-foreground">Loading…</p></div>;
+    return <div className="p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto"><p className="text-sm text-muted-foreground">{t('Loading…')}</p></div>;
   }
   if (authorized === false) return null;
 
@@ -357,8 +354,8 @@ export default function TeamDashboardContent() {
           style={{ background: 'radial-gradient(circle, rgba(245,158,11,0.28) 0%, rgba(245,158,11,0) 70%)' }}
         />
         <div className="max-w-screen-2xl mx-auto relative">
-          <h1 className="text-2xl font-bold text-white">Team Overview</h1>
-          <p className="text-sm text-blue-200 mt-1">Live view across every client file — scoped by file, not by individual, so any admin sees the full picture</p>
+          <h1 className="text-2xl font-bold text-white">{t('Team Overview')}</h1>
+          <p className="text-sm text-blue-200 mt-1">{t('Live view across every client file — scoped by file, not by individual, so any admin sees the full picture')}</p>
         </div>
       </div>
 
@@ -368,7 +365,7 @@ export default function TeamDashboardContent() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: 'Total Debtors', value: totalDebtors.toLocaleString(), icon: Users, from: '#DBEAFE', to: '#EFF6FF', color: '#1D4ED8' },
-          { label: 'Recovered', value: formatUGX(totalRecovered), icon: Wallet, from: '#DCFCE7', to: '#F0FDF4', color: '#16A34A' },
+          { label: 'Recovered', value: formatMoneyM(totalRecovered), icon: Wallet, from: '#DCFCE7', to: '#F0FDF4', color: '#16A34A' },
           { label: 'Recovery Rate', value: totalOwed > 0 ? `${Math.round((totalRecovered / totalOwed) * 100)}%` : '0%', icon: TrendingUp, from: '#FEF3C7', to: '#FFFBEB', color: '#D97706' },
         ].map((stat) => (
           <div key={stat.label} className="bg-card rounded-xl border border-border shadow-card p-4 flex items-center gap-3">
@@ -379,7 +376,7 @@ export default function TeamDashboardContent() {
               <stat.icon size={18} />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground font-medium">{stat.label}</p>
+              <p className="text-xs text-muted-foreground font-medium">{t(stat.label)}</p>
               <p className="font-tabular font-bold text-lg text-foreground">{stat.value}</p>
             </div>
           </div>
@@ -392,7 +389,7 @@ export default function TeamDashboardContent() {
           <ClientCard
             key={c.id}
             name={c.name}
-            categoryLabel={c.reconciliationType === 'full' ? 'Full Reconciliation' : 'Partial Reconciliation'}
+            categoryLabel={c.reconciliationType === 'full' ? t('Full Reconciliation') : t('Partial Reconciliation')}
             debtorCount={c.debtorCount}
             contactRate={c.contactRate}
             recovered={c.recovered}
@@ -403,7 +400,7 @@ export default function TeamDashboardContent() {
           />
         ))}
         {clients.length === 0 && (
-          <p className="text-sm text-muted-foreground col-span-2">No clients yet — import a file to get started.</p>
+          <p className="text-sm text-muted-foreground col-span-2">{t('No clients yet — import a file to get started.')}</p>
         )}
       </div>
 
@@ -414,9 +411,9 @@ export default function TeamDashboardContent() {
         <div className="bg-card rounded-xl shadow-card border border-border">
           <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
             <div>
-              <h2 className="text-section-header text-foreground">All Debtors</h2>
+              <h2 className="text-section-header text-foreground">{t('All Debtors')}</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {debtors.length} of {total.toLocaleString()} debtors
+                {t('{0} of {1} debtors', debtors.length, total.toLocaleString())}
                 {mutationsBlocked && <span className="ml-2 text-warning">· {offlineReason.replace('make this change', 'reassign')}</span>}
                 {total > debtors.length && (
                   <button
@@ -424,7 +421,7 @@ export default function TeamDashboardContent() {
                     disabled={isSelectingAllMatching || mutationsBlocked}
                     className="ml-2 text-primary hover:underline disabled:opacity-50 disabled:no-underline"
                   >
-                    {isSelectingAllMatching ? 'Selecting…' : `Select all ${total.toLocaleString()} matching your filters`}
+                    {isSelectingAllMatching ? t('Selecting…') : t('Select all {0} matching your filters', total.toLocaleString())}
                   </button>
                 )}
               </p>
@@ -457,7 +454,7 @@ export default function TeamDashboardContent() {
 
           {selectedIds.size > 0 && (
             <div className="px-5 py-3 border-b border-border bg-primary/5 flex items-center justify-between gap-3 flex-wrap">
-              <p className="text-sm font-medium text-foreground">{selectedIds.size.toLocaleString()} debtor(s) selected</p>
+              <p className="text-sm font-medium text-foreground">{t('{0} debtor(s) selected', selectedIds.size.toLocaleString())}</p>
               <div className="flex items-center gap-2 flex-wrap">
                 <select
                   value={bulkTargetAgentId}
@@ -465,9 +462,9 @@ export default function TeamDashboardContent() {
                   disabled={mutationsBlocked}
                   className="text-sm bg-input border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:opacity-50"
                 >
-                  <option value="">Reassign to…</option>
+                  <option value="">{t('Reassign to…')}</option>
                   {agents.filter((a) => a.status === 'active').map((a) => (
-                    <option key={a.id} value={a.id}>{a.name}{a.role === 'admin' ? ' (Admin)' : ''} — {a.assignedCount} assigned</option>
+                    <option key={a.id} value={a.id}>{a.name}{a.role === 'admin' ? (' ' + t('(Admin)')) : ''}{' '}{t('— {0} assigned', a.assignedCount)}</option>
                   ))}
                 </select>
                 <button
@@ -475,13 +472,13 @@ export default function TeamDashboardContent() {
                   disabled={!bulkTargetAgentId || isBulkReassigning || mutationsBlocked}
                   className="px-3 py-1.5 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60"
                 >
-                  {isBulkReassigning ? 'Reassigning…' : `Reassign ${selectedIds.size.toLocaleString()}`}
+                  {isBulkReassigning ? t('Reassigning…') : t('Reassign {0}', selectedIds.size.toLocaleString())}
                 </button>
                 <button
                   onClick={() => { setSelectedIds(new Set()); setBulkTargetAgentId(''); }}
                   className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  Clear
+                  {t('Clear')}
                 </button>
               </div>
             </div>
@@ -496,8 +493,8 @@ export default function TeamDashboardContent() {
               deckColumns="sm:grid-cols-2"
               emptyState={
                 debtorsLoading
-                  ? <p className="text-sm text-muted-foreground text-center py-8">Loading…</p>
-                  : <p className="text-sm text-muted-foreground text-center py-8">No debtors match your filters.</p>
+                  ? <p className="text-sm text-muted-foreground text-center py-8">{t('Loading…')}</p>
+                  : <p className="text-sm text-muted-foreground text-center py-8">{t('No debtors match your filters.')}</p>
               }
               renderTableHead={() => (
                 <tr className="border-b border-border bg-secondary/30">
@@ -513,11 +510,11 @@ export default function TeamDashboardContent() {
                           return next;
                         });
                       }}
-                      title="Select all on this page"
+                      title={t('Select all on this page')}
                     />
                   </th>
                   {['Debtor', 'Client', 'Balance', 'Last Disp.', 'Last Call', 'Reassign'].map((col) => (
-                    <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                    <th key={t(col)} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{t(col)}</th>
                   ))}
                 </tr>
               )}
@@ -540,7 +537,7 @@ export default function TeamDashboardContent() {
                   <td className="px-4 py-3 whitespace-nowrap">
                     <Badge variant={clientBadgeVariant(d.client)}>{d.client}</Badge>
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap font-tabular text-sm text-foreground">{formatUGX(d.balance)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap font-tabular text-sm text-foreground">{formatMoneyM(d.balance)}</td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     {d.lastDisposition ? <Badge variant={dispositionVariantMap[d.lastDisposition] || 'default'}>{d.lastDisposition}</Badge> : <span className="text-xs text-muted-foreground">—</span>}
                   </td>
@@ -548,9 +545,9 @@ export default function TeamDashboardContent() {
                   <td className="px-4 py-3 whitespace-nowrap">
                     <InlineEditCell
                       value=""
-                      displayValue="Reassign…"
+                      displayValue={t('Reassign…')}
                       disabled={mutationsBlocked}
-                      options={[{ value: '', label: 'Reassign…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: `${a.name}${a.role === 'admin' ? ' (Admin)' : ''} — ${a.assignedCount} assigned` }))]}
+                      options={[{ value: '', label: 'Reassign…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: `${a.name}${a.role === 'admin' ? ' ' + t('(Admin)') : ''} ${t('— {0} assigned', a.assignedCount)}` }))]}
                       onSave={async (agentId) => { if (agentId) await reassignDebtor(d, agentId); }}
                     />
                   </td>
@@ -577,17 +574,17 @@ export default function TeamDashboardContent() {
                   </div>
                   <div className="flex items-center justify-between mt-3">
                     <div>
-                      <span className="font-tabular text-sm text-foreground block">{formatUGX(d.balance)}</span>
+                      <span className="font-tabular text-sm text-foreground block">{formatMoneyM(d.balance)}</span>
                       <span className="text-xs text-muted-foreground">{formatDate(d.lastCallDate)}</span>
                     </div>
-                    {d.lastDisposition ? <Badge variant={dispositionVariantMap[d.lastDisposition] || 'default'}>{d.lastDisposition}</Badge> : <span className="text-xs text-muted-foreground">No calls yet</span>}
+                    {d.lastDisposition ? <Badge variant={dispositionVariantMap[d.lastDisposition] || 'default'}>{d.lastDisposition}</Badge> : <span className="text-xs text-muted-foreground">{t('No calls yet')}</span>}
                   </div>
                   <div className="mt-3 pt-3 border-t border-border/60">
                     <InlineEditCell
                       value=""
-                      displayValue="Reassign to another agent…"
+                      displayValue={t('Reassign to another agent…')}
                       disabled={mutationsBlocked}
-                      options={[{ value: '', label: 'Reassign to another agent…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: `${a.name}${a.role === 'admin' ? ' (Admin)' : ''} — ${a.assignedCount} assigned` }))]}
+                      options={[{ value: '', label: 'Reassign to another agent…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: `${a.name}${a.role === 'admin' ? ' ' + t('(Admin)') : ''} ${t('— {0} assigned', a.assignedCount)}` }))]}
                       onSave={async (agentId) => { if (agentId) await reassignDebtor(d, agentId); }}
                     />
                   </div>
@@ -597,13 +594,13 @@ export default function TeamDashboardContent() {
           </div>
           {totalPages > 1 && (
             <div className="px-5 py-3 border-t border-border flex items-center justify-between gap-3">
-              <p className="text-xs text-muted-foreground">Page {page} of {totalPages}</p>
+              <p className="text-xs text-muted-foreground">{t('Page {0} of {1}', page, totalPages)}</p>
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page <= 1}
                   className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
-                  aria-label="Previous page"
+                  aria-label={t('Previous page')}
                 >
                   <ChevronLeft size={15} />
                 </button>
@@ -611,7 +608,7 @@ export default function TeamDashboardContent() {
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page >= totalPages}
                   className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
-                  aria-label="Next page"
+                  aria-label={t('Next page')}
                 >
                   <ChevronRight size={15} />
                 </button>
@@ -625,8 +622,8 @@ export default function TeamDashboardContent() {
       <div className="bg-card rounded-xl shadow-card border border-border">
         <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h2 className="text-section-header text-foreground">Agent Performance by File</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">How much each agent has recovered, broken down per file</p>
+            <h2 className="text-section-header text-foreground">{t('Agent Performance by File')}</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">{t('How much each agent has recovered, broken down per file')}</p>
           </div>
           <ListToolbar
             search=""
@@ -658,7 +655,7 @@ export default function TeamDashboardContent() {
             <thead>
               <tr className="border-b border-border bg-secondary/30">
                 {['Agent', 'File', 'Client', 'Assigned', 'Collected'].map((col) => (
-                  <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                  <th key={t(col)} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{t(col)}</th>
                 ))}
               </tr>
             </thead>
@@ -671,17 +668,17 @@ export default function TeamDashboardContent() {
                     <Badge variant={clientBadgeVariant(r.clientName)}>{r.clientName}</Badge>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap font-tabular text-sm text-foreground">{r.assignedCount}</td>
-                  <td className="px-4 py-3 whitespace-nowrap font-tabular text-sm font-semibold text-positive">{formatUGX(r.recovered)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap font-tabular text-sm font-semibold text-positive">{formatMoneyM(r.recovered)}</td>
                 </tr>
               ))}
               {!perfLoading && perfRows.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">No agent activity matches these filters.</td>
+                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">{t('No agent activity matches these filters.')}</td>
                 </tr>
               )}
               {perfLoading && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">Loading…</td>
+                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">{t('Loading…')}</td>
                 </tr>
               )}
             </tbody>
@@ -696,9 +693,9 @@ export default function TeamDashboardContent() {
         return (
           <div key={card.clientId} className="bg-card rounded-xl shadow-card border border-border">
             <div className="px-5 py-4 border-b border-border">
-              <h2 className="text-section-header text-foreground">Commission — {card.clientName}</h2>
+              <h2 className="text-section-header text-foreground">{t('Commission — {0}', card.clientName)}</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {formatUGX(totalCompany)} company commission · {formatUGX(totalAgent)} agent commission (20% share)
+                {t('{0} company commission · {1} agent commission (20% share)', formatMoneyM(totalCompany), formatMoneyM(totalAgent))}
               </p>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border">
@@ -707,22 +704,22 @@ export default function TeamDashboardContent() {
                   <thead>
                     <tr className="border-b border-border bg-secondary/30">
                       {['Band', 'Loans', 'Collections', 'Company', 'Agent (20%)'].map((col) => (
-                        <th key={col} className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                        <th key={t(col)} className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{t(col)}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {card.buckets.map((b) => (
                       <tr key={b.bucket} className="border-b border-border/60">
-                        <td className="px-3 py-2 whitespace-nowrap text-sm text-foreground">{b.label}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-sm text-foreground">{t(b.label)}</td>
                         <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{b.loans}</td>
-                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{formatUGX(b.collections)}</td>
-                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm font-semibold text-positive">{formatUGX(b.companyCommission)}</td>
-                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{formatUGX(b.agentCommission)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{formatMoneyM(b.collections)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm font-semibold text-positive">{formatMoneyM(b.companyCommission)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{formatMoneyM(b.agentCommission)}</td>
                       </tr>
                     ))}
                     {card.buckets.length === 0 && (
-                      <tr><td colSpan={5} className="px-3 py-6 text-center text-sm text-muted-foreground">No priced collections yet.</td></tr>
+                      <tr><td colSpan={5} className="px-3 py-6 text-center text-sm text-muted-foreground">{t('No priced collections yet.')}</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -732,7 +729,7 @@ export default function TeamDashboardContent() {
                   <thead>
                     <tr className="border-b border-border bg-secondary/30">
                       {['Agent', 'Loans', 'Collections', 'Company', 'Agent (20%)'].map((col) => (
-                        <th key={col} className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                        <th key={t(col)} className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{t(col)}</th>
                       ))}
                     </tr>
                   </thead>
@@ -741,13 +738,13 @@ export default function TeamDashboardContent() {
                       <tr key={a.agentId} className="border-b border-border/60">
                         <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-foreground">{a.agentName}</td>
                         <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{a.loans}</td>
-                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{formatUGX(a.collections)}</td>
-                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm font-semibold text-positive">{formatUGX(a.companyCommission)}</td>
-                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm font-semibold text-foreground">{formatUGX(a.agentCommission)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm text-foreground">{formatMoneyM(a.collections)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm font-semibold text-positive">{formatMoneyM(a.companyCommission)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-tabular text-sm font-semibold text-foreground">{formatMoneyM(a.agentCommission)}</td>
                       </tr>
                     ))}
                     {card.agents.length === 0 && (
-                      <tr><td colSpan={5} className="px-3 py-6 text-center text-sm text-muted-foreground">No agent has collections priced yet.</td></tr>
+                      <tr><td colSpan={5} className="px-3 py-6 text-center text-sm text-muted-foreground">{t('No agent has collections priced yet.')}</td></tr>
                     )}
                   </tbody>
                 </table>

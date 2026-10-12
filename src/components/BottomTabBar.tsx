@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LayoutDashboard, Phone, FolderOpen, RefreshCcw, MoreHorizontal } from 'lucide-react';
 import type { CurrentUser } from '@/lib/nav-groups';
+import { t } from '@/i18n';
 
 interface BottomTabBarProps {
   user: CurrentUser;
@@ -42,7 +43,7 @@ export default function BottomTabBar({ user, onMoreClick }: BottomTabBarProps) {
             }`}
           >
             <tab.icon size={19} />
-            {tab.label}
+            {t(tab.label)}
           </Link>
         );
       })}
@@ -51,7 +52,7 @@ export default function BottomTabBar({ user, onMoreClick }: BottomTabBarProps) {
         className="flex-1 flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium text-muted-foreground"
       >
         <MoreHorizontal size={19} />
-        More
+        {t('More')}
       </button>
     </nav>
   );

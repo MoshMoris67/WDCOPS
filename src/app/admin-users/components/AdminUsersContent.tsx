@@ -9,9 +9,11 @@ import Modal from '@/components/ui/Modal';
 import Fab from '@/components/ui/Fab';
 import ListToolbar from '@/components/ui/ListToolbar';
 import ResponsiveList from '@/components/ui/ResponsiveList';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { getCached, setCached } from '@/lib/offline-cache';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
+import { DEPLOYMENT } from '@/config/deployment';
+import { t } from '@/i18n';
 
 interface UserRow {
   id: string;
@@ -91,10 +93,10 @@ export default function AdminUsersContent() {
       });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Could not create user');
+        toast.error(payload.error || t('Could not create user'));
         return;
       }
-      toast.success(`${data.name} added as ${roleLabel[data.role]}`);
+      toast.success(t('{0} added as {1}', data.name, t(roleLabel[data.role])));
       setCreateOpen(false);
       createForm.reset();
       await loadUsers();
@@ -123,10 +125,10 @@ export default function AdminUsersContent() {
       });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Could not update user');
+        toast.error(payload.error || t('Could not update user'));
         return;
       }
-      toast.success(`${data.name} updated`);
+      toast.success(t('{0} updated', data.name));
       setEditingUser(null);
       await loadUsers();
     } catch {
@@ -145,7 +147,7 @@ export default function AdminUsersContent() {
     });
     const payload = await res.json();
     if (!res.ok) {
-      toast.error(payload.error || 'Could not update user');
+      toast.error(payload.error || t('Could not update user'));
       return;
     }
     toast.success(`${user.name} ${nextStatus === 'active' ? 'reactivated' : 'deactivated'}`);
@@ -153,19 +155,19 @@ export default function AdminUsersContent() {
   }
 
   async function deleteUser(user: UserRow) {
-    if (!window.confirm(`Delete ${user.name}? This only works if they have no assigned debtors or call history.`)) return;
+    if (!window.confirm(t('Delete {0}? This only works if they have no assigned debtors or call history.', user.name))) return;
     const res = await fetch(`/api/users/${user.id}`, { method: 'DELETE' });
     const payload = await res.json();
     if (!res.ok) {
-      toast.error(payload.error || 'Could not delete user');
+      toast.error(payload.error || t('Could not delete user'));
       return;
     }
-    toast.success(`${user.name} deleted`);
+    toast.success(t('{0} deleted', user.name));
     await loadUsers();
   }
 
   if (authorized === null) {
-    return <div className="p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto"><p className="text-sm text-muted-foreground">Loading…</p></div>;
+    return <div className="p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto"><p className="text-sm text-muted-foreground">{t('Loading…')}</p></div>;
   }
   if (authorized === false) return null;
 
@@ -173,34 +175,34 @@ export default function AdminUsersContent() {
     <div className="p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-page-title text-foreground">Users</h1>
-          <p className="text-sm text-muted-foreground mt-1">Manage admin and agent accounts for the Uganda branch</p>
+          <h1 className="text-page-title text-foreground">{t('Users')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t('Manage admin and agent accounts for the {0} branch', DEPLOYMENT.branchName)}</p>
         </div>
         <button
           onClick={() => setCreateOpen(true)}
           disabled={offlineBlocked}
-          title={offlineBlocked ? 'Offline — reconnect to add a user' : undefined}
+          title={offlineBlocked ? t('Offline — reconnect to add a user') : undefined}
           className="hidden lg:flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
         >
           <UserPlus size={15} />
-          Add User
+          {t('Add User')}
         </button>
       </div>
 
       <div className="bg-card rounded-xl shadow-card border border-border">
         <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
-          <h2 className="text-section-header text-foreground">{users.length} accounts</h2>
-          <ListToolbar search={search} onSearchChange={setSearch} searchPlaceholder="Search name or email…" />
+          <h2 className="text-section-header text-foreground">{t('{0} accounts', users.length)}</h2>
+          <ListToolbar search={search} onSearchChange={setSearch} searchPlaceholder={t('Search name or email…')} />
         </div>
         <div className="p-4 md:p-0">
           <ResponsiveList
             items={filtered}
             keyFor={(u) => u.id}
-            emptyState={<p className="text-sm text-muted-foreground text-center py-8">No users match your search.</p>}
+            emptyState={<p className="text-sm text-muted-foreground text-center py-8">{t('No users match your search.')}</p>}
             renderTableHead={() => (
               <tr className="border-b border-border bg-secondary/30">
                 {['Name', 'Email', 'Role', 'Assigned', 'Status', ''].map((col) => (
-                  <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                  <th key={t(col)} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{t(col)}</th>
                 ))}
               </tr>
             )}
@@ -210,12 +212,12 @@ export default function AdminUsersContent() {
                 <td className="px-4 py-3 whitespace-nowrap text-sm text-muted-foreground font-mono-data">{u.email}</td>
                 <td className="px-4 py-3 whitespace-nowrap">
                   <Badge variant={u.role === 'admin' ? 'info' : 'default'}>
-                    {roleLabel[u.role]}
+                    {t(roleLabel[u.role])}
                   </Badge>
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap font-tabular text-sm text-foreground">{u.assignedDebtorCount}</td>
                 <td className="px-4 py-3 whitespace-nowrap">
-                  <Badge variant={u.status === 'active' ? 'positive' : 'muted'} dot>{u.status === 'active' ? 'Active' : 'Inactive'}</Badge>
+                  <Badge variant={u.status === 'active' ? 'positive' : 'muted'} dot>{u.status === 'active' ? t('Active') : t('Inactive')}</Badge>
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap">
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -223,7 +225,7 @@ export default function AdminUsersContent() {
                       onClick={() => openEdit(u)}
                       disabled={offlineBlocked}
                       className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground disabled:opacity-40"
-                      title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit'}
+                      title={offlineBlocked ? t('Offline — reconnect to edit') : t('Edit')}
                     >
                       <Pencil size={14} />
                     </button>
@@ -231,7 +233,7 @@ export default function AdminUsersContent() {
                       onClick={() => toggleStatus(u)}
                       disabled={offlineBlocked}
                       className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40"
-                      title={offlineBlocked ? 'Offline — reconnect' : (u.status === 'active' ? 'Deactivate' : 'Reactivate')}
+                      title={offlineBlocked ? t('Offline — reconnect') : (u.status === 'active' ? t('Deactivate') : t('Reactivate'))}
                     >
                       {u.status === 'active' ? <Ban size={14} /> : <CheckCircle size={14} />}
                     </button>
@@ -239,7 +241,7 @@ export default function AdminUsersContent() {
                       onClick={() => deleteUser(u)}
                       disabled={offlineBlocked}
                       className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40"
-                      title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'}
+                      title={offlineBlocked ? t('Offline — reconnect to delete') : t('Delete')}
                     >
                       <Trash2 size={14} />
                     </button>
@@ -255,21 +257,21 @@ export default function AdminUsersContent() {
                     <p className="text-xs text-muted-foreground font-mono-data truncate">{u.email}</p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => openEdit(u)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit'}>
+                    <button onClick={() => openEdit(u)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? t('Offline — reconnect to edit') : t('Edit')}>
                       <Pencil size={14} />
                     </button>
-                    <button onClick={() => toggleStatus(u)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect' : (u.status === 'active' ? 'Deactivate' : 'Reactivate')}>
+                    <button onClick={() => toggleStatus(u)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? t('Offline — reconnect') : (u.status === 'active' ? t('Deactivate') : t('Reactivate'))}>
                       {u.status === 'active' ? <Ban size={14} /> : <CheckCircle size={14} />}
                     </button>
-                    <button onClick={() => deleteUser(u)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'}>
+                    <button onClick={() => deleteUser(u)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? t('Offline — reconnect to delete') : t('Delete')}>
                       <Trash2 size={14} />
                     </button>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 mt-3">
-                  <Badge variant={u.role === 'admin' ? 'info' : 'default'}>{roleLabel[u.role]}</Badge>
-                  <Badge variant={u.status === 'active' ? 'positive' : 'muted'} dot>{u.status === 'active' ? 'Active' : 'Inactive'}</Badge>
-                  <span className="text-xs text-muted-foreground ml-auto">{u.assignedDebtorCount} assigned</span>
+                  <Badge variant={u.role === 'admin' ? 'info' : 'default'}>{t(roleLabel[u.role])}</Badge>
+                  <Badge variant={u.status === 'active' ? 'positive' : 'muted'} dot>{u.status === 'active' ? t('Active') : t('Inactive')}</Badge>
+                  <span className="text-xs text-muted-foreground ml-auto">{t('{0} assigned', u.assignedDebtorCount)}</span>
                 </div>
               </div>
             )}
@@ -277,21 +279,21 @@ export default function AdminUsersContent() {
         </div>
       </div>
 
-      <Fab onClick={() => setCreateOpen(true)} label="Add User" icon={UserPlus} disabled={offlineBlocked} />
+      <Fab onClick={() => setCreateOpen(true)} label={t('Add User')} icon={UserPlus} disabled={offlineBlocked} />
 
       {/* Add user */}
       <Modal
         open={createOpen}
         onClose={() => { setCreateOpen(false); createForm.reset(); }}
-        title="Add User"
-        subtitle="Create a login for an admin or agent"
+        title={t('Add User')}
+        subtitle={t('Create a login for an admin or agent')}
         footer={
           <>
             <button
               onClick={() => { setCreateOpen(false); createForm.reset(); }}
               className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
-              Cancel
+              {t('Cancel')}
             </button>
             <button
               form="create-user-form"
@@ -300,43 +302,43 @@ export default function AdminUsersContent() {
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60"
             >
               <ShieldCheck size={15} />
-              {isSaving ? 'Creating…' : 'Create User'}
+              {isSaving ? t('Creating…') : t('Create User')}
             </button>
           </>
         }
       >
         <form id="create-user-form" onSubmit={createForm.handleSubmit(onCreate)} className="space-y-4">
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Full Name <span className="text-negative">*</span></label>
+            <label className="block text-sm font-medium text-foreground">{t('Full Name')}{' '}<span className="text-negative">*</span></label>
             <input
               className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${createForm.formState.errors.name ? 'border-negative' : 'border-border'}`}
-              {...createForm.register('name', { required: 'Enter a name' })}
+              {...createForm.register('name', { required: t('Enter a name') })}
             />
-            {createForm.formState.errors.name && <p className="text-xs text-negative">{createForm.formState.errors.name.message}</p>}
+            {createForm.formState.errors.name && <p className="text-xs text-negative">{t(createForm.formState.errors.name.message)}</p>}
           </div>
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Work Email <span className="text-negative">*</span></label>
+            <label className="block text-sm font-medium text-foreground">{t('Work Email')}{' '}<span className="text-negative">*</span></label>
             <input
               type="email"
               className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${createForm.formState.errors.email ? 'border-negative' : 'border-border'}`}
-              {...createForm.register('email', { required: 'Enter an email' })}
+              {...createForm.register('email', { required: t('Enter an email') })}
             />
-            {createForm.formState.errors.email && <p className="text-xs text-negative">{createForm.formState.errors.email.message}</p>}
+            {createForm.formState.errors.email && <p className="text-xs text-negative">{t(createForm.formState.errors.email.message)}</p>}
           </div>
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Temporary Password <span className="text-negative">*</span></label>
+            <label className="block text-sm font-medium text-foreground">{t('Temporary Password')}{' '}<span className="text-negative">*</span></label>
             <input
               type="password"
               className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${createForm.formState.errors.password ? 'border-negative' : 'border-border'}`}
-              {...createForm.register('password', { required: 'Enter a password', minLength: { value: 8, message: 'At least 8 characters' } })}
+              {...createForm.register('password', { required: t('Enter a password'), minLength: { value: 8, message: t('At least 8 characters') } })}
             />
-            {createForm.formState.errors.password && <p className="text-xs text-negative">{createForm.formState.errors.password.message}</p>}
+            {createForm.formState.errors.password && <p className="text-xs text-negative">{t(createForm.formState.errors.password.message)}</p>}
           </div>
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Role</label>
+            <label className="block text-sm font-medium text-foreground">{t('Role')}</label>
             <select className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50" {...createForm.register('role')}>
-              <option value="agent">Agent</option>
-              <option value="admin">Admin</option>
+              <option value="agent">{t('Agent')}</option>
+              <option value="admin">{t('Admin')}</option>
             </select>
           </div>
         </form>
@@ -346,7 +348,7 @@ export default function AdminUsersContent() {
       <Modal
         open={!!editingUser}
         onClose={() => setEditingUser(null)}
-        title="Edit User"
+        title={t('Edit User')}
         subtitle={editingUser ? editingUser.email : undefined}
         footer={
           <>
@@ -354,7 +356,7 @@ export default function AdminUsersContent() {
               onClick={() => setEditingUser(null)}
               className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
-              Cancel
+              {t('Cancel')}
             </button>
             <button
               form="edit-user-form"
@@ -363,44 +365,44 @@ export default function AdminUsersContent() {
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60"
             >
               <Save size={15} />
-              {isSaving ? 'Saving…' : 'Save Changes'}
+              {isSaving ? t('Saving…') : t('Save Changes')}
             </button>
           </>
         }
       >
         <form id="edit-user-form" onSubmit={editForm.handleSubmit(onSubmitEdit)} className="space-y-4">
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Full Name <span className="text-negative">*</span></label>
+            <label className="block text-sm font-medium text-foreground">{t('Full Name')}{' '}<span className="text-negative">*</span></label>
             <input
               className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${editForm.formState.errors.name ? 'border-negative' : 'border-border'}`}
-              {...editForm.register('name', { required: 'Enter a name' })}
+              {...editForm.register('name', { required: t('Enter a name') })}
             />
-            {editForm.formState.errors.name && <p className="text-xs text-negative">{editForm.formState.errors.name.message}</p>}
+            {editForm.formState.errors.name && <p className="text-xs text-negative">{t(editForm.formState.errors.name.message)}</p>}
           </div>
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Work Email <span className="text-negative">*</span></label>
+            <label className="block text-sm font-medium text-foreground">{t('Work Email')}{' '}<span className="text-negative">*</span></label>
             <input
               type="email"
               className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${editForm.formState.errors.email ? 'border-negative' : 'border-border'}`}
-              {...editForm.register('email', { required: 'Enter an email' })}
+              {...editForm.register('email', { required: t('Enter an email') })}
             />
-            {editForm.formState.errors.email && <p className="text-xs text-negative">{editForm.formState.errors.email.message}</p>}
+            {editForm.formState.errors.email && <p className="text-xs text-negative">{t(editForm.formState.errors.email.message)}</p>}
           </div>
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Reset Password</label>
+            <label className="block text-sm font-medium text-foreground">{t('Reset Password')}</label>
             <input
               type="password"
-              placeholder="Leave blank to keep the current password"
+              placeholder={t('Leave blank to keep the current password')}
               className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${editForm.formState.errors.password ? 'border-negative' : 'border-border'}`}
-              {...editForm.register('password', { validate: (v) => !v || v.length >= 8 || 'At least 8 characters' })}
+              {...editForm.register('password', { validate: (v) => !v || v.length >= 8 || t('At least 8 characters') })}
             />
-            {editForm.formState.errors.password && <p className="text-xs text-negative">{editForm.formState.errors.password.message}</p>}
+            {editForm.formState.errors.password && <p className="text-xs text-negative">{t(editForm.formState.errors.password.message)}</p>}
           </div>
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Role</label>
+            <label className="block text-sm font-medium text-foreground">{t('Role')}</label>
             <select className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50" {...editForm.register('role')}>
-              <option value="agent">Agent</option>
-              <option value="admin">Admin</option>
+              <option value="agent">{t('Agent')}</option>
+              <option value="admin">{t('Admin')}</option>
             </select>
           </div>
         </form>

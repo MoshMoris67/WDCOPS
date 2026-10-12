@@ -1,4 +1,5 @@
 import { db, type CachedDebtorRow } from './offline-db';
+import { t } from '@/i18n';
 
 export const CACHE_CHANGED_EVENT = 'wc:cache-changed';
 
@@ -114,7 +115,7 @@ async function fetchJson<T>(url: string, timeoutMs = 8000): Promise<T> {
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) throw new Error(`Request failed (${res.status})`);
+    if (!res.ok) throw new Error(t('Request failed ({0})', res.status));
     return await res.json();
   } finally {
     clearTimeout(timeout);

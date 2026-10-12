@@ -4,6 +4,7 @@ import React from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList,
 } from 'recharts';
+import { t } from '@/i18n';
 
 interface Props {
   data: Array<{ code: string; count: number; color: string }>;
@@ -19,7 +20,7 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
   return (
     <div className="bg-card border border-border rounded-lg shadow-dropdown px-3 py-2">
       <p className="text-xs font-semibold text-foreground">{payload[0].payload.code}</p>
-      <p className="text-xs text-muted-foreground">{payload[0].value} dispositions</p>
+      <p className="text-xs text-muted-foreground">{t('{0} dispositions', payload[0].value)}</p>
     </div>
   );
 }

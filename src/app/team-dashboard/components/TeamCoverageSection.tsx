@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Phone, Users, TrendingUp, FileText } from 'lucide-react';
 import { useClients } from '@/lib/use-clients';
+import { t } from '@/i18n';
 
 interface AgentOption {
   id: string;
@@ -76,8 +77,8 @@ export default function TeamCoverageSection({ agents }: TeamCoverageSectionProps
     <div className="bg-card rounded-xl shadow-card border border-border">
       <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-section-header text-foreground">Team Coverage</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">How much of each agent&apos;s book got worked, over any period you pick</p>
+          <h2 className="text-section-header text-foreground">{t('Team Coverage')}</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">{t('How much of each agent\'s book got worked, over any period you pick')}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-2">
@@ -87,7 +88,7 @@ export default function TeamCoverageSection({ agents }: TeamCoverageSectionProps
               onChange={(e) => setDateFrom(e.target.value)}
               className="px-2.5 py-1.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
             />
-            <span className="text-muted-foreground text-sm">to</span>
+            <span className="text-muted-foreground text-sm">{t('to')}</span>
             <input
               type="date"
               value={dateTo}
@@ -100,7 +101,7 @@ export default function TeamCoverageSection({ agents }: TeamCoverageSectionProps
             onChange={(e) => setFilterAgent(e.target.value)}
             className="text-sm bg-input border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/50"
           >
-            <option value="All">All Agents</option>
+            <option value="All">{t('All Agents')}</option>
             {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
           <select
@@ -108,7 +109,7 @@ export default function TeamCoverageSection({ agents }: TeamCoverageSectionProps
             onChange={(e) => setFilterClient(e.target.value)}
             className="text-sm bg-input border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/50"
           >
-            <option value="All">All Clients</option>
+            <option value="All">{t('All Clients')}</option>
             {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
@@ -125,7 +126,7 @@ export default function TeamCoverageSection({ agents }: TeamCoverageSectionProps
             <stat.icon size={15} className="text-muted-foreground shrink-0" />
             <div>
               <p className="font-tabular font-bold text-sm text-foreground">{stat.value}</p>
-              <p className="text-[11px] text-muted-foreground">{stat.label}</p>
+              <p className="text-[11px] text-muted-foreground">{t(stat.label)}</p>
             </div>
           </div>
         ))}
@@ -136,15 +137,15 @@ export default function TeamCoverageSection({ agents }: TeamCoverageSectionProps
           <thead>
             <tr className="border-b border-border bg-secondary/30">
               {['Agent', 'Assigned', 'Contacted', 'Coverage', 'Calls', 'PTPs', ''].map((col) => (
-                <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                <th key={t(col)} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{t(col)}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {isLoading ? (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">Loading…</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">{t('Loading…')}</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">No activity for this period/filter.</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">{t('No activity for this period/filter.')}</td></tr>
             ) : (
               rows.map((r) => (
                 <tr key={r.agentId} className="hover:bg-secondary/40 transition-colors">
@@ -152,7 +153,7 @@ export default function TeamCoverageSection({ agents }: TeamCoverageSectionProps
                     <div className="flex items-center gap-1.5">
                       <span className="font-medium text-foreground">{r.name}</span>
                       {r.role === 'admin' && (
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-info bg-[var(--info-bg)] px-1.5 py-0.5 rounded-full shrink-0">Admin</span>
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-info bg-[var(--info-bg)] px-1.5 py-0.5 rounded-full shrink-0">{t('Admin')}</span>
                       )}
                     </div>
                   </td>
@@ -172,10 +173,10 @@ export default function TeamCoverageSection({ agents }: TeamCoverageSectionProps
                     {filterClient !== 'All' && (
                       <button
                         onClick={() => router.push(`/reports-client-export?clientId=${filterClient}&agentId=${r.agentId}&from=${dateFrom}&to=${dateTo}`)}
-                        title={`Full report for ${r.name}, ${dateFrom} to ${dateTo}`}
+                        title={t('Full report for {0}, {1} to {2}', r.name, dateFrom, dateTo)}
                         className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                       >
-                        <FileText size={12} /> Report
+                        <FileText size={12} />{' '}{t('Report')}
                       </button>
                     )}
                   </td>
