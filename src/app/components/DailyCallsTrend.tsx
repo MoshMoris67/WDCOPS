@@ -10,6 +10,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import { t } from '@/i18n';
 
 export interface TrendDatum {
   day: string;
@@ -27,7 +28,7 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
   return (
     <div className="bg-card border border-border rounded-lg shadow-dropdown px-3 py-2">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-xs font-semibold text-foreground">{payload[0].value} calls</p>
+      <p className="text-xs font-semibold text-foreground">{t('{0} calls', payload[0].value)}</p>
     </div>
   );
 }

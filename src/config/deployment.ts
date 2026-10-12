@@ -37,6 +37,8 @@ interface Deployment {
   /** Placeholder examples in forms. */
   batchPlaceholder: string;
   debtorSearchPlaceholder: string;
+  /** Balance thresholds (in the base currency) that split debtors into 4 bands for fair distribution. */
+  balanceBands: [number, number, number];
   /** Explanation under the Branch card in Settings. */
   branchNote: string;
   /** Settings > Hosting card (shown instead of the standard hosting note when set). */
@@ -71,10 +73,11 @@ const UGANDA: Deployment = {
   ],
   batchPlaceholder: 'e.g. KCB-Aug-2026-Batch1',
   debtorSearchPlaceholder: 'e.g. Nakato Grace, or KCB-2024-0091',
+  balanceBands: [500_000, 2_000_000, 5_000_000],
   branchNote:
     'Every record carries this branch field from day one, per the requirements doc — Uganda is the only value in use today, but the schema is ready if WellcashOps is adopted by other country branches.',
   hostingNote: null,
-  commissionClientHint: ' (currently KCB Mopesa)',
+  commissionClientHint: '(currently KCB Mopesa)',
   clientNamePlaceholder: 'e.g. Airtel',
 };
 
@@ -103,11 +106,12 @@ const DEMO: Deployment = {
   ],
   batchPlaceholder: 'e.g. ClientA-Aug-2026-Batch1',
   debtorSearchPlaceholder: 'e.g. Amina Hassan, or LN-2026-000123',
+  balanceBands: [150, 600, 1_500],
   branchNote:
     'Every record carries this branch field, so one WellcashOps platform can serve several country branches side by side.',
   hostingNote:
     'This demo runs on a hosted test environment and holds fictional data only. A production deployment keeps client data on a self-hosted PostgreSQL instance.',
-  commissionClientHint: ' (in this demo, Savanna Bank)',
+  commissionClientHint: '(in this demo, Savanna Bank)',
   clientNamePlaceholder: 'e.g. Northwind Microfinance',
 };
 

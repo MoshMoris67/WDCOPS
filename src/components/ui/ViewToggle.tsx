@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { List, LayoutGrid } from 'lucide-react';
+import { t } from '@/i18n';
 
 interface ViewToggleProps {
   value: 'table' | 'deck';
@@ -15,14 +16,14 @@ export default function ViewToggle({ value, onChange }: ViewToggleProps) {
     <div className="flex items-center gap-0.5 bg-secondary/60 rounded-lg p-0.5">
       <button
         onClick={() => onChange('table')}
-        title="Table view"
+        title={t('Table view')}
         className={`p-1.5 rounded-md transition-colors ${value === 'table' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
       >
         <List size={14} />
       </button>
       <button
         onClick={() => onChange('deck')}
-        title="Card view"
+        title={t('Card view')}
         className={`p-1.5 rounded-md transition-colors ${value === 'deck' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
       >
         <LayoutGrid size={14} />

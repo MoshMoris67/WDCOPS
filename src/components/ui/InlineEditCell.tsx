@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { t } from '@/i18n';
 
 interface InlineEditOption {
   value: string;
@@ -42,7 +43,7 @@ export default function InlineEditCell({ value, displayValue, options, onSave, d
   if (saving) {
     return (
       <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-        <Loader2 size={13} className="animate-spin" /> Saving…
+        <Loader2 size={13} className="animate-spin" />{' '}{t('Saving…')}
       </span>
     );
   }
@@ -70,7 +71,7 @@ export default function InlineEditCell({ value, displayValue, options, onSave, d
         className="text-sm bg-input border border-border rounded-md px-1.5 py-0.5 focus:outline-none focus:ring-2 focus:ring-ring/50"
       >
         {options.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
+          <option key={o.value} value={o.value}>{t(o.label)}</option>
         ))}
       </select>
     );

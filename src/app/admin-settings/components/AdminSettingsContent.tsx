@@ -7,10 +7,11 @@ import { Building2, Tags, Server, ShieldCheck, Percent, Plus, Pencil, Trash2 } f
 import Badge from '@/components/ui/Badge';
 import DispositionBadge from '@/components/ui/DispositionBadge';
 import Modal from '@/components/ui/Modal';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { getCached, setCached } from '@/lib/offline-cache';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
 import { DEPLOYMENT } from '@/config/deployment';
+import { t } from '@/i18n';
 
 interface ClientOption {
   id: string;
@@ -172,10 +173,10 @@ export default function AdminSettingsContent() {
       });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Could not save client');
+        toast.error(payload.error || t('Could not save client'));
         return;
       }
-      toast.success(editingClient ? `${data.name} updated` : `${data.name} added — it'll show up in Files and Reports right away`);
+      toast.success(editingClient ? t('{0} updated', data.name) : t('{0} added — it\'ll show up in Files and Reports right away', data.name));
       setClientModalOpen(false);
       await load();
     } catch {
@@ -186,14 +187,14 @@ export default function AdminSettingsContent() {
   }
 
   async function deleteClient(c: ClientOption) {
-    if (!window.confirm(`Delete ${c.name}? This only works if it has no file batches.`)) return;
+    if (!window.confirm(t('Delete {0}? This only works if it has no file batches.', c.name))) return;
     const res = await fetch(`/api/clients/${c.id}`, { method: 'DELETE' });
     const payload = await res.json();
     if (!res.ok) {
-      toast.error(payload.error || 'Could not delete client');
+      toast.error(payload.error || t('Could not delete client'));
       return;
     }
-    toast.success(`${c.name} deleted`);
+    toast.success(t('{0} deleted', c.name));
     await load();
   }
 
@@ -219,10 +220,10 @@ export default function AdminSettingsContent() {
       });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Could not save disposition code');
+        toast.error(payload.error || t('Could not save disposition code'));
         return;
       }
-      toast.success(editingCode ? `${data.code} updated` : `${data.code} added — agents will see it immediately`);
+      toast.success(editingCode ? t('{0} updated', data.code) : t('{0} added — agents will see it immediately', data.code));
       setCodeModalOpen(false);
       await load();
     } catch {
@@ -233,14 +234,14 @@ export default function AdminSettingsContent() {
   }
 
   async function deleteCode(c: DispositionCode) {
-    if (!window.confirm(`Delete ${c.code} — ${c.label}? This only works if no call log uses it.`)) return;
+    if (!window.confirm(t('Delete {0} — {1}? This only works if no call log uses it.', c.code, c.label))) return;
     const res = await fetch(`/api/disposition-codes/${c.code}`, { method: 'DELETE' });
     const payload = await res.json();
     if (!res.ok) {
-      toast.error(payload.error || 'Could not delete disposition code');
+      toast.error(payload.error || t('Could not delete disposition code'));
       return;
     }
-    toast.success(`${c.code} deleted`);
+    toast.success(t('{0} deleted', c.code));
     await load();
   }
 
@@ -268,10 +269,10 @@ export default function AdminSettingsContent() {
       });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Could not save commission rate');
+        toast.error(payload.error || t('Could not save commission rate'));
         return;
       }
-      toast.success(editingRate ? 'Rate updated' : 'Rate added');
+      toast.success(editingRate ? t('Rate updated') : t('Rate added'));
       setRateModalOpen(false);
       await loadRates(rateClientId);
     } catch {
@@ -282,11 +283,11 @@ export default function AdminSettingsContent() {
   }
 
   async function deleteRate(r: CommissionRateRow) {
-    if (!window.confirm(`Delete the ${BUCKET_LABEL_BY_KEY[r.bucket] ?? r.bucket} commission rate for this client?`)) return;
+    if (!window.confirm(t('Delete the {0} commission rate for this client?', BUCKET_LABEL_BY_KEY[r.bucket] ?? r.bucket))) return;
     const res = await fetch(`/api/commission-rates/${r.id}`, { method: 'DELETE' });
     const payload = await res.json();
     if (!res.ok) {
-      toast.error(payload.error || 'Could not delete rate');
+      toast.error(payload.error || t('Could not delete rate'));
       return;
     }
     toast.success('Rate deleted');
@@ -294,34 +295,34 @@ export default function AdminSettingsContent() {
   }
 
   if (authorized === null) {
-    return <div className="p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto"><p className="text-sm text-muted-foreground">Loading…</p></div>;
+    return <div className="p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto"><p className="text-sm text-muted-foreground">{t('Loading…')}</p></div>;
   }
   if (authorized === false) return null;
 
   return (
     <div className="p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto space-y-6">
       <div>
-        <h1 className="text-page-title text-foreground">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">System configuration for the {DEPLOYMENT.branchName} branch</p>
+        <h1 className="text-page-title text-foreground">{t('Settings')}</h1>
+        <p className="text-sm text-muted-foreground mt-1">{t('System configuration for the {0} branch', DEPLOYMENT.branchName)}</p>
       </div>
 
       <div className="bg-card rounded-xl shadow-card border border-border p-5">
         <div className="flex items-center gap-2 mb-4">
           <Building2 size={16} className="text-primary" />
-          <h2 className="text-section-header text-foreground">Branch</h2>
+          <h2 className="text-section-header text-foreground">{t('Branch')}</h2>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Branch</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">{t('Branch')}</p>
             <p className="text-sm font-semibold text-foreground">{DEPLOYMENT.branchName}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Clients</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">{t('Clients')}</p>
             <p className="text-sm font-semibold text-foreground">{clients.length}</p>
           </div>
         </div>
         <p className="text-xs text-muted-foreground mt-3">
-          {DEPLOYMENT.branchNote}
+          {t(DEPLOYMENT.branchNote)}
         </p>
       </div>
 
@@ -329,16 +330,16 @@ export default function AdminSettingsContent() {
         <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <ShieldCheck size={16} className="text-primary" />
-            <h2 className="text-section-header text-foreground">Clients</h2>
+            <h2 className="text-section-header text-foreground">{t('Clients')}</h2>
           </div>
           <button
             onClick={openAddClient}
             disabled={offlineBlocked}
-            title={offlineBlocked ? 'Offline — reconnect to add a client' : undefined}
+            title={offlineBlocked ? t('Offline — reconnect to add a client') : undefined}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <Plus size={14} />
-            Add Client
+            {t('Add Client')}
           </button>
         </div>
         <div className="overflow-x-auto scrollbar-thin">
@@ -356,16 +357,16 @@ export default function AdminSettingsContent() {
                   <td className="px-4 py-3 font-medium text-foreground text-sm">{c.name}</td>
                   <td className="px-4 py-3">
                     <Badge variant={c.reconciliationType === 'full' ? 'info' : 'default'}>
-                      {c.reconciliationType === 'full' ? 'Full' : 'Partial'}
+                      {c.reconciliationType === 'full' ? t('Full') : t('Partial')}
                     </Badge>
                   </td>
                   <td className="px-4 py-3 text-sm text-muted-foreground capitalize">{c.reportingFrequency}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => openEditClient(c)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit'}>
+                      <button onClick={() => openEditClient(c)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? t('Offline — reconnect to edit') : t('Edit')}>
                         <Pencil size={14} />
                       </button>
-                      <button onClick={() => deleteClient(c)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'}>
+                      <button onClick={() => deleteClient(c)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? t('Offline — reconnect to delete') : t('Delete')}>
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -373,7 +374,7 @@ export default function AdminSettingsContent() {
                 </tr>
               ))}
               {clients.length === 0 && (
-                <tr><td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">No clients yet — add one to get started.</td></tr>
+                <tr><td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">{t('No clients yet — add one to get started.')}</td></tr>
               )}
             </tbody>
           </table>
@@ -384,16 +385,16 @@ export default function AdminSettingsContent() {
         <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Tags size={16} className="text-primary" />
-            <h2 className="text-section-header text-foreground">Disposition Codes</h2>
+            <h2 className="text-section-header text-foreground">{t('Disposition Codes')}</h2>
           </div>
           <button
             onClick={openAddCode}
             disabled={offlineBlocked}
-            title={offlineBlocked ? 'Offline — reconnect to add a code' : undefined}
+            title={offlineBlocked ? t('Offline — reconnect to add a code') : undefined}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <Plus size={14} />
-            Add Code
+            {t('Add Code')}
           </button>
         </div>
         <div className="overflow-x-auto scrollbar-thin">
@@ -409,16 +410,16 @@ export default function AdminSettingsContent() {
               {codes.map((c) => (
                 <tr key={c.code} className="border-b border-border/60 hover:bg-secondary/30 transition-colors group">
                   <td className="px-4 py-2.5"><DispositionBadge code={c.code} color={c.color} /></td>
-                  <td className="px-4 py-2.5 text-sm text-foreground">{c.label}</td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{c.description}</td>
-                  <td className="px-4 py-2.5">{c.requiresCallback && <Badge variant="info">Yes</Badge>}</td>
-                  <td className="px-4 py-2.5">{c.requiresPtp && <Badge variant="positive">Yes</Badge>}</td>
+                  <td className="px-4 py-2.5 text-sm text-foreground">{t(c.label)}</td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{t(c.description)}</td>
+                  <td className="px-4 py-2.5">{c.requiresCallback && <Badge variant="info">{t('Yes')}</Badge>}</td>
+                  <td className="px-4 py-2.5">{c.requiresPtp && <Badge variant="positive">{t('Yes')}</Badge>}</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => openEditCode(c)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit'}>
+                      <button onClick={() => openEditCode(c)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? t('Offline — reconnect to edit') : t('Edit')}>
                         <Pencil size={14} />
                       </button>
-                      <button onClick={() => deleteCode(c)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'}>
+                      <button onClick={() => deleteCode(c)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? t('Offline — reconnect to delete') : t('Delete')}>
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -434,7 +435,7 @@ export default function AdminSettingsContent() {
         <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             <Percent size={16} className="text-primary" />
-            <h2 className="text-section-header text-foreground">Commission Rates</h2>
+            <h2 className="text-section-header text-foreground">{t('Commission Rates')}</h2>
           </div>
           <div className="flex items-center gap-2">
             <select
@@ -442,24 +443,22 @@ export default function AdminSettingsContent() {
               onChange={(e) => setRateClientId(e.target.value)}
               className="text-sm bg-input border border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/50"
             >
-              {clients.length === 0 && <option value="">No clients yet</option>}
+              {clients.length === 0 && <option value="">{t('No clients yet')}</option>}
               {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <button
               onClick={openAddRate}
               disabled={offlineBlocked || !rateClientId || rates.length >= BUCKET_OPTIONS.length}
-              title={!rateClientId ? 'Select a client first' : rates.length >= BUCKET_OPTIONS.length ? 'Every bucket already has a rate' : offlineBlocked ? 'Offline — reconnect to add a rate' : undefined}
+              title={!rateClientId ? t('Select a client first') : rates.length >= BUCKET_OPTIONS.length ? t('Every bucket already has a rate') : offlineBlocked ? t('Offline — reconnect to add a rate') : undefined}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <Plus size={14} />
-              Add Rate
+              {t('Add Rate')}
             </button>
           </div>
         </div>
         <p className="text-xs text-muted-foreground px-5 pt-3">
-          Only applies to a client whose reconciliation files carry aging buckets by sheet
-          {DEPLOYMENT.commissionClientHint} — a client with no rates configured here is completely unaffected. A bucket left
-          unconfigured falls back to a standard rate (4/7/9/10/10%) rather than earning nothing.
+          {t('Only applies to a client whose reconciliation files carry aging buckets by sheet{0} — a client with no rates configured here is completely unaffected. A bucket left unconfigured falls back to a standard rate (4/7/9/10/10%) rather than earning nothing.', ' ' + t(DEPLOYMENT.commissionClientHint))}
         </p>
         <div className="overflow-x-auto scrollbar-thin">
           <table className="w-full text-table-cell">
@@ -477,10 +476,10 @@ export default function AdminSettingsContent() {
                   <td className="px-4 py-2.5 text-sm font-tabular text-foreground">{(r.rate * 100).toFixed(1)}%</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => openEditRate(r)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit'}>
+                      <button onClick={() => openEditRate(r)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? t('Offline — reconnect to edit') : t('Edit')}>
                         <Pencil size={14} />
                       </button>
-                      <button onClick={() => deleteRate(r)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'}>
+                      <button onClick={() => deleteRate(r)} disabled={offlineBlocked} className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? t('Offline — reconnect to delete') : t('Delete')}>
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -488,10 +487,10 @@ export default function AdminSettingsContent() {
                 </tr>
               ))}
               {rateClientId && rates.length === 0 && (
-                <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-muted-foreground">No commission rates set for this client — standard rates (4/7/9/10/10%) apply until you add some.</td></tr>
+                <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-muted-foreground">{t('No commission rates set for this client — standard rates (4/7/9/10/10%) apply until you add some.')}</td></tr>
               )}
               {!rateClientId && (
-                <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-muted-foreground">Add a client first.</td></tr>
+                <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-muted-foreground">{t('Add a client first.')}</td></tr>
               )}
             </tbody>
           </table>
@@ -501,17 +500,15 @@ export default function AdminSettingsContent() {
       <div className="bg-card rounded-xl shadow-card border border-border p-5">
         <div className="flex items-center gap-2 mb-2">
           <Server size={16} className="text-primary" />
-          <h2 className="text-section-header text-foreground">Hosting</h2>
+          <h2 className="text-section-header text-foreground">{t('Hosting')}</h2>
         </div>
         {/* Tested directly against the build-time variable (not a config property) so the
             Uganda-only wording below is removed from the demo bundle entirely. */}
         {process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? (
-          <p className="text-xs text-muted-foreground">{DEPLOYMENT.hostingNote}</p>
+          <p className="text-xs text-muted-foreground">{t(DEPLOYMENT.hostingNote)}</p>
         ) : (
           <p className="text-xs text-muted-foreground">
-            Local dev uses a SQLite file. Production must point <code className="font-mono-data">DATABASE_URL</code> at
-            a self-hosted PostgreSQL instance — no third-party service may hold client data (a standing
-            requirement from KCB, HFB, and other clients).
+            {t('Local dev uses a SQLite file. Production must point')}{' '}<code className="font-mono-data">{t('DATABASE_URL')}</code>{' '}{t('at a self-hosted PostgreSQL instance — no third-party service may hold client data (a standing requirement from KCB, HFB, and other clients).')}
           </p>
         )}
       </div>
@@ -520,15 +517,15 @@ export default function AdminSettingsContent() {
       <Modal
         open={clientModalOpen}
         onClose={() => setClientModalOpen(false)}
-        title={editingClient ? 'Edit Client' : 'Add Client'}
-        subtitle="Changes appear immediately in file import, reconciliation, and reports"
+        title={editingClient ? t('Edit Client') : t('Add Client')}
+        subtitle={t('Changes appear immediately in file import, reconciliation, and reports')}
         footer={
           <>
             <button
               onClick={() => setClientModalOpen(false)}
               className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
-              Cancel
+              {t('Cancel')}
             </button>
             <button
               form="client-form"
@@ -537,35 +534,35 @@ export default function AdminSettingsContent() {
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60"
             >
               <Plus size={15} />
-              {isSaving ? 'Saving…' : editingClient ? 'Save Changes' : 'Add Client'}
+              {isSaving ? t('Saving…') : editingClient ? t('Save Changes') : t('Add Client')}
             </button>
           </>
         }
       >
         <form id="client-form" onSubmit={clientForm.handleSubmit(onSubmitClient)} className="space-y-4">
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Client Name <span className="text-negative">*</span></label>
+            <label className="block text-sm font-medium text-foreground">{t('Client Name')}{' '}<span className="text-negative">*</span></label>
             <input
-              placeholder={DEPLOYMENT.clientNamePlaceholder}
+              placeholder={t(DEPLOYMENT.clientNamePlaceholder)}
               className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${clientForm.formState.errors.name ? 'border-negative' : 'border-border'}`}
-              {...clientForm.register('name', { required: 'Enter a client name' })}
+              {...clientForm.register('name', { required: t('Enter a client name') })}
             />
-            {clientForm.formState.errors.name && <p className="text-xs text-negative">{clientForm.formState.errors.name.message}</p>}
+            {clientForm.formState.errors.name && <p className="text-xs text-negative">{t(clientForm.formState.errors.name.message)}</p>}
           </div>
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Reconciliation Format</label>
-            <p className="text-xs text-muted-foreground">Which format this client sends — see §7 for what each means</p>
+            <label className="block text-sm font-medium text-foreground">{t('Reconciliation Format')}</label>
+            <p className="text-xs text-muted-foreground">{t('Which format this client sends — see §7 for what each means')}</p>
             <select className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50" {...clientForm.register('reconciliationType')}>
-              <option value="partial">Partial (paid-only)</option>
-              <option value="full">Full</option>
+              <option value="partial">{t('Partial (paid-only)')}</option>
+              <option value="full">{t('Full')}</option>
             </select>
           </div>
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Reporting Frequency</label>
+            <label className="block text-sm font-medium text-foreground">{t('Reporting Frequency')}</label>
             <select className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50" {...clientForm.register('reportingFrequency')}>
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
+              <option value="daily">{t('Daily')}</option>
+              <option value="weekly">{t('Weekly')}</option>
+              <option value="monthly">{t('Monthly')}</option>
             </select>
           </div>
         </form>
@@ -575,15 +572,15 @@ export default function AdminSettingsContent() {
       <Modal
         open={codeModalOpen}
         onClose={() => setCodeModalOpen(false)}
-        title={editingCode ? 'Edit Disposition Code' : 'Add Disposition Code'}
-        subtitle="Shows up in the call-logging form, reports, and dashboards immediately"
+        title={editingCode ? t('Edit Disposition Code') : t('Add Disposition Code')}
+        subtitle={t('Shows up in the call-logging form, reports, and dashboards immediately')}
         footer={
           <>
             <button
               onClick={() => setCodeModalOpen(false)}
               className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
-              Cancel
+              {t('Cancel')}
             </button>
             <button
               form="code-form"
@@ -592,7 +589,7 @@ export default function AdminSettingsContent() {
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60"
             >
               <Plus size={15} />
-              {isSaving ? 'Saving…' : editingCode ? 'Save Changes' : 'Add Code'}
+              {isSaving ? t('Saving…') : editingCode ? t('Save Changes') : t('Add Code')}
             </button>
           </>
         }
@@ -600,34 +597,34 @@ export default function AdminSettingsContent() {
         <form id="code-form" onSubmit={codeForm.handleSubmit(onSubmitCode)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-foreground">Code <span className="text-negative">*</span></label>
+              <label className="block text-sm font-medium text-foreground">{t('Code')}{' '}<span className="text-negative">*</span></label>
               <input
-                placeholder="e.g. VM"
+                placeholder={t('e.g. VM')}
                 disabled={!!editingCode}
                 className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 uppercase disabled:opacity-60 disabled:cursor-not-allowed ${codeForm.formState.errors.code ? 'border-negative' : 'border-border'}`}
-                {...codeForm.register('code', { required: 'Enter a short code', pattern: { value: /^[A-Za-z0-9]{1,6}$/, message: '1-6 letters/numbers' } })}
+                {...codeForm.register('code', { required: t('Enter a short code'), pattern: { value: /^[A-Za-z0-9]{1,6}$/, message: t('1-6 letters/numbers') } })}
               />
-              {codeForm.formState.errors.code && <p className="text-xs text-negative">{codeForm.formState.errors.code.message}</p>}
+              {codeForm.formState.errors.code && <p className="text-xs text-negative">{t(codeForm.formState.errors.code.message)}</p>}
             </div>
             <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-foreground">Color</label>
+              <label className="block text-sm font-medium text-foreground">{t('Color')}</label>
               <input type="color" className="w-full h-[42px] px-1 py-1 bg-input border border-border rounded-lg cursor-pointer" {...codeForm.register('color')} />
             </div>
           </div>
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Label <span className="text-negative">*</span></label>
+            <label className="block text-sm font-medium text-foreground">{t('Label')}{' '}<span className="text-negative">*</span></label>
             <input
-              placeholder="e.g. Voicemail"
+              placeholder={t('e.g. Voicemail')}
               className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${codeForm.formState.errors.label ? 'border-negative' : 'border-border'}`}
-              {...codeForm.register('label', { required: 'Enter a label' })}
+              {...codeForm.register('label', { required: t('Enter a label') })}
             />
-            {codeForm.formState.errors.label && <p className="text-xs text-negative">{codeForm.formState.errors.label.message}</p>}
+            {codeForm.formState.errors.label && <p className="text-xs text-negative">{t(codeForm.formState.errors.label.message)}</p>}
           </div>
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Description</label>
+            <label className="block text-sm font-medium text-foreground">{t('Description')}</label>
             <textarea
               rows={2}
-              placeholder="Shown as a hint under the disposition selector"
+              placeholder={t('Shown as a hint under the disposition selector')}
               className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 resize-none"
               {...codeForm.register('description')}
             />
@@ -635,11 +632,11 @@ export default function AdminSettingsContent() {
           <div className="flex items-center gap-6">
             <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
               <input type="checkbox" className="accent-primary" {...codeForm.register('requiresCallback')} />
-              Prompts for a callback date
+              {t('Prompts for a callback date')}
             </label>
             <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
               <input type="checkbox" className="accent-primary" {...codeForm.register('requiresPtp')} />
-              Prompts for PTP amount/date
+              {t('Prompts for PTP amount/date')}
             </label>
           </div>
         </form>
@@ -649,15 +646,15 @@ export default function AdminSettingsContent() {
       <Modal
         open={rateModalOpen}
         onClose={() => setRateModalOpen(false)}
-        title={editingRate ? 'Edit Commission Rate' : 'Add Commission Rate'}
-        subtitle="Applies to reconciliations processed after this is saved — already-processed entries keep whatever rate applied at the time"
+        title={editingRate ? t('Edit Commission Rate') : t('Add Commission Rate')}
+        subtitle={t('Applies to reconciliations processed after this is saved — already-processed entries keep whatever rate applied at the time')}
         footer={
           <>
             <button
               onClick={() => setRateModalOpen(false)}
               className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
-              Cancel
+              {t('Cancel')}
             </button>
             <button
               form="rate-form"
@@ -666,25 +663,25 @@ export default function AdminSettingsContent() {
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60"
             >
               <Plus size={15} />
-              {isSaving ? 'Saving…' : editingRate ? 'Save Changes' : 'Add Rate'}
+              {isSaving ? t('Saving…') : editingRate ? t('Save Changes') : t('Add Rate')}
             </button>
           </>
         }
       >
         <form id="rate-form" onSubmit={rateForm.handleSubmit(onSubmitRate)} className="space-y-4">
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Aging Band</label>
+            <label className="block text-sm font-medium text-foreground">{t('Aging Band')}</label>
             <select
               disabled={!!editingRate}
               className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:opacity-60"
               {...rateForm.register('bucket')}
             >
-              {BUCKET_OPTIONS.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+              {BUCKET_OPTIONS.map((b) => <option key={b.value} value={b.value}>{t(b.label)}</option>)}
             </select>
-            {editingRate && <p className="text-xs text-muted-foreground">The band can&apos;t be changed after it&apos;s created — delete and re-add instead.</p>}
+            {editingRate && <p className="text-xs text-muted-foreground">{t('The band can\'t be changed after it\'s created — delete and re-add instead.')}</p>}
           </div>
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Commission Rate (%) <span className="text-negative">*</span></label>
+            <label className="block text-sm font-medium text-foreground">{t('Commission Rate (%)')}{' '}<span className="text-negative">*</span></label>
             <input
               type="number"
               step="0.1"
@@ -693,14 +690,14 @@ export default function AdminSettingsContent() {
               placeholder="e.g. 7"
               className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${rateForm.formState.errors.ratePercent ? 'border-negative' : 'border-border'}`}
               {...rateForm.register('ratePercent', {
-                required: 'Enter a commission rate',
+                required: t('Enter a commission rate'),
                 validate: (v) => {
                   const n = Number(v);
                   return (Number.isFinite(n) && n > 0 && n <= 100) || 'Enter a percentage between 0 and 100';
                 },
               })}
             />
-            {rateForm.formState.errors.ratePercent && <p className="text-xs text-negative">{rateForm.formState.errors.ratePercent.message}</p>}
+            {rateForm.formState.errors.ratePercent && <p className="text-xs text-negative">{t(rateForm.formState.errors.ratePercent.message)}</p>}
           </div>
         </form>
       </Modal>

@@ -5,6 +5,7 @@ import { RefreshCcw, Trash2 } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { QUEUE_CHANGED_EVENT, discardFailedLog, getFailedLogs, retryFailed, syncOneNow } from '@/lib/offline-sync';
 import type { PendingCallLog } from '@/lib/offline-db';
+import { t } from '@/i18n';
 
 function formatQueuedAt(iso: string) {
   return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -57,8 +58,8 @@ export default function FailedSyncModal({ open, onClose }: FailedSyncModalProps)
     <Modal
       open={open}
       onClose={onClose}
-      title="Failed to sync"
-      subtitle="These logged calls are safe on this device, but the server rejected them — retrying resends the exact same request, so it will only help if the underlying issue (e.g. a reassigned debtor) has since been fixed."
+      title={t('Failed to sync')}
+      subtitle={t('These logged calls are safe on this device, but the server rejected them — retrying resends the exact same request, so it will only help if the underlying issue (e.g. a reassigned debtor) has since been fixed.')}
       size="md"
       footer={
         <>
@@ -66,7 +67,7 @@ export default function FailedSyncModal({ open, onClose }: FailedSyncModalProps)
             onClick={onClose}
             className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
           >
-            Close
+            {t('Close')}
           </button>
           <button
             onClick={retryAll}
@@ -74,13 +75,13 @@ export default function FailedSyncModal({ open, onClose }: FailedSyncModalProps)
             className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60"
           >
             <RefreshCcw size={15} className={isRetryingAll ? 'animate-spin' : ''} />
-            Retry All
+            {t('Retry All')}
           </button>
         </>
       }
     >
       {entries.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-6">Nothing failed right now.</p>
+        <p className="text-sm text-muted-foreground text-center py-6">{t('Nothing failed right now.')}</p>
       ) : (
         <div className="space-y-3">
           {entries.map((entry) => (
@@ -89,7 +90,9 @@ export default function FailedSyncModal({ open, onClose }: FailedSyncModalProps)
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">{entry.debtorName || entry.debtorId}</p>
                   <p className="text-xs text-muted-foreground">
-                    {entry.dispositionCode} · queued {formatQueuedAt(entry.queuedAt)} · {entry.attempts} attempt{entry.attempts === 1 ? '' : 's'}
+                    {entry.attempts === 1
+                      ? t('{0} · queued {1} · {2} attempt', entry.dispositionCode, formatQueuedAt(entry.queuedAt), entry.attempts)
+                      : t('{0} · queued {1} · {2} attempts', entry.dispositionCode, formatQueuedAt(entry.queuedAt), entry.attempts)}
                   </p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -97,14 +100,14 @@ export default function FailedSyncModal({ open, onClose }: FailedSyncModalProps)
                     onClick={() => retryOne(entry)}
                     disabled={retryingId === entry.localId}
                     className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground disabled:opacity-50"
-                    title="Retry this one"
+                    title={t('Retry this one')}
                   >
                     <RefreshCcw size={14} className={retryingId === entry.localId ? 'animate-spin' : ''} />
                   </button>
                   <button
                     onClick={() => discardFailedLog(entry.localId!)}
                     className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground"
-                    title="Give up on this one — it will not be synced"
+                    title={t('Give up on this one — it will not be synced')}
                   >
                     <Trash2 size={14} />
                   </button>

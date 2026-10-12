@@ -1,6 +1,7 @@
 import React from 'react';
 import { FileText } from 'lucide-react';
 import { formatMoneyM } from '@/lib/money';
+import { t } from '@/i18n';
 
 interface RecentFile {
   id: string;
@@ -63,26 +64,26 @@ export default function ClientCard({ name, categoryLabel, debtorCount, contactRa
         </span>
 
         <h3 className="text-lg font-bold text-foreground group-hover:text-primary transition-colors truncate">{name}</h3>
-        <p className="text-xs text-muted-foreground mt-0.5">{debtorCount.toLocaleString()} debtor{debtorCount === 1 ? '' : 's'} on file</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{debtorCount === 1 ? t('{0} debtor on file', debtorCount.toLocaleString()) : t('{0} debtors on file', debtorCount.toLocaleString())}</p>
 
         <div className="grid grid-cols-3 gap-3 my-4 rounded-lg p-3.5 border border-border/60" style={{ background: 'linear-gradient(135deg, var(--secondary), transparent)' }}>
           <div>
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">Book Value</span>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">{t('Book Value')}</span>
             <span className="text-sm font-bold text-foreground font-tabular">{formatMoneyM(totalBalance)}</span>
           </div>
           <div>
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">Contact Rate</span>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">{t('Contact Rate')}</span>
             <span className="text-sm font-bold text-foreground font-tabular">{contactRate}%</span>
           </div>
           <div>
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">Recovered</span>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">{t('Recovered')}</span>
             <span className="text-sm font-bold text-positive font-tabular">{formatMoneyM(recovered)}</span>
           </div>
         </div>
 
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Recovery Progress</span>
+            <span className="text-muted-foreground">{t('Recovery Progress')}</span>
             <span className="font-bold text-foreground font-tabular">{recoveryPct}%</span>
           </div>
           <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
@@ -92,7 +93,7 @@ export default function ClientCard({ name, categoryLabel, debtorCount, contactRa
 
         {recentFiles && recentFiles.length > 0 && (
           <div className="mt-4 pt-3 border-t border-border/60 space-y-1">
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wider block mb-1">Recent Files</span>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider block mb-1">{t('Recent Files')}</span>
             {recentFiles.map((f) => (
               <div key={f.id} className="flex items-center gap-1.5 text-xs">
                 <FileText size={11} className="text-muted-foreground shrink-0" />

@@ -12,7 +12,7 @@ import ResponsiveList from '@/components/ui/ResponsiveList';
 import InlineEditCell from '@/components/ui/InlineEditCell';
 import ViewToggle from '@/components/ui/ViewToggle';
 
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useForm } from 'react-hook-form';
 import { useClients } from '@/lib/use-clients';
 import { clientBadgeVariant } from '@/lib/client-badge';
@@ -21,6 +21,9 @@ import { useCachedQuery } from '@/lib/use-cached-query';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
 import { formatMoneyMB } from '@/lib/money';
 import { DEPLOYMENT } from '@/config/deployment';
+import { t } from '@/i18n';
+import { tx } from '@/i18n/tx';
+import { BALANCE_BANDS, BAND_RANGE_LABELS } from '@/lib/distribution';
 
 interface FileRow {
   id: string;
@@ -60,7 +63,7 @@ async function downloadExport(url: string, fallbackName: string): Promise<boolea
     const res = await fetch(url);
     if (!res.ok) {
       const payload = await res.json().catch(() => ({}));
-      toast.error(payload.error || 'Export failed — nothing was changed');
+      toast.error(payload.error || t('Export failed — nothing was changed'));
       return false;
     }
     const blob = await res.blob();
@@ -414,7 +417,7 @@ export default function FileManagementContent() {
         const res = await fetch('/api/files/preview-distributed', { method: 'POST', body: form });
         const payload = await res.json();
         if (!res.ok) {
-          toast.error(payload.error || 'Could not read this file');
+          toast.error(payload.error || t('Could not read this file'));
           return;
         }
         setPreview({ headers: payload.headers, sampleRows: payload.sampleRows, suggested: payload.suggested, totalRows: null });
@@ -437,7 +440,7 @@ export default function FileManagementContent() {
       const res = await fetch('/api/files/preview', { method: 'POST', body: form });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Could not read this file');
+        toast.error(payload.error || t('Could not read this file'));
         return;
       }
       setPreview(payload);
@@ -486,7 +489,7 @@ export default function FileManagementContent() {
       const res = await fetch('/api/files', { method: 'POST', body: form });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Import failed');
+        toast.error(payload.error || t('Import failed'));
         return;
       }
       setImportModalOpen(false);
@@ -496,8 +499,8 @@ export default function FileManagementContent() {
       setDistributionFileId(payload.file.id);
       toast.success(
         isDistributedImport
-          ? `File "${data.batchLabel}" queued — importing with agent assignments preserved from each sheet`
-          : `File "${data.batchLabel}" queued — importing in the background, ready shortly`
+          ? t('File "{0}" queued — importing with agent assignments preserved from each sheet', data.batchLabel)
+          : t('File "{0}" queued — importing in the background, ready shortly', data.batchLabel)
       );
     } catch {
       toast.error('Could not reach the server — try again');
@@ -520,12 +523,12 @@ export default function FileManagementContent() {
       });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Distribution failed');
+        toast.error(payload.error || t('Distribution failed'));
         return;
       }
       refetchFiles();
       refetchDistribution();
-      toast.success(`Distribution triggered — ${payload.assignedCount} debtors split across ${payload.agentsUsed} agents`);
+      toast.success(t('Distribution triggered — {0} debtors split across {1} agents', payload.assignedCount, payload.agentsUsed));
     } catch {
       toast.error('Could not reach the server — try again');
     } finally {
@@ -539,7 +542,7 @@ export default function FileManagementContent() {
       const res = await fetch(`/api/files/${file.id}/distribution/export`);
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        toast.error(payload.error || 'Export failed');
+        toast.error(payload.error || t('Export failed'));
         return;
       }
       const blob = await res.blob();
@@ -580,7 +583,7 @@ export default function FileManagementContent() {
       const res = await fetch(`/api/files/${selectedFile.id}/sync/preview`, { method: 'POST', body: form });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Could not read this file');
+        toast.error(payload.error || t('Could not read this file'));
         return;
       }
       setSyncPreview(payload);
@@ -616,7 +619,7 @@ export default function FileManagementContent() {
       const res = await fetch(`/api/files/${selectedFile.id}/sync`, { method: 'POST', body: form });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Sync failed');
+        toast.error(payload.error || t('Sync failed'));
         return;
       }
       setSyncModalOpen(false);
@@ -641,7 +644,7 @@ export default function FileManagementContent() {
       });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Could not add agent to this file');
+        toast.error(payload.error || t('Could not add agent to this file'));
         return;
       }
       setRebalanceAgentId('');
@@ -676,12 +679,12 @@ export default function FileManagementContent() {
       });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Reassignment failed');
+        toast.error(payload.error || t('Reassignment failed'));
         return;
       }
       refetchFiles();
       refetchDistribution();
-      toast.success(`${payload.movedCount} debtor(s) moved, ${payload.keptCount} left with their current agent`);
+      toast.success(t('{0} debtor(s) moved, {1} left with their current agent', payload.movedCount, payload.keptCount));
     } catch {
       toast.error('Could not reach the server — try again');
     } finally {
@@ -709,10 +712,10 @@ export default function FileManagementContent() {
       });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Could not update file');
+        toast.error(payload.error || t('Could not update file'));
         return;
       }
-      toast.success(`"${data.batchLabel}" updated`);
+      toast.success(t('"{0}" updated', data.batchLabel));
       setEditingFile(null);
       refetchFiles();
     } catch {
@@ -724,7 +727,7 @@ export default function FileManagementContent() {
 
   async function toggleRecall(file: FileRow) {
     const nextRecalled = file.status !== 'recalled';
-    if (nextRecalled && !window.confirm(`Recall "${file.batchLabel}"? Agents will stop seeing its debtors in their active queue.`)) return;
+    if (nextRecalled && !window.confirm(t('Recall "{0}"? Agents will stop seeing its debtors in their active queue.', file.batchLabel))) return;
     const res = await fetch(`/api/files/${file.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -732,22 +735,22 @@ export default function FileManagementContent() {
     });
     const payload = await res.json();
     if (!res.ok) {
-      toast.error(payload.error || 'Could not update file');
+      toast.error(payload.error || t('Could not update file'));
       return;
     }
-    toast.success(nextRecalled ? `"${file.batchLabel}" recalled` : `"${file.batchLabel}" reactivated`);
+    toast.success(nextRecalled ? t('"{0}" recalled', file.batchLabel) : t('"{0}" reactivated', file.batchLabel));
     refetchFiles();
   }
 
   async function deleteFile(file: FileRow) {
-    if (!window.confirm(`Permanently delete "${file.batchLabel}"? This deletes all ${file.debtorCount} debtor(s) AND every call logged against them — there is no undo.`)) return;
+    if (!window.confirm(t('Permanently delete "{0}"? This deletes all {1} debtor(s) AND every call logged against them — there is no undo.', file.batchLabel, file.debtorCount))) return;
     const res = await fetch(`/api/files/${file.id}`, { method: 'DELETE' });
     const payload = await res.json();
     if (!res.ok) {
-      toast.error(payload.error || 'Could not delete file');
+      toast.error(payload.error || t('Could not delete file'));
       return;
     }
-    toast.success(`"${file.batchLabel}" deleted`);
+    toast.success(t('"{0}" deleted', file.batchLabel));
     if (distributionFileId === file.id) setDistributionFileId(null);
     refetchFiles();
   }
@@ -756,22 +759,22 @@ export default function FileManagementContent() {
     const res = await fetch(`/api/files/${file.id}/clear-dispositions`);
     const counts = await res.json().catch(() => ({}));
     if (!res.ok) {
-      toast.error(counts.error || 'Could not check this file\'s dispositions');
+      toast.error(counts.error || t('Could not check this file\'s dispositions'));
       return;
     }
     if (counts.callCount === 0) {
-      toast.info(`"${file.batchLabel}" has no dispositions to clear`);
+      toast.info(t('"{0}" has no dispositions to clear', file.batchLabel));
       return;
     }
-    if (!window.confirm(`Clear ALL dispositions in "${file.batchLabel}"? This permanently deletes ${counts.callCount.toLocaleString()} logged call(s) across ${counts.debtorCount.toLocaleString()} debtor(s) — notes, promises and corrections included — so every debtor shows as not yet called. Balances and payments are not touched. A copy is downloaded first. There is no undo.`)) return;
+    if (!window.confirm(t('Clear ALL dispositions in "{0}"? This permanently deletes {1} logged call(s) across {2} debtor(s) — notes, promises and corrections included — so every debtor shows as not yet called. Balances and payments are not touched. A copy is downloaded first. There is no undo.', file.batchLabel, counts.callCount.toLocaleString(), counts.debtorCount.toLocaleString()))) return;
     if (!(await downloadExport(`/api/files/${file.id}/clear-dispositions/export`, `${file.client}-${file.batchLabel}-dispositions.xlsx`))) return;
     const clearRes = await fetch(`/api/files/${file.id}/clear-dispositions`, { method: 'POST' });
     const payload = await clearRes.json().catch(() => ({}));
     if (!clearRes.ok) {
-      toast.error(payload.error || 'Could not clear dispositions');
+      toast.error(payload.error || t('Could not clear dispositions'));
       return;
     }
-    toast.success(`Cleared ${payload.clearedCount.toLocaleString()} disposition(s) in "${file.batchLabel}" — export saved to your downloads`);
+    toast.success(t('Cleared {0} disposition(s) in "{1}" — export saved to your downloads', payload.clearedCount.toLocaleString(), file.batchLabel));
     refetchFiles();
   }
 
@@ -791,7 +794,7 @@ export default function FileManagementContent() {
       const res = await fetch(`/api/clients/${clientId}/new-month`);
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(payload.error || 'Could not load the new-month preview');
+        toast.error(payload.error || t('Could not load the new-month preview'));
         return;
       }
       setNewMonthPlan(payload.plan);
@@ -815,13 +818,13 @@ export default function FileManagementContent() {
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(payload.error || 'Could not start the new month');
+        toast.error(payload.error || t('Could not start the new month'));
         return;
       }
       const r = payload.result;
-      toast.success(`New month started for ${newMonthPlan.clientName}: ${r.reconciliationsCleared} reconciliation(s) cleared, ${r.debtorsRemoved} zero-balance debtor(s) removed. Export saved to your downloads.`);
+      toast.success(t('New month started for {0}: {1} reconciliation(s) cleared, {2} zero-balance debtor(s) removed. Export saved to your downloads.', newMonthPlan.clientName, r.reconciliationsCleared, r.debtorsRemoved));
       if (r.filesEmptied.length > 0) {
-        toast.info(`Now empty and safe to delete: ${r.filesEmptied.map((f: { batchLabel: string }) => f.batchLabel).join(', ')}`);
+        toast.info(t('Now empty and safe to delete: {0}', r.filesEmptied.map((f: { batchLabel: string }) => f.batchLabel).join(', ')));
       }
       setNewMonthOpen(false);
       resetNewMonthState();
@@ -847,7 +850,7 @@ export default function FileManagementContent() {
       const res = await fetch('/api/debtors/bulk-remove/preview', { method: 'POST', body: form });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Could not read this file');
+        toast.error(payload.error || t('Could not read this file'));
         return;
       }
       setRemovePreview(payload);
@@ -895,7 +898,7 @@ export default function FileManagementContent() {
 
   async function onConfirmRemove() {
     if (removeSelectedIds.size === 0) return;
-    if (!window.confirm(`Permanently delete ${removeSelectedIds.size} account(s) and every call logged against them? There is no undo.`)) return;
+    if (!window.confirm(t('Permanently delete {0} account(s) and every call logged against them? There is no undo.', removeSelectedIds.size))) return;
 
     setIsRemoving(true);
     try {
@@ -906,10 +909,10 @@ export default function FileManagementContent() {
       });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Could not remove these accounts');
+        toast.error(payload.error || t('Could not remove these accounts'));
         return;
       }
-      toast.success(`${payload.deletedCount} account(s) removed`);
+      toast.success(t('{0} account(s) removed', payload.deletedCount));
       setRemoveModalOpen(false);
       resetRemoveModalState();
       refetchFiles();
@@ -925,10 +928,10 @@ export default function FileManagementContent() {
     const res = await fetch(`/api/files/${file.id}/import`, { method: 'POST' });
     const payload = await res.json();
     if (!res.ok) {
-      toast.error(payload.error || 'Could not retry this import');
+      toast.error(payload.error || t('Could not retry this import'));
       return;
     }
-    toast.info(`Retrying import for "${file.batchLabel}"`);
+    toast.info(t('Retrying import for "{0}"', file.batchLabel));
     refetchFiles();
   }
 
@@ -937,36 +940,36 @@ export default function FileManagementContent() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-page-title text-foreground">File Management & Distribution</h1>
-          <p className="text-sm text-muted-foreground mt-1">Manage client file batches and agent allocation by balance range</p>
+          <h1 className="text-page-title text-foreground">{t('File Management & Distribution')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t('Manage client file batches and agent allocation by balance range')}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setNewMonthOpen(true)}
             disabled={offlineBlocked}
-            title={offlineBlocked ? 'Offline — reconnect to start a new month' : "Clear last month's reconciliations and zero-balance debtors for one client"}
+            title={offlineBlocked ? t('Offline — reconnect to start a new month') : t('Clear last month\'s reconciliations and zero-balance debtors for one client')}
             className="flex items-center gap-1.5 px-4 py-2 bg-secondary text-foreground text-sm font-semibold rounded-lg hover:bg-secondary/80 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <CalendarClock size={15} />
-            Start New Month
+            {t('Start New Month')}
           </button>
           <button
             onClick={() => setRemoveModalOpen(true)}
             disabled={offlineBlocked}
-            title={offlineBlocked ? 'Offline — reconnect to remove accounts' : 'Remove accounts a client has insourced, across any of their file batches'}
+            title={offlineBlocked ? t('Offline — reconnect to remove accounts') : t('Remove accounts a client has insourced, across any of their file batches')}
             className="flex items-center gap-1.5 px-4 py-2 bg-secondary text-foreground text-sm font-semibold rounded-lg hover:bg-secondary/80 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <Trash2 size={15} />
-            Remove Accounts
+            {t('Remove Accounts')}
           </button>
           <button
             onClick={() => setImportModalOpen(true)}
             disabled={offlineBlocked}
-            title={offlineBlocked ? 'Offline — reconnect to import' : undefined}
+            title={offlineBlocked ? t('Offline — reconnect to import') : undefined}
             className="hidden lg:flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <Upload size={15} />
-            Import New File
+            {t('Import New File')}
           </button>
         </div>
       </div>
@@ -984,7 +987,7 @@ export default function FileManagementContent() {
               <stat.icon size={18} />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground font-medium">{stat.label}</p>
+              <p className="text-xs text-muted-foreground font-medium">{t(stat.label)}</p>
               <p className="font-tabular font-bold text-lg text-foreground">{stat.value}</p>
             </div>
           </div>
@@ -995,11 +998,11 @@ export default function FileManagementContent() {
         {/* File list */}
         <div className="xl:col-span-2 2xl:col-span-2 bg-card rounded-xl shadow-card border border-border">
           <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
-            <h2 className="text-section-header text-foreground">Client File Batches</h2>
+            <h2 className="text-section-header text-foreground">{t('Client File Batches')}</h2>
             <ListToolbar
               search={search}
               onSearchChange={setSearch}
-              searchPlaceholder="Search files…"
+              searchPlaceholder={t('Search files…')}
               filters={[
                 {
                   key: 'client', value: filterClient, onChange: setFilterClient,
@@ -1056,12 +1059,12 @@ export default function FileManagementContent() {
                                 body: JSON.stringify({ batchLabel: next }),
                               });
                               const payload = await res.json();
-                              if (!res.ok) { toast.error(payload.error || 'Could not update batch label'); return; }
+                              if (!res.ok) { toast.error(payload.error || t('Could not update batch label')); return; }
                               refetchFiles();
                             }}
                           />
                           {file.isMidMonthTopup && (
-                            <span className="text-xs text-positive font-semibold">Mid-month top-up</span>
+                            <span className="text-xs text-positive font-semibold">{t('Mid-month top-up')}</span>
                           )}
                         </div>
                       </div>
@@ -1075,7 +1078,7 @@ export default function FileManagementContent() {
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className="font-tabular font-semibold text-foreground">{file.debtorCount.toLocaleString()}</span>
                       {file.assignedCount < file.debtorCount && (
-                        <span className="text-xs text-warning ml-1">({file.debtorCount - file.assignedCount} unassigned)</span>
+                        <span className="text-xs text-warning ml-1">{t('({0} unassigned)', file.debtorCount - file.assignedCount)}</span>
                       )}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
@@ -1085,13 +1088,13 @@ export default function FileManagementContent() {
                       <span className="font-tabular text-sm text-foreground">{file.agentsAllocated}</span>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <Badge variant={sc.variant}>{sc.label}</Badge>
+                      <Badge variant={sc.variant}>{t(sc.label)}</Badge>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           className="p-1.5 rounded-md hover:bg-primary/10 text-primary transition-colors"
-                          title="View distribution"
+                          title={t('View distribution')}
                           onClick={(e) => { e.stopPropagation(); setDistributionFileId(file.id); }}
                         >
                           <ChevronRight size={15} />
@@ -1099,7 +1102,7 @@ export default function FileManagementContent() {
                         {file.importStatus === 'failed' && (
                           <button
                             className="p-1.5 rounded-md hover:bg-primary/10 text-primary transition-colors disabled:opacity-40"
-                            title={offlineBlocked ? 'Offline — reconnect to retry' : 'Retry import'}
+                            title={offlineBlocked ? t('Offline — reconnect to retry') : t('Retry import')}
                             disabled={offlineBlocked}
                             onClick={(e) => { e.stopPropagation(); retryImport(file); }}
                           >
@@ -1108,7 +1111,7 @@ export default function FileManagementContent() {
                         )}
                         <button
                           className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40"
-                          title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit'}
+                          title={offlineBlocked ? t('Offline — reconnect to edit') : t('Edit')}
                           disabled={offlineBlocked}
                           onClick={(e) => { e.stopPropagation(); openEditFile(file); }}
                         >
@@ -1116,7 +1119,7 @@ export default function FileManagementContent() {
                         </button>
                         <button
                           className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40"
-                          title={offlineBlocked ? 'Offline — reconnect' : (file.status === 'recalled' ? 'Reactivate' : 'Recall')}
+                          title={offlineBlocked ? t('Offline — reconnect') : (file.status === 'recalled' ? t('Reactivate') : t('Recall'))}
                           disabled={offlineBlocked}
                           onClick={(e) => { e.stopPropagation(); toggleRecall(file); }}
                         >
@@ -1124,7 +1127,7 @@ export default function FileManagementContent() {
                         </button>
                         <button
                           className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40"
-                          title={offlineBlocked ? 'Offline — reconnect' : 'Clear all dispositions'}
+                          title={offlineBlocked ? t('Offline — reconnect') : t('Clear all dispositions')}
                           disabled={offlineBlocked}
                           onClick={(e) => { e.stopPropagation(); clearDispositions(file); }}
                         >
@@ -1132,7 +1135,7 @@ export default function FileManagementContent() {
                         </button>
                         <button
                           className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40"
-                          title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'}
+                          title={offlineBlocked ? t('Offline — reconnect to delete') : t('Delete')}
                           disabled={offlineBlocked}
                           onClick={(e) => { e.stopPropagation(); deleteFile(file); }}
                         >
@@ -1155,46 +1158,46 @@ export default function FileManagementContent() {
                         <FileText size={14} className="text-muted-foreground shrink-0" />
                         <div className="min-w-0">
                           <p className="font-medium text-foreground font-mono-data text-xs truncate">{file.batchLabel}</p>
-                          {file.isMidMonthTopup && <span className="text-xs text-positive font-semibold">Mid-month top-up</span>}
+                          {file.isMidMonthTopup && <span className="text-xs text-positive font-semibold">{t('Mid-month top-up')}</span>}
                         </div>
                       </div>
                       <ChevronRight size={16} className="text-muted-foreground shrink-0" />
                     </div>
                     <div className="flex items-center gap-2 mt-2 flex-wrap">
                       <Badge variant={clientBadgeVariant(file.client)}>{file.client}</Badge>
-                      <Badge variant={sc.variant}>{sc.label}</Badge>
+                      <Badge variant={sc.variant}>{t(sc.label)}</Badge>
                       <span className="text-xs text-muted-foreground">{formatDate(file.receivedDate)}</span>
                     </div>
                     <div className="grid grid-cols-3 gap-2 mt-3 text-xs">
                       <div>
-                        <span className="text-muted-foreground block">Debtors</span>
+                        <span className="text-muted-foreground block">{t('Debtors')}</span>
                         <span className="font-tabular font-semibold text-foreground">{file.debtorCount.toLocaleString()}</span>
                       </div>
                       <div>
-                        <span className="text-muted-foreground block">Balance</span>
+                        <span className="text-muted-foreground block">{t('Balance')}</span>
                         <span className="font-tabular font-semibold text-foreground">{formatMoneyMB(file.totalBalance)}</span>
                       </div>
                       <div>
-                        <span className="text-muted-foreground block">Agents</span>
+                        <span className="text-muted-foreground block">{t('Agents')}</span>
                         <span className="font-tabular font-semibold text-foreground">{file.agentsAllocated}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-1 mt-3 pt-3 border-t border-border/60" onClick={(e) => e.stopPropagation()}>
                       {file.importStatus === 'failed' && (
-                        <button className="p-1.5 rounded-md hover:bg-primary/10 text-primary transition-colors disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to retry' : 'Retry import'} disabled={offlineBlocked} onClick={() => retryImport(file)}>
+                        <button className="p-1.5 rounded-md hover:bg-primary/10 text-primary transition-colors disabled:opacity-40" title={offlineBlocked ? t('Offline — reconnect to retry') : t('Retry import')} disabled={offlineBlocked} onClick={() => retryImport(file)}>
                           <RefreshCcw size={14} />
                         </button>
                       )}
-                      <button className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit'} disabled={offlineBlocked} onClick={() => openEditFile(file)}>
+                      <button className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? t('Offline — reconnect to edit') : t('Edit')} disabled={offlineBlocked} onClick={() => openEditFile(file)}>
                         <Pencil size={14} />
                       </button>
-                      <button className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect' : (file.status === 'recalled' ? 'Reactivate' : 'Recall')} disabled={offlineBlocked} onClick={() => toggleRecall(file)}>
+                      <button className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? t('Offline — reconnect') : (file.status === 'recalled' ? t('Reactivate') : t('Recall'))} disabled={offlineBlocked} onClick={() => toggleRecall(file)}>
                         <Undo2 size={14} />
                       </button>
-                      <button className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect' : 'Clear all dispositions'} disabled={offlineBlocked} onClick={() => clearDispositions(file)}>
+                      <button className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? t('Offline — reconnect') : t('Clear all dispositions')} disabled={offlineBlocked} onClick={() => clearDispositions(file)}>
                         <Eraser size={14} />
                       </button>
-                      <button className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete'} disabled={offlineBlocked} onClick={() => deleteFile(file)}>
+                      <button className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40" title={offlineBlocked ? t('Offline — reconnect to delete') : t('Delete')} disabled={offlineBlocked} onClick={() => deleteFile(file)}>
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -1207,17 +1210,17 @@ export default function FileManagementContent() {
           {filtered.length === 0 && (
             <EmptyState
               icon={FolderOpen}
-              title="No files found"
-              description="No client file batches match your current filters. Import a new file to get started."
+              title={t('No files found')}
+              description={t('No client file batches match your current filters. Import a new file to get started.')}
               action={
                 <button
                   onClick={() => setImportModalOpen(true)}
                   disabled={offlineBlocked}
-                  title={offlineBlocked ? 'Offline — reconnect to import' : undefined}
+                  title={offlineBlocked ? t('Offline — reconnect to import') : undefined}
                   className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <Upload size={14} />
-                  Import New File
+                  {t('Import New File')}
                 </button>
               }
             />
@@ -1231,18 +1234,18 @@ export default function FileManagementContent() {
               <div className="px-5 py-4 border-b border-border">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h3 className="text-section-header text-foreground">Agent Distribution</h3>
+                    <h3 className="text-section-header text-foreground">{t('Agent Distribution')}</h3>
                     <p className="text-xs text-muted-foreground mt-0.5 font-mono-data">{selectedFile.batchLabel}</p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <Badge variant={fileStatusBadge(selectedFile).variant}>
-                      {fileStatusBadge(selectedFile).label}
+                      {t(fileStatusBadge(selectedFile).label)}
                     </Badge>
                     {distributionData.length > 0 && (
                       <button
                         onClick={() => exportDistribution(selectedFile)}
                         disabled={isExportingDistribution || offlineBlocked}
-                        title={offlineBlocked ? 'Offline — reconnect to export' : 'Export — one sheet per agent'}
+                        title={offlineBlocked ? t('Offline — reconnect to export') : t('Export — one sheet per agent')}
                         className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
                       >
                         <Download size={14} className={isExportingDistribution ? 'animate-pulse' : ''} />
@@ -1251,7 +1254,7 @@ export default function FileManagementContent() {
                     <button
                       onClick={() => setSyncModalOpen(true)}
                       disabled={offlineBlocked}
-                      title={offlineBlocked ? 'Offline — reconnect to sync' : 'Sync Update — pick up new loans and this month\'s payments from a client\'s daily file'}
+                      title={offlineBlocked ? t('Offline — reconnect to sync') : t('Sync Update — pick up new loans and this month\'s payments from a client\'s daily file')}
                       className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
                     >
                       <RefreshCcw size={14} />
@@ -1261,22 +1264,24 @@ export default function FileManagementContent() {
 
                 {lastSync && (
                   <p className="mt-2 text-[11px] text-muted-foreground">
-                    Last sync {formatSyncTime(lastSync.completedAt ?? lastSync.createdAt)}:{' '}
+                    {t('Last sync {0}:', formatSyncTime(lastSync.completedAt ?? lastSync.createdAt))}{' '}
                     {lastSync.status === 'failed'
-                      ? <span className="text-negative">failed — {lastSync.error}</span>
+                      ? <span className="text-negative">{t('failed — {0}', lastSync.error)}</span>
                       : lastSync.status === 'complete'
-                        ? `${lastSync.newDebtorsCount} new debtor(s), ${lastSync.paymentsAppliedCount} payment(s) applied${lastSync.paymentsSkippedCount > 0 ? `, ${lastSync.paymentsSkippedCount} already recorded` : ''}`
-                        : 'in progress…'}
+                        ? (lastSync.paymentsSkippedCount > 0
+                          ? t('{0} new debtor(s), {1} payment(s) applied, {2} already recorded', lastSync.newDebtorsCount, lastSync.paymentsAppliedCount, lastSync.paymentsSkippedCount)
+                          : t('{0} new debtor(s), {1} payment(s) applied', lastSync.newDebtorsCount, lastSync.paymentsAppliedCount))
+                        : t('in progress…')}
                   </p>
                 )}
 
                 {/* Balance band legend */}
                 <div className="mt-3 grid grid-cols-2 gap-1.5">
                   {[
-                    { label: '≤ 500K', className: 'balance-band-easy text-xs px-2 py-1 rounded-md font-medium' },
-                    { label: '500K–2M', className: 'balance-band-medium text-xs px-2 py-1 rounded-md font-medium' },
-                    { label: '2M–5M', className: 'balance-band-hard text-xs px-2 py-1 rounded-md font-medium' },
-                    { label: '5M+', className: 'bg-[#FEF2F2] text-negative text-xs px-2 py-1 rounded-md font-medium' },
+                    { label: BALANCE_BANDS[0].label, className: 'balance-band-easy text-xs px-2 py-1 rounded-md font-medium' },
+                    { label: BALANCE_BANDS[1].label, className: 'balance-band-medium text-xs px-2 py-1 rounded-md font-medium' },
+                    { label: BALANCE_BANDS[2].label, className: 'balance-band-hard text-xs px-2 py-1 rounded-md font-medium' },
+                    { label: BALANCE_BANDS[3].label, className: 'bg-[#FEF2F2] text-negative text-xs px-2 py-1 rounded-md font-medium' },
                   ].map((band) => (
                     <span key={`band-${band.label}`} className={band.className}>{band.label}</span>
                   ))}
@@ -1287,12 +1292,12 @@ export default function FileManagementContent() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-border bg-secondary/30">
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Agent</th>
-                      <th className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground">≤500K</th>
-                      <th className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground">500K–2M</th>
-                      <th className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground">2M–5M</th>
-                      <th className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground">5M+</th>
-                      <th className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground">Total</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('Agent')}</th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground">{BAND_RANGE_LABELS[0]}</th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground">{BAND_RANGE_LABELS[1]}</th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground">{BAND_RANGE_LABELS[2]}</th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground">{BAND_RANGE_LABELS[3]}</th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground">{t('Total')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1321,7 +1326,7 @@ export default function FileManagementContent() {
                   </tbody>
                   <tfoot>
                     <tr className="bg-secondary/40 border-t border-border">
-                      <td className="px-3 py-2 text-xs font-bold text-foreground">Totals</td>
+                      <td className="px-3 py-2 text-xs font-bold text-foreground">{t('Totals')}</td>
                       <td className="px-3 py-2 text-center font-tabular font-bold text-foreground">
                         {distributionData.reduce((s, r) => s + r.band0_500k, 0)}
                       </td>
@@ -1346,19 +1351,19 @@ export default function FileManagementContent() {
                 <div className="p-4 border-t border-border space-y-3">
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <p className="text-xs font-semibold text-foreground">Agents for this file</p>
+                      <p className="text-xs font-semibold text-foreground">{t('Agents for this file')}</p>
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => setSelectedAgentIds(agents.map((a) => a.id))}
                           className="text-xs text-primary hover:underline"
                         >
-                          All
+                          {t('All')}
                         </button>
                         <button
                           onClick={() => setSelectedAgentIds([])}
                           className="text-xs text-muted-foreground hover:underline"
                         >
-                          None
+                          {t('None')}
                         </button>
                       </div>
                     </div>
@@ -1373,15 +1378,15 @@ export default function FileManagementContent() {
                           />
                           <span className="flex-1 text-foreground truncate">{agent.name}</span>
                           {agent.role === 'admin' && (
-                            <span className="text-[10px] font-semibold uppercase tracking-wide text-info bg-[var(--info-bg)] px-1.5 py-0.5 rounded-full">Admin</span>
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-info bg-[var(--info-bg)] px-1.5 py-0.5 rounded-full">{t('Admin')}</span>
                           )}
                         </label>
                       ))}
                       {agents.length === 0 && (
-                        <p className="px-3 py-3 text-xs text-muted-foreground text-center">No active agents yet — add one under Admin → Users.</p>
+                        <p className="px-3 py-3 text-xs text-muted-foreground text-center">{t('No active agents yet — add one under Admin → Users.')}</p>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">{selectedAgentIds.length} of {agents.length} agents selected</p>
+                    <p className="text-xs text-muted-foreground mt-1">{t('{0} of {1} agents selected', selectedAgentIds.length, agents.length)}</p>
                   </div>
                   <button
                     onClick={() => runDistribution(selectedFile.id)}
@@ -1389,19 +1394,17 @@ export default function FileManagementContent() {
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60"
                   >
                     <Users size={15} />
-                    {isDistributing ? 'Distributing…' : 'Run Auto-Distribution'}
+                    {isDistributing ? t('Distributing…') : t('Run Auto-Distribution')}
                   </button>
-                  <p className="text-xs text-muted-foreground text-center">Splits debtors by balance range across the agents selected above</p>
+                  <p className="text-xs text-muted-foreground text-center">{t('Splits debtors by balance range across the agents selected above')}</p>
                 </div>
               )}
 
               {selectedFile.status === 'active' && (
                 <div className="p-4 border-t border-border space-y-2">
-                  <p className="text-xs font-semibold text-foreground">Add an agent to this file</p>
+                  <p className="text-xs font-semibold text-foreground">{t('Add an agent to this file')}</p>
                   <p className="text-xs text-muted-foreground">
-                    For an agent joining after distribution already ran. Pulls debtors from the current
-                    roster — never-called accounts first, then called-but-uncollected — leaving accounts
-                    that already have a payment untouched, and keeps the roster balanced as it goes.
+                    {t('For an agent joining after distribution already ran. Pulls debtors from the current roster — never-called accounts first, then called-but-uncollected — leaving accounts that already have a payment untouched, and keeps the roster balanced as it goes.')}
                   </p>
                   <div className="flex items-center gap-2">
                     <select
@@ -1409,10 +1412,10 @@ export default function FileManagementContent() {
                       onChange={(e) => setRebalanceAgentId(e.target.value)}
                       className="flex-1 text-sm bg-input border border-border rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-ring/50"
                     >
-                      <option value="">Select agent…</option>
+                      <option value="">{t('Select agent…')}</option>
                       {agents
                         .filter((a) => !distributionData.some((row) => row.agentId === a.id))
-                        .map((a) => <option key={a.id} value={a.id}>{a.name}{a.role === 'admin' ? ' (Admin)' : ''}</option>)}
+                        .map((a) => <option key={a.id} value={a.id}>{a.name}{a.role === 'admin' ? (' ' + t('(Admin)')) : ''}</option>)}
                     </select>
                     <button
                       onClick={() => runRebalance(selectedFile.id)}
@@ -1420,7 +1423,7 @@ export default function FileManagementContent() {
                       className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 whitespace-nowrap"
                     >
                       <UserPlus size={15} />
-                      {isRebalancing ? 'Adding…' : 'Add'}
+                      {isRebalancing ? t('Adding…') : t('Add')}
                     </button>
                   </div>
                 </div>
@@ -1429,19 +1432,17 @@ export default function FileManagementContent() {
               {selectedFile.status === 'recalled' && (
                 <div className="p-4 border-t border-border space-y-3">
                   <div>
-                    <p className="text-xs font-semibold text-foreground">Reassign this file</p>
+                    <p className="text-xs font-semibold text-foreground">{t('Reassign this file')}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Pick the new roster of agents for this file. Anyone staying on the list keeps what
-                      they already have; everyone else&apos;s debtors are split across the new roster by
-                      balance range, same as a fresh distribution.
+                      {t('Pick the new roster of agents for this file. Anyone staying on the list keeps what they already have; everyone else\'s debtors are split across the new roster by balance range, same as a fresh distribution.')}
                     </p>
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <p className="text-xs font-semibold text-foreground">New agent roster</p>
+                      <p className="text-xs font-semibold text-foreground">{t('New agent roster')}</p>
                       <div className="flex items-center gap-2">
-                        <button onClick={() => setSelectedAgentIds(agents.map((a) => a.id))} className="text-xs text-primary hover:underline">All</button>
-                        <button onClick={() => setSelectedAgentIds([])} className="text-xs text-muted-foreground hover:underline">None</button>
+                        <button onClick={() => setSelectedAgentIds(agents.map((a) => a.id))} className="text-xs text-primary hover:underline">{t('All')}</button>
+                        <button onClick={() => setSelectedAgentIds([])} className="text-xs text-muted-foreground hover:underline">{t('None')}</button>
                       </div>
                     </div>
                     <div className="max-h-40 overflow-y-auto scrollbar-thin border border-border rounded-lg divide-y divide-border">
@@ -1455,15 +1456,15 @@ export default function FileManagementContent() {
                           />
                           <span className="flex-1 text-foreground truncate">{agent.name}</span>
                           {agent.role === 'admin' && (
-                            <span className="text-[10px] font-semibold uppercase tracking-wide text-info bg-[var(--info-bg)] px-1.5 py-0.5 rounded-full">Admin</span>
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-info bg-[var(--info-bg)] px-1.5 py-0.5 rounded-full">{t('Admin')}</span>
                           )}
                         </label>
                       ))}
                       {agents.length === 0 && (
-                        <p className="px-3 py-3 text-xs text-muted-foreground text-center">No active agents yet — add one under Admin → Users.</p>
+                        <p className="px-3 py-3 text-xs text-muted-foreground text-center">{t('No active agents yet — add one under Admin → Users.')}</p>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">{selectedAgentIds.length} of {agents.length} agents selected</p>
+                    <p className="text-xs text-muted-foreground mt-1">{t('{0} of {1} agents selected', selectedAgentIds.length, agents.length)}</p>
                   </div>
                   <button
                     onClick={() => runReassign(selectedFile.id)}
@@ -1471,30 +1472,30 @@ export default function FileManagementContent() {
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60"
                   >
                     <Users size={15} />
-                    {isReassigning ? 'Reassigning…' : 'Reassign File'}
+                    {isReassigning ? t('Reassigning…') : t('Reassign File')}
                   </button>
-                  <p className="text-xs text-muted-foreground text-center">Reactivate the file (Recall button) once you&apos;re done to let agents see it again</p>
+                  <p className="text-xs text-muted-foreground text-center">{t('Reactivate the file (Recall button) once you\'re done to let agents see it again')}</p>
                 </div>
               )}
             </div>
           ) : (
             <div className="bg-card rounded-xl shadow-card border border-border p-8 text-center">
               <Layers size={32} className="text-muted mx-auto mb-3" />
-              <p className="text-sm font-medium text-foreground">Select a file</p>
-              <p className="text-xs text-muted-foreground mt-1">Click any file row to view its agent distribution breakdown</p>
+              <p className="text-sm font-medium text-foreground">{t('Select a file')}</p>
+              <p className="text-xs text-muted-foreground mt-1">{t('Click any file row to view its agent distribution breakdown')}</p>
             </div>
           )}
         </div>
       </div>
 
-      <Fab onClick={() => setImportModalOpen(true)} label="Import New File" icon={Upload} disabled={offlineBlocked} />
+      <Fab onClick={() => setImportModalOpen(true)} label={t('Import New File')} icon={Upload} disabled={offlineBlocked} />
 
       {/* Import Modal */}
       <Modal
         open={importModalOpen}
         onClose={() => { setImportModalOpen(false); reset(); resetImportModalState(); }}
-        title="Import New Client File"
-        subtitle="Upload an Excel file and configure how debtors are split across agents"
+        title={t('Import New Client File')}
+        subtitle={t('Upload an Excel file and configure how debtors are split across agents')}
         size="lg"
         footer={
           <>
@@ -1503,7 +1504,7 @@ export default function FileManagementContent() {
               onClick={() => { setImportModalOpen(false); reset(); resetImportModalState(); }}
               className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
-              Cancel
+              {t('Cancel')}
             </button>
             <button
               form="import-form"
@@ -1520,12 +1521,12 @@ export default function FileManagementContent() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  <span>Importing…</span>
+                  <span>{t('Importing…')}</span>
                 </>
               ) : (
                 <>
                   <Upload size={15} />
-                  <span>Import & Queue Distribution</span>
+                  <span>{t('Import & Queue Distribution')}</span>
                 </>
               )}
             </button>
@@ -1544,11 +1545,9 @@ export default function FileManagementContent() {
               size="md"
             />
             <div>
-              <p className="text-sm font-medium text-foreground">Already Distributed by Agent</p>
+              <p className="text-sm font-medium text-foreground">{t('Already Distributed by Agent')}</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Enable if this file was split by agent outside the app (one sheet per agent, e.g. &quot;DESMOND&quot;, &quot;JONATHAN&quot;). Skips
-                Run Auto-Distribution — each sheet&apos;s rows are assigned straight to that agent, and any sheet name that doesn&apos;t match a
-                real user gets flagged so you can fix it before importing.
+                {t('Enable if this file was split by agent outside the app (one sheet per agent, e.g. "DESMOND", "JONATHAN"). Skips Run Auto-Distribution — each sheet\'s rows are assigned straight to that agent, and any sheet name that doesn\'t match a real user gets flagged so you can fix it before importing.')}
               </p>
             </div>
           </div>
@@ -1556,9 +1555,9 @@ export default function FileManagementContent() {
           {/* File upload zone */}
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-foreground">
-              Excel File <span className="text-negative">*</span>
+              {t('Excel File')}{' '}<span className="text-negative">*</span>
             </label>
-            <p className="text-xs text-muted-foreground">Upload the file received from the client — any column headers are fine, you&apos;ll confirm what maps to what below.</p>
+            <p className="text-xs text-muted-foreground">{t('Upload the file received from the client — any column headers are fine, you\'ll confirm what maps to what below.')}</p>
             <label
               className={`block border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${isDragOver ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/50 bg-secondary/20'}`}
               onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
@@ -1573,38 +1572,37 @@ export default function FileManagementContent() {
               />
               <Upload size={24} className="text-muted-foreground mx-auto mb-2" />
               <p className="text-sm font-medium text-foreground">
-                {selectedUploadFile ? selectedUploadFile.name : (isDragOver ? 'Drop the file here' : 'Click to browse, or drag a file here')}
+                {selectedUploadFile ? selectedUploadFile.name : (isDragOver ? t('Drop the file here') : t('Click to browse, or drag a file here'))}
               </p>
-              <p className="text-xs text-muted-foreground mt-1">Accepts .xlsx, .xlsb, or .csv files up to 50MB</p>
+              <p className="text-xs text-muted-foreground mt-1">{t('Accepts .xlsx, .xlsb, or .csv files up to 50MB')}</p>
               <span className="inline-block mt-3 px-3 py-1.5 text-xs font-semibold text-primary border border-primary/30 rounded-lg hover:bg-primary/5 transition-colors">
-                Browse Files
+                {t('Browse Files')}
               </span>
             </label>
           </div>
 
           {isPreviewing && (
-            <p className="text-sm text-muted-foreground">Reading columns…</p>
+            <p className="text-sm text-muted-foreground">{t('Reading columns…')}</p>
           )}
 
           {preview && (
             <div className="space-y-4 p-4 bg-secondary/30 rounded-xl border border-border">
               <div>
-                <p className="text-sm font-semibold text-foreground">Map Columns</p>
+                <p className="text-sm font-semibold text-foreground">{t('Map Columns')}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {preview.totalRows !== null
-                    ? `${preview.totalRows.toLocaleString()} row(s) detected.`
-                    : 'Showing a sample — the full row count is confirmed during import.'}{' '}
-                  Matched what we could recognize — confirm or fix anything below before importing.
+                    ? t('{0} row(s) detected.', preview.totalRows.toLocaleString())
+                    : t('Showing a sample — the full row count is confirmed during import.')}{' '}{t('Matched what we could recognize — confirm or fix anything below before importing.')}
                 </p>
               </div>
 
               {/* Name */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-foreground uppercase tracking-wide">Name <span className="text-negative">*</span></label>
+                  <label className="text-xs font-semibold text-foreground uppercase tracking-wide">{t('Name')}{' '}<span className="text-negative">*</span></label>
                   <div className="flex items-center gap-1 text-xs">
-                    <button type="button" onClick={() => setMapping((m) => ({ ...m, nameMode: 'single' }))} className={`px-2 py-0.5 rounded-full ${mapping.nameMode === 'single' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'}`}>One column</button>
-                    <button type="button" onClick={() => setMapping((m) => ({ ...m, nameMode: 'split' }))} className={`px-2 py-0.5 rounded-full ${mapping.nameMode === 'split' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'}`}>First / Last</button>
+                    <button type="button" onClick={() => setMapping((m) => ({ ...m, nameMode: 'single' }))} className={`px-2 py-0.5 rounded-full ${mapping.nameMode === 'single' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'}`}>{t('One column')}</button>
+                    <button type="button" onClick={() => setMapping((m) => ({ ...m, nameMode: 'split' }))} className={`px-2 py-0.5 rounded-full ${mapping.nameMode === 'split' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'}`}>{t('First / Last')}</button>
                   </div>
                 </div>
                 {mapping.nameMode === 'single' ? (
@@ -1613,7 +1611,7 @@ export default function FileManagementContent() {
                     onChange={(e) => setMapping((m) => ({ ...m, nameCol: e.target.value }))}
                     className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
                   >
-                    <option value="">Select column…</option>
+                    <option value="">{t('Select column…')}</option>
                     {preview.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
                   </select>
                 ) : (
@@ -1647,7 +1645,7 @@ export default function FileManagementContent() {
                       onChange={(e) => setMapping((m) => ({ ...m, [field]: e.target.value }))}
                       className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
                     >
-                      <option value="">{required ? 'Select column…' : 'Not in this file'}</option>
+                      <option value="">{required ? t('Select column…') : t('Not in this file')}</option>
                       {preview.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
                     </select>
                   </div>
@@ -1655,9 +1653,7 @@ export default function FileManagementContent() {
               </div>
 
               <p className="text-xs text-muted-foreground">
-                Every other column in the file (arrears days, last payment, installment, current/principal balance,
-                payroll status, etc.) is kept automatically and shown to agents as Additional Info on the debtor card
-                — no separate mapping needed.
+                {t('Every other column in the file (arrears days, last payment, installment, current/principal balance, payroll status, etc.) is kept automatically and shown to agents as Additional Info on the debtor card — no separate mapping needed.')}
               </p>
 
               {preview.sampleRows.length > 0 && (
@@ -1666,7 +1662,7 @@ export default function FileManagementContent() {
                     <thead>
                       <tr className="border-b border-border bg-secondary/40">
                         {preview.headers.map((h, i) => (
-                          <th key={i} className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">{h || `Column ${i + 1}`}</th>
+                          <th key={i} className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">{h || t('Column {0}', i + 1)}</th>
                         ))}
                       </tr>
                     </thead>
@@ -1692,20 +1688,22 @@ export default function FileManagementContent() {
             return (
               <div className="space-y-3 p-4 bg-secondary/30 rounded-xl border border-border">
                 <div>
-                  <p className="text-sm font-semibold text-foreground">Sheet Distribution</p>
+                  <p className="text-sm font-semibold text-foreground">{t('Sheet Distribution')}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {unresolvedCount > 0
-                      ? `${unresolvedCount} sheet name${unresolvedCount === 1 ? '' : 's'} didn't match a user — pick the right agent below, or leave unassigned/skip.`
-                      : 'Every sheet name matched a real user. Double-check the reference sheet is set to Skip before importing.'}
+                      ? (unresolvedCount === 1
+                        ? t('{0} sheet name didn\'t match a user — pick the right agent below, or leave unassigned/skip.', unresolvedCount)
+                        : t('{0} sheet names didn\'t match a user — pick the right agent below, or leave unassigned/skip.', unresolvedCount))
+                      : t('Every sheet name matched a real user. Double-check the reference sheet is set to Skip before importing.')}
                   </p>
                 </div>
                 <div className="overflow-x-auto scrollbar-thin border border-border rounded-lg bg-card">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-border bg-secondary/40">
-                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">Sheet</th>
-                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">Rows</th>
-                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">Assignment</th>
+                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">{t('Sheet')}</th>
+                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">{t('Rows')}</th>
+                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">{t('Assignment')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1716,7 +1714,7 @@ export default function FileManagementContent() {
                           <tr key={s.name} className={`border-b border-border/60 last:border-0 ${unmatched ? 'bg-[var(--negative-bg)]' : ''}`}>
                             <td className="px-2 py-1.5 whitespace-nowrap font-medium text-foreground">
                               {s.name}
-                              {unmatched && <span className="ml-1.5 text-negative font-semibold">Not recognized</span>}
+                              {unmatched && <span className="ml-1.5 text-negative font-semibold">{t('Not recognized')}</span>}
                             </td>
                             <td className="px-2 py-1.5 whitespace-nowrap text-muted-foreground">{s.rowCount.toLocaleString()}</td>
                             <td className="px-2 py-1.5 whitespace-nowrap">
@@ -1725,10 +1723,10 @@ export default function FileManagementContent() {
                                 onChange={(e) => setSheetActions((prev) => ({ ...prev, [s.name]: decodeSheetAction(e.target.value) }))}
                                 className="w-full px-2 py-1.5 text-xs bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
                               >
-                                <option value="skip">Skip — reference/master sheet</option>
-                                <option value="unassigned">Leave unassigned</option>
+                                <option value="skip">{t('Skip — reference/master sheet')}</option>
+                                <option value="unassigned">{t('Leave unassigned')}</option>
                                 {distributedAgents.map((a) => (
-                                  <option key={a.id} value={`assign:${a.id}`}>Assign to {a.name}</option>
+                                  <option key={a.id} value={`assign:${a.id}`}>{t('Assign to {0}', a.name)}</option>
                                 ))}
                               </select>
                             </td>
@@ -1746,45 +1744,45 @@ export default function FileManagementContent() {
             {/* Client */}
             <div className="space-y-1.5">
               <label className="block text-sm font-medium text-foreground">
-                Client <span className="text-negative">*</span>
+                {t('Client')}{' '}<span className="text-negative">*</span>
               </label>
               <select
                 className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${errors.clientId ? 'border-negative' : 'border-border'}`}
-                {...register('clientId', { required: 'Select a client' })}
+                {...register('clientId', { required: t('Select a client') })}
               >
-                <option value="">Select client…</option>
+                <option value="">{t('Select client…')}</option>
                 {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
-              {errors.clientId && <p className="text-xs text-negative">{errors.clientId.message}</p>}
+              {errors.clientId && <p className="text-xs text-negative">{t(errors.clientId.message)}</p>}
             </div>
 
             {/* Received date */}
             <div className="space-y-1.5">
               <label className="block text-sm font-medium text-foreground">
-                Date Received <span className="text-negative">*</span>
+                {t('Date Received')}{' '}<span className="text-negative">*</span>
               </label>
               <input
                 type="date"
                 className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${errors.receivedDate ? 'border-negative' : 'border-border'}`}
-                {...register('receivedDate', { required: 'Enter the date the file was received' })}
+                {...register('receivedDate', { required: t('Enter the date the file was received') })}
               />
-              {errors.receivedDate && <p className="text-xs text-negative">{errors.receivedDate.message}</p>}
+              {errors.receivedDate && <p className="text-xs text-negative">{t(errors.receivedDate.message)}</p>}
             </div>
           </div>
 
           {/* Batch label */}
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-foreground">
-              Batch Label <span className="text-negative">*</span>
+              {t('Batch Label')}{' '}<span className="text-negative">*</span>
             </label>
-            <p className="text-xs text-muted-foreground">A unique name for this batch, {DEPLOYMENT.batchPlaceholder}</p>
+            <p className="text-xs text-muted-foreground">{t('A unique name for this batch, {0}', t(DEPLOYMENT.batchPlaceholder))}</p>
             <input
               type="text"
-              placeholder={DEPLOYMENT.batchPlaceholder}
+              placeholder={t(DEPLOYMENT.batchPlaceholder)}
               className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 font-mono-data ${errors.batchLabel ? 'border-negative' : 'border-border'}`}
-              {...register('batchLabel', { required: 'Enter a batch label' })}
+              {...register('batchLabel', { required: t('Enter a batch label') })}
             />
-            {errors.batchLabel && <p className="text-xs text-negative">{errors.batchLabel.message}</p>}
+            {errors.batchLabel && <p className="text-xs text-negative">{t(errors.batchLabel.message)}</p>}
           </div>
 
           {/* Mid-month top-up toggle */}
@@ -1795,9 +1793,9 @@ export default function FileManagementContent() {
               size="md"
             />
             <div>
-              <p className="text-sm font-medium text-foreground">Mid-Month Top-Up</p>
+              <p className="text-sm font-medium text-foreground">{t('Mid-Month Top-Up')}</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Enable if this is a supplemental batch added mid-month. New debtors will be merged into the existing active file and distributed using the same balance-range split — no manual re-splitting required.
+                {t('Enable if this is a supplemental batch added mid-month. New debtors will be merged into the existing active file and distributed using the same balance-range split — no manual re-splitting required.')}
               </p>
             </div>
           </div>
@@ -1805,22 +1803,22 @@ export default function FileManagementContent() {
           {/* Distribution method */}
           {isDistributedImport ? (
             <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-foreground">Distribution Method</label>
+              <label className="block text-sm font-medium text-foreground">{t('Distribution Method')}</label>
               <p className="text-xs text-muted-foreground">
-                Skipped — assignments come straight from the Sheet Distribution table above, not Run Auto-Distribution.
+                {t('Skipped — assignments come straight from the Sheet Distribution table above, not Run Auto-Distribution.')}
               </p>
             </div>
           ) : (
             <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-foreground">Distribution Method</label>
-              <p className="text-xs text-muted-foreground">How debtors will be split across agents</p>
+              <label className="block text-sm font-medium text-foreground">{t('Distribution Method')}</label>
+              <p className="text-xs text-muted-foreground">{t('How debtors will be split across agents')}</p>
               <div className="grid grid-cols-1 gap-2">
                 <label className="flex items-start gap-3 p-3 rounded-lg border-2 border-primary bg-primary/5 cursor-pointer">
                   <input type="radio" value="balance_range" defaultChecked className="mt-0.5 accent-primary" {...register('splitMethod')} />
                   <div>
-                    <p className="text-sm font-semibold text-foreground">Balance Range Split</p>
+                    <p className="text-sm font-semibold text-foreground">{t('Balance Range Split')}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Debtors split into 4 bands (≤500K, 500K–2M, 2M–5M, 5M+) and distributed evenly across agents so each agent receives a comparable mix of easier and harder accounts.
+                      {t('Debtors split into 4 bands ({0}) and distributed evenly across agents so each agent receives a comparable mix of easier and harder accounts.', BAND_RANGE_LABELS.join(', '))}
                     </p>
                   </div>
                 </label>
@@ -1831,7 +1829,7 @@ export default function FileManagementContent() {
           {/* Info box */}
           <div className="flex items-start gap-2 p-3 bg-[var(--info-bg)] border border-[#BFDBFE] rounded-lg text-xs text-info">
             <CheckCircle size={13} className="mt-0.5 shrink-0" />
-            <span>Call history is preserved on reassignment. If an agent leaves mid-file, their debtors transfer to another agent with full call logs intact.</span>
+            <span>{t('Call history is preserved on reassignment. If an agent leaves mid-file, their debtors transfer to another agent with full call logs intact.')}</span>
           </div>
         </form>
       </Modal>
@@ -1843,8 +1841,8 @@ export default function FileManagementContent() {
       <Modal
         open={syncModalOpen}
         onClose={() => { setSyncModalOpen(false); resetSyncModalState(); }}
-        title="Sync Update"
-        subtitle={selectedFile ? `Pick up new loans and this month's payments for ${selectedFile.batchLabel}` : undefined}
+        title={t('Sync Update')}
+        subtitle={selectedFile ? t('Pick up new loans and this month\'s payments for {0}', selectedFile.batchLabel) : undefined}
         size="lg"
         footer={
           <>
@@ -1853,7 +1851,7 @@ export default function FileManagementContent() {
               onClick={() => { setSyncModalOpen(false); resetSyncModalState(); }}
               className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
-              Cancel
+              {t('Cancel')}
             </button>
             <button
               type="button"
@@ -1867,12 +1865,12 @@ export default function FileManagementContent() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  <span>Queuing…</span>
+                  <span>{t('Queuing…')}</span>
                 </>
               ) : (
                 <>
                   <RefreshCcw size={15} />
-                  <span>Run Sync</span>
+                  <span>{t('Run Sync')}</span>
                 </>
               )}
             </button>
@@ -1881,8 +1879,8 @@ export default function FileManagementContent() {
       >
         <div className="space-y-5">
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Daily File <span className="text-negative">*</span></label>
-            <p className="text-xs text-muted-foreground">One file, first sheet = calling list, second sheet = payments — any column headers are fine, confirm the mapping below.</p>
+            <label className="block text-sm font-medium text-foreground">{t('Daily File')}{' '}<span className="text-negative">*</span></label>
+            <p className="text-xs text-muted-foreground">{t('One file, first sheet = calling list, second sheet = payments — any column headers are fine, confirm the mapping below.')}</p>
             <label className="block border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer border-border hover:border-primary/50 bg-secondary/20">
               <input
                 type="file"
@@ -1891,27 +1889,27 @@ export default function FileManagementContent() {
                 onChange={(e) => onSyncFileSelected(e.target.files?.[0] ?? null)}
               />
               <Upload size={24} className="text-muted-foreground mx-auto mb-2" />
-              <p className="text-sm font-medium text-foreground">{syncUploadFile ? syncUploadFile.name : 'Click to browse'}</p>
-              <p className="text-xs text-muted-foreground mt-1">Accepts .xlsx or .xlsb files</p>
+              <p className="text-sm font-medium text-foreground">{syncUploadFile ? syncUploadFile.name : t('Click to browse')}</p>
+              <p className="text-xs text-muted-foreground mt-1">{t('Accepts .xlsx or .xlsb files')}</p>
             </label>
           </div>
 
-          {isSyncPreviewing && <p className="text-sm text-muted-foreground">Reading sheets…</p>}
+          {isSyncPreviewing && <p className="text-sm text-muted-foreground">{t('Reading sheets…')}</p>}
 
           {syncPreview && (
             <>
               {/* Calling list mapping */}
               <div className="space-y-4 p-4 bg-secondary/30 rounded-xl border border-border">
                 <div>
-                  <p className="text-sm font-semibold text-foreground">Calling List Sheet — &quot;{syncPreview.callingList.sheetName}&quot;</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Any loan not already on this file gets created and auto-distributed. Existing loans are left untouched.</p>
+                  <p className="text-sm font-semibold text-foreground">{t('Calling List Sheet — "{0}"', syncPreview.callingList.sheetName)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{t('Any loan not already on this file gets created and auto-distributed. Existing loans are left untouched.')}</p>
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-foreground uppercase tracking-wide">Name <span className="text-negative">*</span></label>
+                    <label className="text-xs font-semibold text-foreground uppercase tracking-wide">{t('Name')}{' '}<span className="text-negative">*</span></label>
                     <div className="flex items-center gap-1 text-xs">
-                      <button type="button" onClick={() => setCallingListMapping((m) => ({ ...m, nameMode: 'single' }))} className={`px-2 py-0.5 rounded-full ${callingListMapping.nameMode === 'single' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'}`}>One column</button>
-                      <button type="button" onClick={() => setCallingListMapping((m) => ({ ...m, nameMode: 'split' }))} className={`px-2 py-0.5 rounded-full ${callingListMapping.nameMode === 'split' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'}`}>First / Last</button>
+                      <button type="button" onClick={() => setCallingListMapping((m) => ({ ...m, nameMode: 'single' }))} className={`px-2 py-0.5 rounded-full ${callingListMapping.nameMode === 'single' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'}`}>{t('One column')}</button>
+                      <button type="button" onClick={() => setCallingListMapping((m) => ({ ...m, nameMode: 'split' }))} className={`px-2 py-0.5 rounded-full ${callingListMapping.nameMode === 'split' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary'}`}>{t('First / Last')}</button>
                     </div>
                   </div>
                   {callingListMapping.nameMode === 'single' ? (
@@ -1920,7 +1918,7 @@ export default function FileManagementContent() {
                       onChange={(e) => setCallingListMapping((m) => ({ ...m, nameCol: e.target.value }))}
                       className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
                     >
-                      <option value="">Select column…</option>
+                      <option value="">{t('Select column…')}</option>
                       {syncPreview.callingList.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
                     </select>
                   ) : (
@@ -1953,7 +1951,7 @@ export default function FileManagementContent() {
                         onChange={(e) => setCallingListMapping((m) => ({ ...m, [field]: e.target.value }))}
                         className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
                       >
-                        <option value="">{required ? 'Select column…' : 'Same as Amount Owed'}</option>
+                        <option value="">{required ? t('Select column…') : t('Same as Amount Owed')}</option>
                         {syncPreview.callingList.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
                       </select>
                     </div>
@@ -1964,8 +1962,8 @@ export default function FileManagementContent() {
               {/* Payments mapping */}
               <div className="space-y-4 p-4 bg-secondary/30 rounded-xl border border-border">
                 <div>
-                  <p className="text-sm font-semibold text-foreground">Payments Sheet — &quot;{syncPreview.payments.sheetName}&quot;</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Only this calendar month&apos;s payments are applied, and only once each — safe to re-run daily even though the sheet resends history.</p>
+                  <p className="text-sm font-semibold text-foreground">{t('Payments Sheet — "{0}"', syncPreview.payments.sheetName)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{t('Only this calendar month\'s payments are applied, and only once each — safe to re-run daily even though the sheet resends history.')}</p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   {([
@@ -1981,7 +1979,7 @@ export default function FileManagementContent() {
                         onChange={(e) => setPaymentMapping((m) => ({ ...m, [field]: e.target.value }))}
                         className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
                       >
-                        <option value="">{required ? 'Select column…' : 'Not tracked'}</option>
+                        <option value="">{required ? t('Select column…') : t('Not tracked')}</option>
                         {syncPreview.payments.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
                       </select>
                     </div>
@@ -1997,15 +1995,15 @@ export default function FileManagementContent() {
       <Modal
         open={!!editingFile}
         onClose={() => setEditingFile(null)}
-        title="Edit File"
-        subtitle={editingFile ? `${editingFile.client} — ${editingFile.debtorCount.toLocaleString()} debtor(s)` : undefined}
+        title={t('Edit File')}
+        subtitle={editingFile ? t('{0} — {1} debtor(s)', editingFile.client, editingFile.debtorCount.toLocaleString()) : undefined}
         footer={
           <>
             <button
               onClick={() => setEditingFile(null)}
               className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
-              Cancel
+              {t('Cancel')}
             </button>
             <button
               form="edit-file-form"
@@ -2013,22 +2011,22 @@ export default function FileManagementContent() {
               disabled={isSavingFile || offlineBlocked}
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60"
             >
-              {isSavingFile ? 'Saving…' : 'Save Changes'}
+              {isSavingFile ? t('Saving…') : t('Save Changes')}
             </button>
           </>
         }
       >
         <form id="edit-file-form" onSubmit={editForm.handleSubmit(onSubmitEditFile)} className="space-y-4">
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Batch Label <span className="text-negative">*</span></label>
+            <label className="block text-sm font-medium text-foreground">{t('Batch Label')}{' '}<span className="text-negative">*</span></label>
             <input
               className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${editForm.formState.errors.batchLabel ? 'border-negative' : 'border-border'}`}
-              {...editForm.register('batchLabel', { required: 'Enter a batch label' })}
+              {...editForm.register('batchLabel', { required: t('Enter a batch label') })}
             />
-            {editForm.formState.errors.batchLabel && <p className="text-xs text-negative">{editForm.formState.errors.batchLabel.message}</p>}
+            {editForm.formState.errors.batchLabel && <p className="text-xs text-negative">{t(editForm.formState.errors.batchLabel.message)}</p>}
           </div>
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Date Received</label>
+            <label className="block text-sm font-medium text-foreground">{t('Date Received')}</label>
             <input
               type="date"
               className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
@@ -2037,11 +2035,10 @@ export default function FileManagementContent() {
           </div>
           <label className="flex items-center gap-2.5 text-sm text-foreground cursor-pointer">
             <input type="checkbox" className="accent-primary" {...editForm.register('isMidMonthTopup')} />
-            Mid-month top-up
+            {t('Mid-month top-up')}
           </label>
           <p className="text-xs text-muted-foreground">
-            Client (<span className="font-medium text-foreground">{editingFile?.client}</span>) can&apos;t be changed —
-            delete and re-import under the correct client if this was imported wrong.
+            {tx('Client ({0}) can\'t be changed — delete and re-import under the correct client if this was imported wrong.', <span className="font-medium text-foreground">{editingFile?.client}</span>)}
           </p>
         </form>
       </Modal>
@@ -2053,8 +2050,8 @@ export default function FileManagementContent() {
       <Modal
         open={newMonthOpen}
         onClose={() => { setNewMonthOpen(false); resetNewMonthState(); }}
-        title="Start New Month"
-        subtitle="Reset one client's books for the new month"
+        title={t('Start New Month')}
+        subtitle={t('Reset one client\'s books for the new month')}
         size="lg"
         footer={
           <>
@@ -2063,7 +2060,7 @@ export default function FileManagementContent() {
               onClick={() => { setNewMonthOpen(false); resetNewMonthState(); }}
               className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
-              Cancel
+              {t('Cancel')}
             </button>
             <button
               type="button"
@@ -2076,7 +2073,7 @@ export default function FileManagementContent() {
               className="flex items-center gap-2 px-4 py-2 bg-negative text-white text-sm font-semibold rounded-lg hover:bg-negative/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
             >
               <CalendarClock size={15} />
-              <span>{isStartingNewMonth ? 'Exporting & starting…' : 'Export & Start New Month'}</span>
+              <span>{isStartingNewMonth ? t('Exporting & starting…') : t('Export & Start New Month')}</span>
             </button>
           </>
         }
@@ -2084,58 +2081,55 @@ export default function FileManagementContent() {
         <div className="space-y-5">
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-foreground">
-              Client <span className="text-negative">*</span>
+              {t('Client')}{' '}<span className="text-negative">*</span>
             </label>
             <select
               value={newMonthClientId}
               onChange={(e) => onNewMonthClientChange(e.target.value)}
               className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
             >
-              <option value="">Select client…</option>
+              <option value="">{t('Select client…')}</option>
               {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
 
-          {isLoadingNewMonth && <p className="text-sm text-muted-foreground">Checking what would change…</p>}
+          {isLoadingNewMonth && <p className="text-sm text-muted-foreground">{t('Checking what would change…')}</p>}
 
           {newMonthPlan && (
             <div className="space-y-4">
               <ol className="space-y-2 text-sm text-foreground list-decimal pl-5">
                 <li>
-                  <strong>{newMonthPlan.reconciliations.length}</strong> reconciliation(s) received before{' '}
-                  {formatDate(newMonthPlan.cutoff)} are cleared ({newMonthPlan.paidEntryCount.toLocaleString()} payment(s) from{' '}
-                  {newMonthPlan.paidDebtorCount.toLocaleString()} debtor(s), {formatMoneyMB(newMonthPlan.recoveredTotal)} recovered; {(newMonthPlan.entryCount - newMonthPlan.paidEntryCount).toLocaleString()} zero-payment rows also go). Balances are <strong>not</strong> put back — last month&apos;s recoveries simply stop counting.
+                  {tx('{0} reconciliation(s) received before {1} are cleared ({2} payment(s) from {3} debtor(s), {4} recovered; {5} zero-payment rows also go). Balances are {6} put back — last month\'s recoveries simply stop counting.', <strong>{newMonthPlan.reconciliations.length}</strong>, formatDate(newMonthPlan.cutoff), newMonthPlan.paidEntryCount.toLocaleString(), newMonthPlan.paidDebtorCount.toLocaleString(), formatMoneyMB(newMonthPlan.recoveredTotal), (newMonthPlan.entryCount - newMonthPlan.paidEntryCount).toLocaleString(), <strong>{t('not')}</strong>)}
                 </li>
                 <li>
-                  Everything still outstanding becomes the new total: <strong>{formatMoneyMB(newMonthPlan.outstandingTotal)}</strong> across{' '}
-                  {newMonthPlan.debtorCount.toLocaleString()} debtor(s).
+                  {tx('Everything still outstanding becomes the new total: {0} across {1} debtor(s).', <strong>{formatMoneyMB(newMonthPlan.outstandingTotal)}</strong>, newMonthPlan.debtorCount.toLocaleString())}
                 </li>
                 <li>
-                  <strong>{newMonthPlan.clearedDebtorCount.toLocaleString()}</strong> debtor(s) with a 0 balance are removed, with their calls.
-                  {newMonthPlan.keptZeroBalanceCount > 0 && ` ${newMonthPlan.keptZeroBalanceCount} that paid in a reconciliation received this month are kept so that recovery still shows.`}
+                  {tx('{0} debtor(s) with a 0 balance are removed, with their calls.', <strong>{newMonthPlan.clearedDebtorCount.toLocaleString()}</strong>)}
+                  {newMonthPlan.keptZeroBalanceCount > 0 && (' ' + t('{0} that paid in a reconciliation received this month are kept so that recovery still shows.', newMonthPlan.keptZeroBalanceCount))}
                 </li>
               </ol>
 
               {newMonthPlan.filesEmptied.length > 0 && (
                 <div className="p-3 bg-secondary/40 border border-border rounded-lg text-xs text-foreground">
-                  <p className="font-semibold mb-1">These batches will be left empty — delete them from the list once you&apos;ve confirmed they&apos;re replaced:</p>
+                  <p className="font-semibold mb-1">{t('These batches will be left empty — delete them from the list once you\'ve confirmed they\'re replaced:')}</p>
                   <p>{newMonthPlan.filesEmptied.map((f) => f.batchLabel).join(', ')}</p>
                 </div>
               )}
 
               {newMonthPlan.reconciliations.some((r) => r.busy) && (
                 <div className="p-3 bg-[var(--negative-bg)] border border-negative/30 rounded-lg text-xs text-negative">
-                  A reconciliation is still being processed — wait for it to finish before starting the new month.
+                  {t('A reconciliation is still being processed — wait for it to finish before starting the new month.')}
                 </div>
               )}
 
               <div className="p-3 bg-[var(--negative-bg)] border border-negative/30 rounded-lg text-xs text-negative">
-                A workbook of everything above downloads first; if that fails, nothing is changed. This can&apos;t be undone.
+                {t('A workbook of everything above downloads first; if that fails, nothing is changed. This can\'t be undone.')}
               </div>
 
               <div className="space-y-1.5">
                 <label className="block text-sm font-medium text-foreground">
-                  Type <span className="font-semibold">{newMonthPlan.clientName}</span> to confirm
+                  {tx('Type {0} to confirm', <span className="font-semibold">{newMonthPlan.clientName}</span>)}
                 </label>
                 <input
                   value={newMonthConfirm}
@@ -2155,8 +2149,8 @@ export default function FileManagementContent() {
       <Modal
         open={removeModalOpen}
         onClose={() => { setRemoveModalOpen(false); resetRemoveModalState(); }}
-        title="Remove Insourced Accounts"
-        subtitle="Upload the client's list of accounts taken back — matched across all of that client's file batches"
+        title={t('Remove Insourced Accounts')}
+        subtitle={t('Upload the client\'s list of accounts taken back — matched across all of that client\'s file batches')}
         size="lg"
         footer={
           <>
@@ -2165,7 +2159,7 @@ export default function FileManagementContent() {
               onClick={() => { setRemoveModalOpen(false); resetRemoveModalState(); }}
               className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
-              Cancel
+              {t('Cancel')}
             </button>
             <button
               type="button"
@@ -2179,12 +2173,12 @@ export default function FileManagementContent() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  <span>Removing…</span>
+                  <span>{t('Removing…')}</span>
                 </>
               ) : (
                 <>
                   <Trash2 size={15} />
-                  <span>Delete {removeSelectedIds.size || ''} Account{removeSelectedIds.size === 1 ? '' : 's'}</span>
+                  <span>{removeSelectedIds.size === 0 ? t('Delete Accounts') : removeSelectedIds.size === 1 ? t('Delete {0} Account', removeSelectedIds.size) : t('Delete {0} Accounts', removeSelectedIds.size)}</span>
                 </>
               )}
             </button>
@@ -2194,24 +2188,24 @@ export default function FileManagementContent() {
         <div className="space-y-5">
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-foreground">
-              Client <span className="text-negative">*</span>
+              {t('Client')}{' '}<span className="text-negative">*</span>
             </label>
             <select
               value={removeClientId}
               onChange={(e) => onRemoveClientChange(e.target.value)}
               className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
             >
-              <option value="">Select client…</option>
+              <option value="">{t('Select client…')}</option>
               {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
 
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-foreground">
-              List of Accounts <span className="text-negative">*</span>
+              {t('List of Accounts')}{' '}<span className="text-negative">*</span>
             </label>
             <p className="text-xs text-muted-foreground">
-              The loan/account reference in the first column, one per row — a header row is fine and skipped automatically.
+              {t('The loan/account reference in the first column, one per row — a header row is fine and skipped automatically.')}
             </p>
             <label
               className={`block border-2 border-dashed rounded-xl p-8 text-center transition-colors ${removeClientId ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'} ${isRemoveDragOver ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/50 bg-secondary/20'}`}
@@ -2228,25 +2222,30 @@ export default function FileManagementContent() {
               />
               <Upload size={24} className="text-muted-foreground mx-auto mb-2" />
               <p className="text-sm font-medium text-foreground">
-                {!removeClientId ? 'Select a client first' : removeUploadFile ? removeUploadFile.name : (isRemoveDragOver ? 'Drop the file here' : 'Click to browse, or drag a file here')}
+                {!removeClientId ? t('Select a client first') : removeUploadFile ? removeUploadFile.name : (isRemoveDragOver ? t('Drop the file here') : t('Click to browse, or drag a file here'))}
               </p>
-              <p className="text-xs text-muted-foreground mt-1">Accepts .xlsx, .xlsb, or .csv files</p>
+              <p className="text-xs text-muted-foreground mt-1">{t('Accepts .xlsx, .xlsb, or .csv files')}</p>
             </label>
           </div>
 
-          {isRemovePreviewing && <p className="text-sm text-muted-foreground">Matching accounts…</p>}
+          {isRemovePreviewing && <p className="text-sm text-muted-foreground">{t('Matching accounts…')}</p>}
 
           {removePreview && (
             <div className="space-y-3">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <p className="text-sm font-semibold text-foreground">
-                  {removePreview.matched.length} account{removePreview.matched.length === 1 ? '' : 's'} matched
-                  {removePreview.unmatchedRefs.length > 0 && `, ${removePreview.unmatchedRefs.length} reference(s) not found`}
+                  {removePreview.unmatchedRefs.length > 0
+                    ? (removePreview.matched.length === 1
+                        ? t('{0} account matched, {1} reference(s) not found', removePreview.matched.length, removePreview.unmatchedRefs.length)
+                        : t('{0} accounts matched, {1} reference(s) not found', removePreview.matched.length, removePreview.unmatchedRefs.length))
+                    : (removePreview.matched.length === 1
+                        ? t('{0} account matched', removePreview.matched.length)
+                        : t('{0} accounts matched', removePreview.matched.length))}
                 </p>
                 {removePreview.matched.length > 0 && (
                   <div className="flex items-center gap-2 text-xs">
-                    <button type="button" onClick={() => setRemoveSelectedIds(new Set(removePreview.matched.map((m) => m.id)))} className="text-primary hover:underline">All</button>
-                    <button type="button" onClick={() => setRemoveSelectedIds(new Set())} className="text-muted-foreground hover:underline">None</button>
+                    <button type="button" onClick={() => setRemoveSelectedIds(new Set(removePreview.matched.map((m) => m.id)))} className="text-primary hover:underline">{t('All')}</button>
+                    <button type="button" onClick={() => setRemoveSelectedIds(new Set())} className="text-muted-foreground hover:underline">{t('None')}</button>
                   </div>
                 )}
               </div>
@@ -2257,11 +2256,11 @@ export default function FileManagementContent() {
                     <thead className="sticky top-0 bg-secondary/90 backdrop-blur">
                       <tr className="border-b border-border">
                         <th className="px-2 py-1.5 text-left w-8"></th>
-                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">Loan Ref</th>
-                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">Name</th>
-                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">Batch</th>
-                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">Agent</th>
-                        <th className="px-2 py-1.5 text-right font-semibold text-muted-foreground whitespace-nowrap">Balance</th>
+                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">{t('Loan Ref')}</th>
+                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">{t('Name')}</th>
+                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">{t('Batch')}</th>
+                        <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">{t('Agent')}</th>
+                        <th className="px-2 py-1.5 text-right font-semibold text-muted-foreground whitespace-nowrap">{t('Balance')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2284,13 +2283,13 @@ export default function FileManagementContent() {
 
               {removePreview.unmatchedRefs.length > 0 && (
                 <div className="p-3 bg-[var(--negative-bg)] border border-negative/30 rounded-lg text-xs text-negative">
-                  <p className="font-semibold mb-1">Not found — check for typos or an already-removed account:</p>
+                  <p className="font-semibold mb-1">{t('Not found — check for typos or an already-removed account:')}</p>
                   <p className="font-mono-data break-all">{removePreview.unmatchedRefs.join(', ')}</p>
                 </div>
               )}
 
               <div className="flex items-start gap-2 p-3 bg-[var(--negative-bg)] border border-negative/30 rounded-lg text-xs text-negative">
-                <span>Deleting is permanent — it removes the selected accounts and every call logged against them. There is no undo.</span>
+                <span>{t('Deleting is permanent — it removes the selected accounts and every call logged against them. There is no undo.')}</span>
               </div>
             </div>
           )}

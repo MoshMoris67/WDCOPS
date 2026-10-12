@@ -8,7 +8,7 @@ import Link from 'next/link';
 import Badge from '@/components/ui/Badge';
 import DispositionBadge from '@/components/ui/DispositionBadge';
 import Toggle from '@/components/ui/Toggle';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useOnlineStatus } from '@/lib/use-offline';
 import { queueCallLog, syncOneNow, QUEUE_CHANGED_EVENT } from '@/lib/offline-sync';
 import { useCachedQuery } from '@/lib/use-cached-query';
@@ -18,6 +18,7 @@ import { clientBadgeVariant } from '@/lib/client-badge';
 import { toDialFormat } from '@/lib/phone';
 import { formatMoney } from '@/lib/money';
 import { DEPLOYMENT } from '@/config/deployment';
+import { t as translate } from '@/i18n';
 
 // How long after logging a disposition an agent may correct it themselves — must match
 // SELF_CORRECTION_WINDOW_MS in src/app/api/call-logs/[id]/route.ts.
@@ -300,12 +301,12 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
     // the record is already safe on disk.
     const outcome = await syncOneNow(localId);
     if (outcome.ok) {
-      toast.success(`Disposition ${data.dispositionCode} logged and synced`);
+      toast.success(translate('Disposition {0} logged and synced', data.dispositionCode));
       refetchDetail();
     } else if (outcome.retryable) {
       toast.warning('Logged — will sync when connected');
     } else {
-      toast.error(`Logged locally, but the server rejected it: ${outcome.message}`);
+      toast.error(translate('Logged locally, but the server rejected it: {0}', outcome.message));
     }
   }
 
@@ -322,7 +323,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-positive text-white text-sm font-semibold rounded-lg hover:bg-positive/90 active:scale-95 transition-all"
           >
             <Phone size={15} />
-            Call {phone}
+            {translate('Call {0}', phone)}
           </a>
         </div>
 
@@ -330,9 +331,9 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
           {/* Disposition code selector */}
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-foreground">
-              Disposition Code <span className="text-negative">*</span>
+              {translate('Disposition Code')}{' '}<span className="text-negative">*</span>
             </label>
-            <p className="text-xs text-muted-foreground">Select the outcome of this call attempt</p>
+            <p className="text-xs text-muted-foreground">{translate('Select the outcome of this call attempt')}</p>
             <div className={`grid gap-1.5 ${embedded ? 'grid-cols-2 @lg:grid-cols-3' : 'grid-cols-3'}`}>
               {dispositionCodes.map((d) => (
                 <label
@@ -349,7 +350,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                     type="radio"
                     value={d.code}
                     className="sr-only"
-                    {...register('dispositionCode', { required: 'Select a disposition code' })}
+                    {...register('dispositionCode', { required: translate('Select a disposition code') })}
                   />
                   <DispositionBadge code={d.code} color={d.color} className="mb-0.5" />
                   <span className="text-xs text-muted-foreground leading-tight mt-0.5">{d.label.split(' ').slice(0, 2).join(' ')}</span>
@@ -357,15 +358,15 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
               ))}
             </div>
             {dispositionCodes.length === 0 && (
-              <p className="text-xs text-muted-foreground">Loading disposition codes…</p>
+              <p className="text-xs text-muted-foreground">{translate('Loading disposition codes…')}</p>
             )}
             {errors.dispositionCode && (
-              <p className="text-xs text-negative">{errors.dispositionCode.message}</p>
+              <p className="text-xs text-negative">{translate(errors.dispositionCode.message)}</p>
             )}
             {selectedDispo && (
               <div className="flex items-start gap-1.5 mt-1 text-xs text-muted-foreground">
                 <Info size={12} className="mt-0.5 shrink-0" />
-                <span>{selectedDispo.description}</span>
+                <span>{translate(selectedDispo.description)}</span>
               </div>
             )}
           </div>
@@ -375,11 +376,11 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
             <div className="space-y-3 bg-[var(--positive-bg)] border border-[#BBF7D0] rounded-lg p-3 fade-in">
               <p className="text-xs font-semibold text-positive flex items-center gap-1.5">
                 <CheckCircle size={13} />
-                Promise To Pay Details
+                {translate('Promise To Pay Details')}
               </p>
               <div className="space-y-1.5">
                 <label className="block text-xs font-medium text-foreground">
-                  Promised Amount ({DEPLOYMENT.currencyCode}) <span className="text-negative">*</span>
+                  {translate('Promised Amount ({0})', DEPLOYMENT.currencyCode)}{' '}<span className="text-negative">*</span>
                 </label>
                 <input
                   type="number"
@@ -387,14 +388,14 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                   className={`w-full px-3 py-2 text-sm bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 font-tabular ${errors.promisedAmount ? 'border-negative' : 'border-border'}`}
                   {...register('promisedAmount', {
                     required: selectedDispo?.requiresPtp ? 'Enter the promised amount' : false,
-                    min: { value: 1, message: 'Amount must be positive' },
+                    min: { value: 1, message: translate('Amount must be positive') },
                   })}
                 />
-                {errors.promisedAmount && <p className="text-xs text-negative">{errors.promisedAmount.message}</p>}
+                {errors.promisedAmount && <p className="text-xs text-negative">{translate(errors.promisedAmount.message)}</p>}
               </div>
               <div className="space-y-1.5">
                 <label className="block text-xs font-medium text-foreground">
-                  Payment Date <span className="text-negative">*</span>
+                  {translate('Payment Date')}{' '}<span className="text-negative">*</span>
                 </label>
                 <input
                   type="date"
@@ -404,7 +405,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                     required: selectedDispo?.requiresPtp ? 'Select the payment date' : false,
                   })}
                 />
-                {errors.promisedDate && <p className="text-xs text-negative">{errors.promisedDate.message}</p>}
+                {errors.promisedDate && <p className="text-xs text-negative">{translate(errors.promisedDate.message)}</p>}
               </div>
             </div>
           )}
@@ -414,11 +415,11 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
             <div className="space-y-3 bg-[var(--info-bg)] border border-[#BFDBFE] rounded-lg p-3 fade-in">
               <p className="text-xs font-semibold text-info flex items-center gap-1.5">
                 <Calendar size={13} />
-                Schedule Callback
+                {translate('Schedule Callback')}
               </p>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
-                  <label className="block text-xs font-medium text-foreground">Date <span className="text-negative">*</span></label>
+                  <label className="block text-xs font-medium text-foreground">{translate('Date')}{' '}<span className="text-negative">*</span></label>
                   <input
                     type="date"
                     max={maxFutureDate(2)}
@@ -429,7 +430,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="block text-xs font-medium text-foreground">Time</label>
+                  <label className="block text-xs font-medium text-foreground">{translate('Time')}</label>
                   <input
                     type="time"
                     className="w-full px-2 py-2 text-sm bg-white border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
@@ -443,12 +444,12 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
           {/* Notes */}
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-foreground">
-              <span className="flex items-center gap-1.5"><MessageSquare size={14} />Call Notes</span>
+              <span className="flex items-center gap-1.5"><MessageSquare size={14} />{translate('Call Notes')}</span>
             </label>
-            <p className="text-xs text-muted-foreground">Optional — describe the conversation, debtor attitude, or next steps</p>
+            <p className="text-xs text-muted-foreground">{translate('Optional — describe the conversation, debtor attitude, or next steps')}</p>
             <textarea
               rows={3}
-              placeholder="e.g. Debtor was cooperative, mentioned salary comes on 20th…"
+              placeholder={translate('e.g. Debtor was cooperative, mentioned salary comes on 20th…')}
               className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 resize-none placeholder:text-muted-foreground"
               {...register('note')}
             />
@@ -458,7 +459,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
           {!isOnline && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--warning-bg)] border border-[#FDE68A] text-xs text-warning">
               <WifiOff size={12} />
-              <span>No connection — log saved locally and will sync on reconnect</span>
+              <span>{translate('No connection — log saved locally and will sync on reconnect')}</span>
             </div>
           )}
 
@@ -474,12 +475,12 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                <span>Logging…</span>
+                <span>{translate('Logging…')}</span>
               </>
             ) : (
               <>
                 <Send size={15} />
-                <span>Log Disposition</span>
+                <span>{translate('Log Disposition')}</span>
               </>
             )}
           </button>
@@ -494,7 +495,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
       className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5"
     >
       <X size={16} />
-      Close
+      {translate('Close')}
     </button>
   ) : (
     <Link
@@ -502,7 +503,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
       className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5"
     >
       <ChevronLeft size={16} />
-      Back to Queue
+      {translate('Back to Queue')}
     </Link>
   );
 
@@ -511,7 +512,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
       <div className={embedded ? '' : 'p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto'}>
         {backNav}
         <div className="bg-card rounded-xl shadow-card border border-border p-8 text-center">
-          <p className="text-sm font-medium text-foreground">No debtor selected — go back to the queue and pick one.</p>
+          <p className="text-sm font-medium text-foreground">{translate('No debtor selected — go back to the queue and pick one.')}</p>
         </div>
       </div>
     );
@@ -520,7 +521,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
   if (detailLoading) {
     return (
       <div className={embedded ? '' : 'p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto'}>
-        <p className="text-sm text-muted-foreground">Loading debtor…</p>
+        <p className="text-sm text-muted-foreground">{translate('Loading debtor…')}</p>
       </div>
     );
   }
@@ -537,7 +538,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
           {backNav}
           <div className="flex items-start gap-2 px-3 py-2.5 mb-5 rounded-lg bg-[var(--warning-bg)] border border-[#FDE68A] text-xs text-warning">
             <WifiOff size={14} className="mt-0.5 shrink-0" />
-            <span>Full profile unavailable offline — showing last-known summary only. Payment history, branch, and assigned agent need a connection.</span>
+            <span>{translate('Full profile unavailable offline — showing last-known summary only. Payment history, branch, and assigned agent need a connection.')}</span>
           </div>
 
           <div className="bg-card rounded-xl shadow-card border border-border p-5 mb-6">
@@ -558,24 +559,24 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
               </div>
               <div className="flex items-center gap-4 flex-wrap">
                 <div className="text-right">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider">Balance</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider">{translate('Balance')}</p>
                   <p className="font-tabular font-bold text-xl text-negative">{formatMoney(liteRow.balance)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider">Recovery</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider">{translate('Recovery')}</p>
                   <p className="font-tabular font-bold text-xl text-foreground">{recoveryPct}%</p>
                 </div>
               </div>
             </div>
             <div className="mt-4 pt-4 border-t border-border flex items-center gap-6 flex-wrap text-xs text-muted-foreground">
-              <span><span className="font-medium text-foreground">Loan Ref:</span> <span className="font-mono-data">{liteRow.loanRef}</span></span>
+              <span><span className="font-medium text-foreground">{translate('Loan Ref:')}</span> <span className="font-mono-data">{liteRow.loanRef}</span></span>
             </div>
           </div>
 
           <div className="bg-card rounded-xl shadow-card border border-border overflow-hidden">
             <div className="px-5 py-4 border-b border-border">
-              <h2 className="text-sm font-semibold text-foreground">Log a Call</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Select outcome and add notes</p>
+              <h2 className="text-sm font-semibold text-foreground">{translate('Log a Call')}</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">{translate('Select outcome and add notes')}</p>
             </div>
             {renderLogCallCard(liteRow.phone)}
           </div>
@@ -589,8 +590,8 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
         <div className="bg-card rounded-xl shadow-card border border-border p-8 text-center">
           <p className="text-sm font-medium text-foreground">
             {!isOnline
-              ? "Not available offline — this debtor hasn't been opened on this device yet."
-              : (detailError || 'Could not load this debtor')}
+              ? translate('Not available offline — this debtor hasn\'t been opened on this device yet.')
+              : (detailError || translate('Could not load this debtor'))}
           </p>
         </div>
       </div>
@@ -601,7 +602,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
 
   const tabs: { key: TabKey; label: string; icon: typeof User }[] = [
     { key: 'overview', label: 'Overview', icon: User },
-    { key: 'history', label: `Call History (${localLogs.length})`, icon: History },
+    { key: 'history', label: translate('Call History ({0})', localLogs.length), icon: History },
     { key: 'payment', label: 'Payment Summary', icon: CreditCard },
   ];
 
@@ -615,7 +616,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             <X size={16} />
-            Close
+            {translate('Close')}
           </button>
         ) : (
           <Link
@@ -623,7 +624,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             <ChevronLeft size={16} />
-            Back to Queue
+            {translate('Back to Queue')}
           </Link>
         )}
         {(effectivePrev || effectiveNext) && (
@@ -631,7 +632,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
             <button
               onClick={effectivePrev}
               disabled={!effectivePrev}
-              title="Previous debtor (←)"
+              title={translate('Previous debtor (←)')}
               className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
             >
               <ChevronLeft size={16} />
@@ -639,7 +640,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
             <button
               onClick={effectiveNext}
               disabled={!effectiveNext}
-              title="Next debtor (→)"
+              title={translate('Next debtor (→)')}
               className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
             >
               <ChevronRight size={16} />
@@ -659,7 +660,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl font-bold text-foreground">{debtor.name}</h1>
                 {debtor.isPTP && (
-                  <Badge variant="positive" dot>Active PTP</Badge>
+                  <Badge variant="positive" dot>{translate('Active PTP')}</Badge>
                 )}
               </div>
               <div className="flex items-center gap-3 mt-1 flex-wrap text-sm text-muted-foreground">
@@ -679,15 +680,15 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
           {/* Key financials */}
           <div className="flex items-center gap-4 flex-wrap">
             <div className="text-right">
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Balance</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">{translate('Balance')}</p>
               <p className="font-tabular font-bold text-xl text-negative">{formatMoney(debtor.balance)}</p>
             </div>
             <div className="text-right">
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Paid</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">{translate('Paid')}</p>
               <p className="font-tabular font-bold text-xl text-positive">{formatMoney(debtor.cumulativePaid)}</p>
             </div>
             <div className="text-right">
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Recovery</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">{translate('Recovery')}</p>
               <p className="font-tabular font-bold text-xl text-foreground">{recoveryPct}%</p>
             </div>
           </div>
@@ -695,19 +696,19 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
 
         {/* Metadata row */}
         <div className="mt-4 pt-4 border-t border-border flex items-center gap-6 flex-wrap text-xs text-muted-foreground">
-          <span><span className="font-medium text-foreground">Loan Ref:</span> <span className="font-mono-data">{debtor.loanRef}</span></span>
-          <span><span className="font-medium text-foreground">Assigned Agent:</span> {debtor.assignedAgent}</span>
-          <span><span className="font-medium text-foreground">Branch:</span> {debtor.branch}</span>
+          <span><span className="font-medium text-foreground">{translate('Loan Ref:')}</span> <span className="font-mono-data">{debtor.loanRef}</span></span>
+          <span><span className="font-medium text-foreground">{translate('Assigned Agent:')}</span> {debtor.assignedAgent}</span>
+          <span><span className="font-medium text-foreground">{translate('Branch:')}</span> {debtor.branch}</span>
           {debtor.activePTP && (
             <span className="flex items-center gap-1 text-positive font-medium">
               <CheckCircle size={12} />
-              PTP: {formatMoney(debtor.activePTP.amount)} due {formatDateOnly(debtor.activePTP.date)}
+              {translate('PTP: {0} due {1}', formatMoney(debtor.activePTP.amount), formatDateOnly(debtor.activePTP.date))}
             </span>
           )}
           <span className="ml-auto flex items-center gap-1.5">
             {isOnline
-              ? <><Wifi size={12} className="text-positive" /><span className="text-positive">Synced</span></>
-              : <><WifiOff size={12} className="text-negative" /><span className="text-negative">Offline</span></>
+              ? <><Wifi size={12} className="text-positive" /><span className="text-positive">{translate('Synced')}</span></>
+              : <><WifiOff size={12} className="text-negative" /><span className="text-negative">{translate('Offline')}</span></>
             }
           </span>
         </div>
@@ -734,7 +735,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                 }`}
               >
                 <tab.icon size={14} />
-                {tab.label}
+                {translate(tab.label)}
               </button>
             ))}
           </div>
@@ -742,7 +743,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
           {/* Overview tab */}
           {activeTab === 'overview' && (
             <div className="bg-card rounded-xl shadow-card border border-border p-5 fade-in space-y-4">
-              <h3 className="text-section-header text-foreground">Debtor Information</h3>
+              <h3 className="text-section-header text-foreground">{translate('Debtor Information')}</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {[
                   { label: 'Full Name', value: debtor.name },
@@ -757,7 +758,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                   { label: 'Recovery Rate', value: `${recoveryPct}%`, tabular: true },
                 ].map((field) => (
                   <div key={`field-${field.label}`} className="space-y-0.5">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{field.label}</p>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{translate(field.label)}</p>
                     <p className={`text-sm font-semibold text-foreground ${field.mono ? 'font-mono-data' : ''} ${field.tabular ? 'font-tabular' : ''}`}>
                       {field.value}
                     </p>
@@ -769,9 +770,9 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                 <div className="bg-[var(--positive-bg)] border border-[#BBF7D0] rounded-lg p-4 flex items-start gap-3">
                   <CheckCircle size={16} className="text-positive mt-0.5 shrink-0" />
                   <div>
-                    <p className="text-sm font-semibold text-positive">Active Promise To Pay</p>
+                    <p className="text-sm font-semibold text-positive">{translate('Active Promise To Pay')}</p>
                     <p className="text-xs text-positive/80 mt-0.5">
-                      {formatMoney(debtor.activePTP.amount)} promised on {formatDateOnly(debtor.activePTP.date)}. Follow up if not received.
+                      {translate('{0} promised on {1}. Follow up if not received.', formatMoney(debtor.activePTP.amount), formatDateOnly(debtor.activePTP.date))}
                     </p>
                   </div>
                 </div>
@@ -791,9 +792,9 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                 className="w-full flex items-center justify-between gap-3 p-5 text-left"
               >
                 <div>
-                  <h3 className="text-section-header text-foreground">Additional Info</h3>
+                  <h3 className="text-section-header text-foreground">{translate('Additional Info')}</h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {Object.keys(debtor.extra).length} more field{Object.keys(debtor.extra).length === 1 ? '' : 's'} from the client&apos;s file
+                    {Object.keys(debtor.extra).length === 1 ? translate('{0} more field from the client\'s file', Object.keys(debtor.extra).length) : translate('{0} more fields from the client\'s file', Object.keys(debtor.extra).length)}
                   </p>
                 </div>
                 <ChevronDown size={16} className={`text-muted-foreground shrink-0 transition-transform ${showAdditionalInfo ? 'rotate-180' : ''}`} />
@@ -815,8 +816,8 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
           {activeTab === 'history' && (
             <div className="bg-card rounded-xl shadow-card border border-border fade-in">
               <div className="px-5 py-4 border-b border-border">
-                <h3 className="text-section-header text-foreground">Call History</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">{localLogs.length} logged interactions — full audit trail</p>
+                <h3 className="text-section-header text-foreground">{translate('Call History')}</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">{translate('{0} logged interactions — full audit trail', localLogs.length)}</p>
               </div>
               <div className="divide-y divide-border">
                 {localLogs.map((log) => (
@@ -827,11 +828,11 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                         {!log.synced && (
                           <span className="flex items-center gap-1 text-xs text-warning">
                             <WifiOff size={11} />
-                            Pending sync
+                            {translate('Pending sync')}
                           </span>
                         )}
                         {log.editedAt && (
-                          <span className="text-xs text-muted-foreground italic">corrected</span>
+                          <span className="text-xs text-muted-foreground italic">{translate('corrected')}</span>
                         )}
                       </div>
                       <span className="text-xs text-muted-foreground font-mono-data whitespace-nowrap">{formatDateTime(log.createdAt)}</span>
@@ -841,24 +842,24 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                     )}
                     {log.disposition === 'PTP' && log.promisedAmount && (
                       <p className="text-xs text-positive mt-1 font-medium">
-                        PTP: {formatMoney(log.promisedAmount)} on {formatDateOnly(log.promisedDate)}
+                        {translate('PTP: {0} on {1}', formatMoney(log.promisedAmount), formatDateOnly(log.promisedDate))}
                       </p>
                     )}
                     {log.disposition === 'CB' && log.promisedDate && (
                       <p className="text-xs text-info mt-1 font-medium flex items-center gap-1">
                         <Clock size={11} />
-                        Callback scheduled: {formatDateTime(log.promisedDate)}
+                        {translate('Callback scheduled: {0}', formatDateTime(log.promisedDate))}
                       </p>
                     )}
                     <div className="flex items-center justify-between gap-3 mt-2">
-                      <p className="text-xs text-muted-foreground">by {log.agentName}</p>
+                      <p className="text-xs text-muted-foreground">{translate('by {0}', log.agentName)}</p>
                       {correctingLogId !== log.id && canCorrect(log) && (
                         <button
                           onClick={() => setCorrectingLogId(log.id)}
                           className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                         >
                           <Pencil size={11} />
-                          Correct
+                          {translate('Correct')}
                           {currentUser?.role !== 'admin' && ` (${secondsLeftToCorrect(log)}s)`}
                         </button>
                       )}
@@ -880,7 +881,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
           {/* Payment Summary tab */}
           {activeTab === 'payment' && (
             <div className="bg-card rounded-xl shadow-card border border-border p-5 fade-in space-y-4">
-              <h3 className="text-section-header text-foreground">Payment Summary</h3>
+              <h3 className="text-section-header text-foreground">{translate('Payment Summary')}</h3>
               <div className="grid grid-cols-3 gap-4">
                 {[
                   { label: 'Original Debt', value: formatMoney(debtor.amountOwed), color: 'text-foreground' },
@@ -888,7 +889,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
                   { label: 'Balance Due', value: formatMoney(debtor.balance), color: 'text-negative' },
                 ].map((item) => (
                   <div key={`pay-${item.label}`} className="bg-secondary/40 rounded-lg p-4 text-center">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">{item.label}</p>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">{translate(item.label)}</p>
                     <p className={`font-tabular font-bold text-lg ${item.color}`}>{item.value}</p>
                   </div>
                 ))}
@@ -897,7 +898,7 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
               {/* Recovery progress bar */}
               <div>
                 <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                  <span>Recovery Progress</span>
+                  <span>{translate('Recovery Progress')}</span>
                   <span className="font-semibold text-foreground">{recoveryPct}%</span>
                 </div>
                 <div className="h-2.5 bg-secondary rounded-full overflow-hidden">
@@ -909,8 +910,8 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
               </div>
 
               <div className="bg-secondary/40 rounded-lg p-4">
-                <p className="text-sm font-medium text-foreground mb-2">Reconciliation History</p>
-                <p className="text-xs text-muted-foreground">No reconciliation updates recorded yet for this debtor. Balances update automatically when the client sends a reconciliation file.</p>
+                <p className="text-sm font-medium text-foreground mb-2">{translate('Reconciliation History')}</p>
+                <p className="text-xs text-muted-foreground">{translate('No reconciliation updates recorded yet for this debtor. Balances update automatically when the client sends a reconciliation file.')}</p>
               </div>
             </div>
           )}
@@ -925,18 +926,18 @@ export default function DebtorDetailContent({ embedded, debtorId: debtorIdProp, 
           <div className="bg-card rounded-xl shadow-card border border-border sticky top-6">
             <div className="px-5 py-4 border-b border-border flex items-center justify-between">
               <div>
-                <h3 className="text-section-header text-foreground">Log a Call</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">Select outcome and add notes</p>
+                <h3 className="text-section-header text-foreground">{translate('Log a Call')}</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">{translate('Select outcome and add notes')}</p>
               </div>
               <div className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full border ${isOnline ? 'sync-online' : 'sync-offline'}`}>
                 {isOnline ? <Wifi size={11} /> : <WifiOff size={11} />}
-                {isOnline ? 'Online' : 'Offline'}
+                {isOnline ? translate('Online') : translate('Offline')}
               </div>
             </div>
 
             {(effectivePrev || effectiveNext) && (
               <div className="px-5 py-2.5 border-b border-border flex items-center justify-between gap-2">
-                <span className="text-xs text-muted-foreground">Auto-advance to next debtor</span>
+                <span className="text-xs text-muted-foreground">{translate('Auto-advance to next debtor')}</span>
                 <Toggle checked={autoAdvance} onChange={toggleAutoAdvance} size="sm" />
               </div>
             )}
@@ -993,7 +994,7 @@ function CorrectLogForm({ log, dispositionCodes, onCancel, onSaved }: CorrectLog
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(payload.error || 'Could not save the correction');
+        toast.error(payload.error || translate('Could not save the correction'));
         return;
       }
       onSaved(payload.log);
@@ -1031,7 +1032,7 @@ function CorrectLogForm({ log, dispositionCodes, onCancel, onSaved }: CorrectLog
         <div className="grid grid-cols-2 gap-2">
           <input
             type="number"
-            placeholder="Promised amount"
+            placeholder={translate('Promised amount')}
             value={promisedAmount}
             onChange={(e) => setPromisedAmount(e.target.value)}
             className="px-2.5 py-1.5 text-sm bg-white border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 font-tabular"
@@ -1065,7 +1066,7 @@ function CorrectLogForm({ log, dispositionCodes, onCancel, onSaved }: CorrectLog
 
       <textarea
         rows={2}
-        placeholder="Call notes"
+        placeholder={translate('Call notes')}
         value={note}
         onChange={(e) => setNote(e.target.value)}
         className="w-full px-2.5 py-1.5 text-sm bg-white border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 resize-none"
@@ -1078,14 +1079,14 @@ function CorrectLogForm({ log, dispositionCodes, onCancel, onSaved }: CorrectLog
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-60"
         >
           {isSaving ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
-          Save correction
+          {translate('Save correction')}
         </button>
         <button
           onClick={onCancel}
           disabled={isSaving}
           className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
-          Cancel
+          {translate('Cancel')}
         </button>
       </div>
     </div>

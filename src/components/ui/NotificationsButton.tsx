@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Bell, CheckCircle, XCircle, UploadCloud } from 'lucide-react';
+import { t } from '@/i18n';
 
 interface Notification {
   id: string;
@@ -51,7 +52,7 @@ export default function NotificationsButton({ collapsed, scope = 'branch' }: Not
         className={`w-full flex items-center gap-3 px-2 py-2 rounded-md text-sm font-medium text-secondary-foreground hover:bg-secondary transition-colors ${collapsed ? 'justify-center' : ''}`}
       >
         <Bell size={18} className="shrink-0" />
-        {!collapsed && <span>Notifications</span>}
+        {!collapsed && <span>{t('Notifications')}</span>}
         {notifications.length > 0 && (
           <span className={`bg-negative text-white text-xs font-semibold px-1.5 py-0.5 rounded-full ${collapsed ? 'absolute -top-1 -right-1' : 'ml-auto'}`}>
             {notifications.length}
@@ -62,11 +63,11 @@ export default function NotificationsButton({ collapsed, scope = 'branch' }: Not
       {open && (
         <div className="absolute bottom-full left-0 mb-2 w-80 max-w-[90vw] bg-card border border-border rounded-xl shadow-dropdown z-50 fade-in overflow-hidden">
           <div className="px-4 py-3 border-b border-border">
-            <p className="text-sm font-semibold text-foreground">Notifications</p>
+            <p className="text-sm font-semibold text-foreground">{t('Notifications')}</p>
           </div>
           <div className="max-h-80 overflow-y-auto scrollbar-thin divide-y divide-border">
             {notifications.length === 0 ? (
-              <p className="px-4 py-6 text-sm text-muted-foreground text-center">Nothing needs your attention right now.</p>
+              <p className="px-4 py-6 text-sm text-muted-foreground text-center">{t('Nothing needs your attention right now.')}</p>
             ) : (
               notifications.map((n) => {
                 const Icon = ICONS[n.kind];
@@ -81,7 +82,7 @@ export default function NotificationsButton({ collapsed, scope = 'branch' }: Not
                     className="flex items-start gap-2.5 px-4 py-3 hover:bg-secondary/50 transition-colors"
                   >
                     <Icon size={15} className={`shrink-0 mt-0.5 ${tone}`} />
-                    <span className="text-xs text-foreground leading-snug">{n.message}</span>
+                    <span className="text-xs text-foreground leading-snug">{t(n.message)}</span>
                   </Link>
                 );
               })

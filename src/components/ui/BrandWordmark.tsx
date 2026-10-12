@@ -1,4 +1,5 @@
 import React from 'react';
+import { t } from '@/i18n';
 
 interface BrandWordmarkProps {
   size?: 'sm' | 'md';
@@ -33,7 +34,7 @@ export default function BrandWordmark({ size = 'md' }: BrandWordmarkProps) {
           whiteSpace: 'nowrap',
         }}
       >
-        WELLCASH
+        {t('WELLCASH')}
       </span>
       <span
         style={{
@@ -46,7 +47,7 @@ export default function BrandWordmark({ size = 'md' }: BrandWordmarkProps) {
           whiteSpace: 'nowrap',
         }}
       >
-        Debt Collectors
+        {t('Debt Collectors')}
       </span>
     </div>
   );

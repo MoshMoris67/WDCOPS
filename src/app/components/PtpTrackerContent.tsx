@@ -10,6 +10,7 @@ import { clientBadgeVariant } from '@/lib/client-badge';
 import { toDialFormat } from '@/lib/phone';
 import { formatMoneyM } from '@/lib/money';
 import { DEPLOYMENT } from '@/config/deployment';
+import { t } from '@/i18n';
 
 interface PtpRow {
   id: string;
@@ -63,7 +64,7 @@ function PtpSection({ title, icon: Icon, tone, bucket, showAgent }: {
         <span className="text-xs text-muted-foreground ml-1">({bucket.count})</span>
       </div>
       {bucket.rows.length === 0 ? (
-        <p className="px-4 py-6 text-sm text-muted-foreground text-center">Nothing here.</p>
+        <p className="px-4 py-6 text-sm text-muted-foreground text-center">{t('Nothing here.')}</p>
       ) : (
         <div className="divide-y divide-border max-h-96 overflow-y-auto scrollbar-thin">
           {bucket.rows.map((r) => (
@@ -86,7 +87,7 @@ function PtpSection({ title, icon: Icon, tone, bucket, showAgent }: {
                   href={`tel:${toDialFormat(r.phone)}`}
                   onClick={(e) => e.stopPropagation()}
                   className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground"
-                  title="Call this debtor"
+                  title={t('Call this debtor')}
                 >
                   <Phone size={15} />
                 </a>
@@ -106,14 +107,14 @@ function BreakdownTable({ title, rows }: { title: string; rows: BreakdownRow[] }
         <p className="text-sm font-semibold text-foreground">{title}</p>
       </div>
       {rows.length === 0 ? (
-        <p className="px-4 py-6 text-sm text-muted-foreground text-center">No active PTPs.</p>
+        <p className="px-4 py-6 text-sm text-muted-foreground text-center">{t('No active PTPs.')}</p>
       ) : (
         <table className="w-full text-sm">
           <tbody className="divide-y divide-border">
             {rows.map((r) => (
               <tr key={r.id}>
                 <td className="px-4 py-2.5 text-foreground">{r.name}</td>
-                <td className="px-4 py-2.5 text-muted-foreground text-right">{r.count} PTP{r.count === 1 ? '' : 's'}</td>
+                <td className="px-4 py-2.5 text-muted-foreground text-right">{r.count === 1 ? t('{0} PTP', r.count) : t('{0} PTPs', r.count)}</td>
                 <td className="px-4 py-2.5 font-tabular font-semibold text-foreground text-right">{formatMoneyM(r.total)}</td>
               </tr>
             ))}
@@ -131,37 +132,37 @@ export default function PtpTrackerContent() {
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-foreground">Promises to Pay</h1>
+        <h1 className="text-xl font-bold text-foreground">{t('Promises to Pay')}</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          {isAdmin ? 'Every active PTP across the branch.' : 'Your active promises to pay.'}
+          {isAdmin ? t('Every active PTP across the branch.') : t('Your active promises to pay.')}
         </p>
       </div>
 
       {isLoading && !data ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">{t('Loading…')}</p>
       ) : data ? (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-            <KPICard label="Overdue" value={data.overdue.count} subtext={formatMoneyM(data.overdue.total)} icon={AlertTriangle} variant="negative" />
-            <KPICard label="Due Today" value={data.dueToday.count} subtext={formatMoneyM(data.dueToday.total)} icon={Clock} variant="warning" />
-            <KPICard label="Upcoming" value={data.upcoming.count} subtext={formatMoneyM(data.upcoming.total)} icon={CalendarClock} variant="info" />
+            <KPICard label={t('Overdue')} value={data.overdue.count} subtext={formatMoneyM(data.overdue.total)} icon={AlertTriangle} variant="negative" />
+            <KPICard label={t('Due Today')} value={data.dueToday.count} subtext={formatMoneyM(data.dueToday.total)} icon={Clock} variant="warning" />
+            <KPICard label={t('Upcoming')} value={data.upcoming.count} subtext={formatMoneyM(data.upcoming.total)} icon={CalendarClock} variant="info" />
           </div>
 
           <div className="space-y-4">
-            <PtpSection title="Overdue" icon={AlertTriangle} tone="negative" bucket={data.overdue} showAgent={isAdmin} />
-            <PtpSection title="Due Today" icon={Clock} tone="warning" bucket={data.dueToday} showAgent={isAdmin} />
-            <PtpSection title="Upcoming" icon={CalendarClock} tone="info" bucket={data.upcoming} showAgent={isAdmin} />
+            <PtpSection title={t('Overdue')} icon={AlertTriangle} tone="negative" bucket={data.overdue} showAgent={isAdmin} />
+            <PtpSection title={t('Due Today')} icon={Clock} tone="warning" bucket={data.dueToday} showAgent={isAdmin} />
+            <PtpSection title={t('Upcoming')} icon={CalendarClock} tone="info" bucket={data.upcoming} showAgent={isAdmin} />
           </div>
 
           {isAdmin && data.byAgent && data.byClient && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
-              <BreakdownTable title="By Agent" rows={data.byAgent} />
-              <BreakdownTable title="By Client" rows={data.byClient} />
+              <BreakdownTable title={t('By Agent')} rows={data.byAgent} />
+              <BreakdownTable title={t('By Client')} rows={data.byClient} />
             </div>
           )}
         </>
       ) : (
-        <p className="text-sm text-muted-foreground">Couldn&apos;t load PTPs.</p>
+        <p className="text-sm text-muted-foreground">{t('Couldn\'t load PTPs.')}</p>
       )}
     </div>
   );

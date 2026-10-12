@@ -19,7 +19,8 @@ import {
   AlertTriangle,
   LogOut,
 } from 'lucide-react';
-import CurrencySwitcher from '@/components/ui/CurrencySwitcher';
+import PreferencesMenu from '@/components/ui/PreferencesMenu';
+import { t } from '@/i18n';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -143,7 +144,7 @@ function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, fa
           {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
           <span>
             {isOnline
-              ? (pendingSync > 0 ? `Online — syncing ${pendingSync}…` : 'Online — Synced')
+              ? (pendingSync > 0 ? t('Online — syncing {0}…', pendingSync) : t('Online — Synced'))
               : `Offline${pendingSync > 0 ? ` — ${pendingSync} pending` : ''}`}
           </span>
         </div>
@@ -160,14 +161,14 @@ function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, fa
           className="mx-3 mt-2 px-3 py-2 rounded-md border flex items-center gap-2 text-xs font-medium sync-offline text-left hover:brightness-95 transition-[filter]"
         >
           <AlertTriangle size={14} className="shrink-0" />
-          <span className="flex-1">{failedSync} log{failedSync > 1 ? 's' : ''} failed to sync</span>
-          <span className="underline shrink-0">Details</span>
+          <span className="flex-1">{failedSync > 1 ? t('{0} logs failed to sync', failedSync) : t('{0} log failed to sync', failedSync)}</span>
+          <span className="underline shrink-0">{t('Details')}</span>
         </button>
       )}
 
       {collapsed && !isMobile && (
         <div className="flex justify-center mt-3">
-          <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-positive' : 'bg-negative'}`} title={isOnline ? 'Online' : 'Offline'} />
+          <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-positive' : 'bg-negative'}`} title={isOnline ? t('Online') : t('Offline')} />
         </div>
       )}
 
@@ -177,7 +178,7 @@ function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, fa
           <div key={`group-${group.label}`} className="mb-4">
             {(!collapsed || isMobile) && (
               <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground px-2 mb-1">
-                {group.label}
+                {t(group.label)}
               </p>
             )}
             {group.items.map((item) => {
@@ -199,11 +200,11 @@ function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, fa
                 >
                   <item.icon size={18} className="shrink-0" />
                   {(!collapsed || isMobile) && (
-                    <span className="flex-1 truncate">{item.label}</span>
+                    <span className="flex-1 truncate">{t(item.label)}</span>
                   )}
                   {collapsed && !isMobile && (
                     <span className="absolute left-full ml-2 px-2 py-1 bg-foreground text-primary-foreground text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
-                      {item.label}
+                      {t(item.label)}
                     </span>
                   )}
                 </Link>
@@ -216,7 +217,7 @@ function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, fa
       {/* Bottom */}
       <div className="border-t border-border p-2 space-y-1">
         <ThemeToggle collapsed={collapsed && !isMobile} />
-        <CurrencySwitcher collapsed={collapsed && !isMobile} />
+        <PreferencesMenu collapsed={collapsed && !isMobile} />
 
         {(!collapsed || isMobile) && (
           <NotificationsButton scope={user?.role === 'agent' ? 'mine' : 'branch'} />
@@ -230,7 +231,7 @@ function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, fa
           </div>
           {(!collapsed || isMobile) && (
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-foreground truncate">{user?.name ?? 'Loading…'}</p>
+              <p className="text-xs font-semibold text-foreground truncate">{user?.name ?? t('Loading…')}</p>
               <p className="text-xs text-muted-foreground truncate">{user ? displayRole(user) : ''}</p>
             </div>
           )}
@@ -238,7 +239,7 @@ function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, fa
             <button
               onClick={onSignOut}
               className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
-              title="Sign out"
+              title={t('Sign out')}
             >
               <LogOut size={15} />
             </button>
@@ -249,7 +250,7 @@ function SidebarContent({ collapsed, onToggleCollapse, isOnline, pendingSync, fa
           <button
             onClick={onToggleCollapse}
             className="w-full flex items-center justify-center py-1.5 rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? t('Expand sidebar') : t('Collapse sidebar')}
           >
             {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </button>

@@ -8,7 +8,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import Fab from '@/components/ui/Fab';
 import ListToolbar from '@/components/ui/ListToolbar';
 import ResponsiveList from '@/components/ui/ResponsiveList';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useForm } from 'react-hook-form';
 import { useClients } from '@/lib/use-clients';
 import { clientBadgeVariant } from '@/lib/client-badge';
@@ -16,6 +16,7 @@ import { useCachedQuery } from '@/lib/use-cached-query';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
 import { formatMoneyM } from '@/lib/money';
 import { DEPLOYMENT } from '@/config/deployment';
+import { t } from '@/i18n';
 
 interface ReconRow {
   id: string;
@@ -236,10 +237,10 @@ export default function ReconciliationContent() {
       });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Could not record this payment');
+        toast.error(payload.error || t('Could not record this payment'));
         return;
       }
-      toast.success(`${formatMoneyM(amount)} recorded for ${manualSelectedDebtor.name}`);
+      toast.success(t('{0} recorded for {1}', formatMoneyM(amount), manualSelectedDebtor.name));
       closeManualEntry();
       refetchReconciliations();
     } catch {
@@ -278,7 +279,7 @@ export default function ReconciliationContent() {
       const res = await fetch('/api/reconciliations/preview', { method: 'POST', body: form });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Could not read this file');
+        toast.error(payload.error || t('Could not read this file'));
         return;
       }
       setReconPreview(payload);
@@ -321,7 +322,7 @@ export default function ReconciliationContent() {
       const res = await fetch('/api/reconciliations', { method: 'POST', body: form });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Could not log this reconciliation');
+        toast.error(payload.error || t('Could not log this reconciliation'));
         return;
       }
       setUploadModalOpen(false);
@@ -332,7 +333,9 @@ export default function ReconciliationContent() {
       refetchReconciliations();
       setSelectedReconId(payload.reconciliation.id);
       toast.success(
-        `${data.reconciliationType === 'full' ? 'Full' : 'Partial'} reconciliation queued — processing in the background, ready shortly`
+        data.reconciliationType === 'full'
+          ? t('Full reconciliation queued — processing in the background, ready shortly')
+          : t('Partial reconciliation queued — processing in the background, ready shortly')
       );
     } catch {
       toast.error('Could not reach the server — try again');
@@ -384,7 +387,7 @@ export default function ReconciliationContent() {
       });
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Could not save changes');
+        toast.error(payload.error || t('Could not save changes'));
         return;
       }
       toast.success('Reconciliation updated');
@@ -399,16 +402,16 @@ export default function ReconciliationContent() {
 
   async function deleteRecon(r: ReconRow) {
     const balanceNote = r.updatedCount > 0
-      ? ` This reverses the balance/amount-paid changes it made to ${r.updatedCount} debtor(s).`
+      ? ' ' + t('This reverses the balance/amount-paid changes it made to {0} debtor(s).', r.updatedCount)
       : '';
     const newAccountsNote = r.newAccountsCount > 0
-      ? ` The ${r.newAccountsCount} new account(s) it added stay — only their recorded starting payment is reversed.`
+      ? ' ' + t('The {0} new account(s) it added stay — only their recorded starting payment is reversed.', r.newAccountsCount)
       : '';
-    if (!window.confirm(`Permanently delete this reconciliation for ${r.client} (${r.batchLabel ?? 'no batch'})?${balanceNote}${newAccountsNote} There is no undo.`)) return;
+    if (!window.confirm(t('Permanently delete this reconciliation for {0} ({1})?', r.client, r.batchLabel ?? t('no batch')) + balanceNote + newAccountsNote + ' ' + t('There is no undo.'))) return;
     const res = await fetch(`/api/reconciliations/${r.id}`, { method: 'DELETE' });
     const payload = await res.json();
     if (!res.ok) {
-      toast.error(payload.error || 'Could not delete this reconciliation');
+      toast.error(payload.error || t('Could not delete this reconciliation'));
       return;
     }
     toast.success('Reconciliation deleted');
@@ -427,24 +430,24 @@ export default function ReconciliationContent() {
       const res = await fetch(`/api/clients/${client.id}/untracked-recoveries`);
       const payload = await res.json();
       if (!res.ok) {
-        toast.error(payload.error || 'Could not check recoveries');
+        toast.error(payload.error || t('Could not check recoveries'));
         return;
       }
       const found = payload.files as { batchLabel: string | null; debtorCount: number; amount: number }[];
       if (found.length === 0) {
-        toast.success(`Every recovery on ${client.name} is accounted for by a reconciliation`);
+        toast.success(t('Every recovery on {0} is accounted for by a reconciliation', client.name));
         return;
       }
       const total = found.reduce((s, f) => s + f.amount, 0);
-      const lines = found.map((f) => `• ${f.batchLabel ?? 'Unnamed file'}: ${formatMoneyM(f.amount)} across ${f.debtorCount} debtor(s)`).join('\n');
-      if (!window.confirm(`${formatMoneyM(total)} recovered on ${client.name} isn't backed by any reconciliation:\n\n${lines}\n\nReset these debtors to what their reconciliations record? There is no undo.`)) return;
+      const lines = found.map((f) => t('• {0}: {1} across {2} debtor(s)', f.batchLabel ?? t('Unnamed file'), formatMoneyM(f.amount), f.debtorCount)).join('\n');
+      if (!window.confirm(t('{0} recovered on {1} isn\'t backed by any reconciliation:\n\n{2}\n\nReset these debtors to what their reconciliations record? There is no undo.', formatMoneyM(total), client.name, lines))) return;
       const fix = await fetch(`/api/clients/${client.id}/untracked-recoveries`, { method: 'POST' });
       const fixPayload = await fix.json();
       if (!fix.ok) {
-        toast.error(fixPayload.error || 'Could not reset recoveries');
+        toast.error(fixPayload.error || t('Could not reset recoveries'));
         return;
       }
-      toast.success(`Reset ${fixPayload.debtorCount} debtor(s) — ${formatMoneyM(total)} removed from Recovered`);
+      toast.success(t('Reset {0} debtor(s) — {1} removed from Recovered', fixPayload.debtorCount, formatMoneyM(total)));
     } catch {
       toast.error('Could not reach the server — try again');
     } finally {
@@ -462,27 +465,27 @@ export default function ReconciliationContent() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-page-title text-foreground">Reconciliation Management</h1>
-          <p className="text-sm text-muted-foreground mt-1">Log and process client reconciliation events — full and partial formats supported</p>
+          <h1 className="text-page-title text-foreground">{t('Reconciliation Management')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t('Log and process client reconciliation events — full and partial formats supported')}</p>
         </div>
         <div className="hidden lg:flex items-center gap-2">
           <button
             onClick={() => openManualEntry()}
             disabled={offlineBlocked}
-            title={offlineBlocked ? 'Offline — reconnect to record a payment' : undefined}
+            title={offlineBlocked ? t('Offline — reconnect to record a payment') : undefined}
             className="flex items-center gap-1.5 px-4 py-2 bg-secondary text-secondary-foreground text-sm font-semibold rounded-lg hover:bg-secondary/80 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <UserCheck size={15} />
-            Manual Entry
+            {t('Manual Entry')}
           </button>
           <button
             onClick={() => setUploadModalOpen(true)}
             disabled={offlineBlocked}
-            title={offlineBlocked ? 'Offline — reconnect to log a reconciliation' : undefined}
+            title={offlineBlocked ? t('Offline — reconnect to log a reconciliation') : undefined}
             className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <Upload size={15} />
-            Log New Reconciliation
+            {t('Log New Reconciliation')}
           </button>
         </div>
       </div>
@@ -500,7 +503,7 @@ export default function ReconciliationContent() {
               <stat.icon size={18} />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground font-medium">{stat.label}</p>
+              <p className="text-xs text-muted-foreground font-medium">{t(stat.label)}</p>
               <p className="font-tabular font-bold text-lg text-foreground">{stat.value}</p>
             </div>
           </div>
@@ -512,23 +515,23 @@ export default function ReconciliationContent() {
         <div className="xl:col-span-2 2xl:col-span-2 bg-card rounded-xl shadow-card border border-border">
           <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
             <div>
-              <h2 className="text-section-header text-foreground">Reconciliation Log</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Every reconciliation event per client — nothing silently lost</p>
+              <h2 className="text-section-header text-foreground">{t('Reconciliation Log')}</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">{t('Every reconciliation event per client — nothing silently lost')}</p>
               {filterClient !== 'All' && (
                 <button
                   onClick={checkUntrackedRecoveries}
                   disabled={isCheckingUntracked || offlineBlocked}
                   className="mt-1.5 text-xs font-semibold text-primary hover:underline disabled:opacity-50"
-                  title={offlineBlocked ? 'Offline — reconnect to check' : 'Find recovered amounts no reconciliation in this log accounts for'}
+                  title={offlineBlocked ? t('Offline — reconnect to check') : t('Find recovered amounts no reconciliation in this log accounts for')}
                 >
-                  {isCheckingUntracked ? 'Checking…' : 'Check for untracked recoveries'}
+                  {isCheckingUntracked ? t('Checking…') : t('Check for untracked recoveries')}
                 </button>
               )}
             </div>
             <ListToolbar
               search={search}
               onSearchChange={setSearch}
-              searchPlaceholder="Search client, batch…"
+              searchPlaceholder={t('Search client, batch…')}
               filters={[
                 {
                   key: 'client', value: filterClient, onChange: setFilterClient,
@@ -572,7 +575,7 @@ export default function ReconciliationContent() {
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${recon.type === 'full' ? 'bg-[var(--info-bg)] text-info' : 'bg-secondary text-secondary-foreground'}`}>
-                        {recon.type === 'full' ? 'Full' : 'Partial'}
+                        {recon.type === 'full' ? t('Full') : t('Partial')}
                       </span>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
@@ -590,7 +593,7 @@ export default function ReconciliationContent() {
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-xs text-muted-foreground">{formatDateTime(recon.receivedAt)}</td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <Badge variant={sc.variant}>{sc.label}</Badge>
+                      <Badge variant={sc.variant}>{t(sc.label)}</Badge>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -599,7 +602,7 @@ export default function ReconciliationContent() {
                             onClick={(e) => { e.stopPropagation(); processRecon(recon.id); }}
                             disabled={processingId === recon.id || offlineBlocked}
                             className="p-1.5 rounded-md hover:bg-primary/10 text-primary transition-colors text-xs font-semibold disabled:opacity-50"
-                            title={offlineBlocked ? 'Offline — reconnect to process' : 'Process this reconciliation now'}
+                            title={offlineBlocked ? t('Offline — reconnect to process') : t('Process this reconciliation now')}
                           >
                             <RefreshCcw size={14} className={processingId === recon.id ? 'animate-spin' : ''} />
                           </button>
@@ -607,7 +610,7 @@ export default function ReconciliationContent() {
                         <button
                           onClick={(e) => { e.stopPropagation(); setSelectedReconId(recon.id); }}
                           className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground"
-                          title="View affected debtors"
+                          title={t('View affected debtors')}
                         >
                           <Eye size={14} />
                         </button>
@@ -627,7 +630,7 @@ export default function ReconciliationContent() {
                       <div className="flex items-center gap-2 flex-wrap min-w-0">
                         <Badge variant={clientBadgeVariant(recon.client)}>{recon.client}</Badge>
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${recon.type === 'full' ? 'bg-[var(--info-bg)] text-info' : 'bg-secondary text-secondary-foreground'}`}>
-                          {recon.type === 'full' ? 'Full' : 'Partial'}
+                          {recon.type === 'full' ? t('Full') : t('Partial')}
                         </span>
                       </div>
                       <Eye size={16} className="text-muted-foreground shrink-0" />
@@ -635,28 +638,28 @@ export default function ReconciliationContent() {
                     <p className="font-mono-data text-xs text-muted-foreground mt-2 truncate">{recon.batchLabel}</p>
                     <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
                       <div>
-                        <span className="text-muted-foreground block">Records</span>
+                        <span className="text-muted-foreground block">{t('Records')}</span>
                         <span className="font-tabular font-semibold text-foreground">{recon.recordCount}</span>
                       </div>
                       <div>
-                        <span className="text-muted-foreground block">Updated</span>
+                        <span className="text-muted-foreground block">{t('Updated')}</span>
                         <span className={`font-tabular font-semibold ${recon.updatedCount > 0 ? 'text-positive' : 'text-muted-foreground'}`}>{recon.updatedCount}</span>
                       </div>
                       <div>
-                        <span className="text-muted-foreground block">Amount</span>
+                        <span className="text-muted-foreground block">{t('Amount')}</span>
                         <span className="font-tabular font-semibold text-foreground">{recon.totalAmountUpdated > 0 ? formatMoneyM(recon.totalAmountUpdated) : '—'}</span>
                       </div>
                     </div>
                     <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/60">
                       <span className="text-xs text-muted-foreground">{formatDateTime(recon.receivedAt)}</span>
                       <div className="flex items-center gap-2">
-                        <Badge variant={sc.variant}>{sc.label}</Badge>
+                        <Badge variant={sc.variant}>{t(sc.label)}</Badge>
                         {(recon.status === 'pending' || recon.status === 'failed') && (
                           <button
                             onClick={(e) => { e.stopPropagation(); processRecon(recon.id); }}
                             disabled={processingId === recon.id}
                             className="p-1.5 rounded-md hover:bg-primary/10 text-primary transition-colors disabled:opacity-50"
-                            title="Process this reconciliation now"
+                            title={t('Process this reconciliation now')}
                           >
                             <RefreshCcw size={14} className={processingId === recon.id ? 'animate-spin' : ''} />
                           </button>
@@ -672,17 +675,17 @@ export default function ReconciliationContent() {
           {filtered.length === 0 && (
             <EmptyState
               icon={RefreshCcw}
-              title="No reconciliations found"
-              description="No reconciliation events match your filters. Log a new reconciliation when a client sends an update."
+              title={t('No reconciliations found')}
+              description={t('No reconciliation events match your filters. Log a new reconciliation when a client sends an update.')}
               action={
                 <button
                   onClick={() => setUploadModalOpen(true)}
                   disabled={offlineBlocked}
-                  title={offlineBlocked ? 'Offline — reconnect to log a reconciliation' : undefined}
+                  title={offlineBlocked ? t('Offline — reconnect to log a reconciliation') : undefined}
                   className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <Upload size={14} />
-                  Log Reconciliation
+                  {t('Log Reconciliation')}
                 </button>
               }
             />
@@ -697,17 +700,17 @@ export default function ReconciliationContent() {
               <div className="bg-card rounded-xl shadow-card border border-border p-5 space-y-4">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h3 className="text-section-header text-foreground">Processing Summary</h3>
+                    <h3 className="text-section-header text-foreground">{t('Processing Summary')}</h3>
                     <p className="text-xs text-muted-foreground mt-0.5 font-mono-data">{selectedRecon.batchLabel}</p>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <Badge variant={statusConfig[selectedRecon.status as keyof typeof statusConfig].variant}>
-                      {statusConfig[selectedRecon.status as keyof typeof statusConfig].label}
+                      {t(statusConfig[selectedRecon.status as keyof typeof statusConfig].label)}
                     </Badge>
                     <button
                       onClick={() => openEditRecon(selectedRecon)}
                       disabled={offlineBlocked}
-                      title={offlineBlocked ? 'Offline — reconnect to edit' : 'Edit notes/date'}
+                      title={offlineBlocked ? t('Offline — reconnect to edit') : t('Edit notes/date')}
                       className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground disabled:opacity-40"
                     >
                       <Pencil size={14} />
@@ -715,7 +718,7 @@ export default function ReconciliationContent() {
                     <button
                       onClick={() => deleteRecon(selectedRecon)}
                       disabled={offlineBlocked}
-                      title={offlineBlocked ? 'Offline — reconnect to delete' : 'Delete (reverses any balance changes it made)'}
+                      title={offlineBlocked ? t('Offline — reconnect to delete') : t('Delete (reverses any balance changes it made)')}
                       className="p-1.5 rounded-md hover:bg-[var(--negative-bg)] hover:text-negative transition-colors text-muted-foreground disabled:opacity-40"
                     >
                       <Trash2 size={14} />
@@ -737,7 +740,7 @@ export default function ReconciliationContent() {
                     { label: 'Amount Recovered', value: selectedRecon.totalAmountUpdated > 0 ? formatMoneyM(selectedRecon.totalAmountUpdated) : '—' },
                   ].map((item) => (
                     <div key={`sum-${item.label}`}>
-                      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-0.5">{item.label}</p>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-0.5">{t(item.label)}</p>
                       <p className="text-sm font-semibold text-foreground">{item.value}</p>
                     </div>
                   ))}
@@ -745,21 +748,21 @@ export default function ReconciliationContent() {
 
                 {selectedRecon.newAccountsCount > 0 && (
                   <div className="bg-[var(--positive-bg)] border border-positive/30 rounded-lg p-3 text-xs text-positive">
-                    <p className="font-semibold mb-1">{selectedRecon.newAccountsCount} new account(s) detected</p>
-                    <p>Rows that didn&apos;t match an existing debtor but carried a name, phone, and amount owed were added as new debtors and auto-distributed across the agents already working this client, weighted by how caught-up each one currently is on their existing list.</p>
+                    <p className="font-semibold mb-1">{t('{0} new account(s) detected', selectedRecon.newAccountsCount)}</p>
+                    <p>{t('Rows that didn\'t match an existing debtor but carried a name, phone, and amount owed were added as new debtors and auto-distributed across the agents already working this client, weighted by how caught-up each one currently is on their existing list.')}</p>
                   </div>
                 )}
 
                 {selectedRecon.type === 'full' && (
                   <div className="bg-[var(--info-bg)] border border-[#BFDBFE] rounded-lg p-3 text-xs text-info">
-                    <p className="font-semibold mb-1">Full Reconciliation</p>
-                    <p>System compared all {selectedRecon.recordCount} records against current debtor balances and updated cumulative payments across the entire file.</p>
+                    <p className="font-semibold mb-1">{t('Full Reconciliation')}</p>
+                    <p>{t('System compared all {0} records against current debtor balances and updated cumulative payments across the entire file.', selectedRecon.recordCount)}</p>
                   </div>
                 )}
                 {selectedRecon.type === 'partial' && (
                   <div className="bg-secondary/50 border border-border rounded-lg p-3 text-xs text-muted-foreground">
-                    <p className="font-semibold text-foreground mb-1">Partial (Paid-Only)</p>
-                    <p>System matched {selectedRecon.recordCount} records by loan reference and phone number. Only those debtors were updated — the rest remain unchanged.</p>
+                    <p className="font-semibold text-foreground mb-1">{t('Partial (Paid-Only)')}</p>
+                    <p>{t('System matched {0} records by loan reference and phone number. Only those debtors were updated — the rest remain unchanged.', selectedRecon.recordCount)}</p>
                   </div>
                 )}
 
@@ -767,18 +770,18 @@ export default function ReconciliationContent() {
                   <button
                     onClick={() => processRecon(selectedRecon.id)}
                     disabled={processingId === selectedRecon.id || offlineBlocked}
-                    title={offlineBlocked ? 'Offline — reconnect to process' : undefined}
+                    title={offlineBlocked ? t('Offline — reconnect to process') : undefined}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60"
                   >
                     <RefreshCcw size={15} className={processingId === selectedRecon.id ? 'animate-spin' : ''} />
-                    {selectedRecon.status === 'failed' ? 'Retry Processing' : 'Process Now'}
+                    {selectedRecon.status === 'failed' ? t('Retry Processing') : t('Process Now')}
                   </button>
                 )}
 
                 {selectedRecon.status === 'failed' && (
                   <div className="bg-[var(--negative-bg)] border border-[#FECACA] rounded-lg p-3 text-xs text-negative">
-                    <p className="font-semibold mb-1">Processing Failed</p>
-                    <p>{selectedRecon.errorSummary || `Loan reference matching failed for ${selectedRecon.recordCount - selectedRecon.updatedCount} records. Check that the file uses the correct loan reference format before re-uploading.`}</p>
+                    <p className="font-semibold mb-1">{t('Processing Failed')}</p>
+                    <p>{selectedRecon.errorSummary || t('Loan reference matching failed for {0} records. Check that the file uses the correct loan reference format before re-uploading.', selectedRecon.recordCount - selectedRecon.updatedCount)}</p>
                   </div>
                 )}
               </div>
@@ -787,8 +790,8 @@ export default function ReconciliationContent() {
               {selectedRecon.status === 'processed' && (
                 <div className="bg-card rounded-xl shadow-card border border-border">
                   <div className="px-4 py-3 border-b border-border">
-                    <h4 className="text-sm font-semibold text-foreground">Affected Debtors</h4>
-                    <p className="text-xs text-muted-foreground">{affectedDebtors.length} of {selectedRecon.updatedCount} updated records</p>
+                    <h4 className="text-sm font-semibold text-foreground">{t('Affected Debtors')}</h4>
+                    <p className="text-xs text-muted-foreground">{t('{0} of {1} updated records', affectedDebtors.length, selectedRecon.updatedCount)}</p>
                   </div>
                   <div className="divide-y divide-border">
                     {affectedDebtors.map((d) => (
@@ -800,7 +803,7 @@ export default function ReconciliationContent() {
                           </div>
                           <div className="text-right">
                             <p className="text-xs text-positive font-semibold">−{formatMoneyM(d.paid)}</p>
-                            <p className="text-xs text-muted-foreground">{formatMoneyM(d.newBalance)} remaining</p>
+                            <p className="text-xs text-muted-foreground">{t('{0} remaining', formatMoneyM(d.newBalance))}</p>
                           </div>
                         </div>
                         <div className="mt-2 h-1.5 bg-secondary rounded-full overflow-hidden">
@@ -818,21 +821,21 @@ export default function ReconciliationContent() {
           ) : (
             <div className="bg-card rounded-xl shadow-card border border-border p-8 text-center">
               <RefreshCcw size={32} className="text-muted mx-auto mb-3" />
-              <p className="text-sm font-medium text-foreground">Select a reconciliation</p>
-              <p className="text-xs text-muted-foreground mt-1">Click any row to view processing details and affected debtors</p>
+              <p className="text-sm font-medium text-foreground">{t('Select a reconciliation')}</p>
+              <p className="text-xs text-muted-foreground mt-1">{t('Click any row to view processing details and affected debtors')}</p>
             </div>
           )}
         </div>
       </div>
 
-      <Fab onClick={() => setUploadModalOpen(true)} label="Log New Reconciliation" icon={Upload} disabled={offlineBlocked} />
+      <Fab onClick={() => setUploadModalOpen(true)} label={t('Log New Reconciliation')} icon={Upload} disabled={offlineBlocked} />
 
       {/* Upload Modal */}
       <Modal
         open={uploadModalOpen}
         onClose={() => { setUploadModalOpen(false); reset(); setSelectedUploadFile(null); setReconPreview(null); setReconMapping(EMPTY_RECON_MAPPING); }}
-        title="Log New Reconciliation"
-        subtitle="Upload a reconciliation file received from a client and log the event"
+        title={t('Log New Reconciliation')}
+        subtitle={t('Upload a reconciliation file received from a client and log the event')}
         size="lg"
         footer={
           <>
@@ -841,7 +844,7 @@ export default function ReconciliationContent() {
               onClick={() => { setUploadModalOpen(false); reset(); setSelectedUploadFile(null); setReconPreview(null); setReconMapping(EMPTY_RECON_MAPPING); }}
               className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
-              Cancel
+              {t('Cancel')}
             </button>
             <button
               form="recon-upload-form"
@@ -855,12 +858,12 @@ export default function ReconciliationContent() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  <span>Logging…</span>
+                  <span>{t('Logging…')}</span>
                 </>
               ) : (
                 <>
                   <Upload size={15} />
-                  <span>Log & Process</span>
+                  <span>{t('Log & Process')}</span>
                 </>
               )}
             </button>
@@ -871,8 +874,8 @@ export default function ReconciliationContent() {
           {/* Reconciliation type — picked before the file, since it decides whether we
               suggest "Amount Paid" or "Cumulative Paid" for the mapping's amount column */}
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Reconciliation Type <span className="text-negative">*</span></label>
-            <p className="text-xs text-muted-foreground">Select the format this client sent</p>
+            <label className="block text-sm font-medium text-foreground">{t('Reconciliation Type')}{' '}<span className="text-negative">*</span></label>
+            <p className="text-xs text-muted-foreground">{t('Select the format this client sent')}</p>
             <div className="grid grid-cols-2 gap-3">
               {[
                 { value: 'full', title: 'Full Reconciliation', desc: 'Complete file — system compares all records and updates cumulative payments across the whole batch' },
@@ -884,8 +887,8 @@ export default function ReconciliationContent() {
                 >
                   <input type="radio" value={opt.value} className="mt-0.5 accent-primary" {...register('reconciliationType')} />
                   <div>
-                    <p className="text-sm font-semibold text-foreground">{opt.title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{opt.desc}</p>
+                    <p className="text-sm font-semibold text-foreground">{t(opt.title)}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{t(opt.desc)}</p>
                   </div>
                 </label>
               ))}
@@ -894,11 +897,9 @@ export default function ReconciliationContent() {
 
           {/* File upload */}
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Reconciliation File <span className="text-negative">*</span></label>
+            <label className="block text-sm font-medium text-foreground">{t('Reconciliation File')}{' '}<span className="text-negative">*</span></label>
             <p className="text-xs text-muted-foreground">
-              Any column headers are fine — you&apos;ll confirm what maps to what below. Rows that don&apos;t
-              match an existing debtor are added as new accounts if the row also has Name, Phone, and
-              Amount Owed — so a client can send new accounts and reconciliation in one file.
+              {t('Any column headers are fine — you\'ll confirm what maps to what below. Rows that don\'t match an existing debtor are added as new accounts if the row also has Name, Phone, and Amount Owed — so a client can send new accounts and reconciliation in one file.')}
             </p>
             <label
               className={`block border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${isDragOver ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/50 bg-secondary/20'}`}
@@ -914,25 +915,24 @@ export default function ReconciliationContent() {
               />
               <Upload size={20} className="text-muted-foreground mx-auto mb-2" />
               <p className="text-sm font-medium text-foreground">
-                {selectedUploadFile ? selectedUploadFile.name : (isDragOver ? 'Drop the file here' : 'Click to browse, or drag a file here')}
+                {selectedUploadFile ? selectedUploadFile.name : (isDragOver ? t('Drop the file here') : t('Click to browse, or drag a file here'))}
               </p>
-              <p className="text-xs text-muted-foreground mt-1">Accepts .xlsx, .xlsb, or .csv up to 20MB</p>
+              <p className="text-xs text-muted-foreground mt-1">{t('Accepts .xlsx, .xlsb, or .csv up to 20MB')}</p>
             </label>
           </div>
 
           {isPreviewingRecon && (
-            <p className="text-sm text-muted-foreground">Reading columns…</p>
+            <p className="text-sm text-muted-foreground">{t('Reading columns…')}</p>
           )}
 
           {reconPreview && (
             <div className="space-y-4 p-4 bg-secondary/30 rounded-xl border border-border">
               <div>
-                <p className="text-sm font-semibold text-foreground">Map Columns</p>
+                <p className="text-sm font-semibold text-foreground">{t('Map Columns')}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {reconPreview.totalRows !== null
-                    ? `${reconPreview.totalRows.toLocaleString()} row(s) detected.`
-                    : 'Showing a sample — the full row count is confirmed during processing.'}{' '}
-                  Matched what we could recognize — confirm or fix anything below before logging.
+                    ? t('{0} row(s) detected.', reconPreview.totalRows.toLocaleString())
+                    : t('Showing a sample — the full row count is confirmed during processing.')}{' '}{t('Matched what we could recognize — confirm or fix anything below before logging.')}
                 </p>
               </div>
 
@@ -950,7 +950,7 @@ export default function ReconciliationContent() {
                       onChange={(e) => setReconMapping((m) => ({ ...m, [field]: e.target.value }))}
                       className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
                     >
-                      <option value="">{required ? 'Select column…' : 'Not in this file'}</option>
+                      <option value="">{required ? t('Select column…') : t('Not in this file')}</option>
                       {reconPreview.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
                     </select>
                   </div>
@@ -958,14 +958,14 @@ export default function ReconciliationContent() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-foreground uppercase tracking-wide">Name (new accounts)</label>
-                <p className="text-xs text-muted-foreground">Loan Ref or Phone is needed to match existing debtors; Name + Amount Owed together are what let an unmatched row become a new account instead of just a warning.</p>
+                <label className="text-xs font-semibold text-foreground uppercase tracking-wide">{t('Name (new accounts)')}</label>
+                <p className="text-xs text-muted-foreground">{t('Loan Ref or Phone is needed to match existing debtors; Name + Amount Owed together are what let an unmatched row become a new account instead of just a warning.')}</p>
                 <select
                   value={reconMapping.nameCol}
                   onChange={(e) => setReconMapping((m) => ({ ...m, nameCol: e.target.value }))}
                   className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
                 >
-                  <option value="">Not in this file</option>
+                  <option value="">{t('Not in this file')}</option>
                   {reconPreview.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
                 </select>
               </div>
@@ -976,7 +976,7 @@ export default function ReconciliationContent() {
                     <thead>
                       <tr className="border-b border-border bg-secondary/40">
                         {reconPreview.headers.map((h, i) => (
-                          <th key={i} className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">{h || `Column ${i + 1}`}</th>
+                          <th key={i} className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">{h || t('Column {0}', i + 1)}</th>
                         ))}
                       </tr>
                     </thead>
@@ -997,24 +997,24 @@ export default function ReconciliationContent() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-foreground">Client <span className="text-negative">*</span></label>
+              <label className="block text-sm font-medium text-foreground">{t('Client')}{' '}<span className="text-negative">*</span></label>
               <select
                 className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${errors.clientId ? 'border-negative' : 'border-border'}`}
-                {...register('clientId', { required: 'Select a client' })}
+                {...register('clientId', { required: t('Select a client') })}
               >
-                <option value="">Select client…</option>
+                <option value="">{t('Select client…')}</option>
                 {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
-              {errors.clientId && <p className="text-xs text-negative">{errors.clientId.message}</p>}
+              {errors.clientId && <p className="text-xs text-negative">{t(errors.clientId.message)}</p>}
             </div>
 
             <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-foreground">File Batch</label>
+              <label className="block text-sm font-medium text-foreground">{t('File Batch')}</label>
               <select
                 className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
                 {...register('fileId')}
               >
-                <option value="">Not tied to a specific batch…</option>
+                <option value="">{t('Not tied to a specific batch…')}</option>
                 {files.filter((f) => !watchedClientId || f.clientId === watchedClientId).map((f) => (
                   <option key={f.id} value={f.id}>{f.batchLabel}</option>
                 ))}
@@ -1024,16 +1024,16 @@ export default function ReconciliationContent() {
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-foreground">Date Received <span className="text-negative">*</span></label>
+              <label className="block text-sm font-medium text-foreground">{t('Date Received')}{' '}<span className="text-negative">*</span></label>
               <input
                 type="date"
                 className={`w-full px-3 py-2.5 text-sm bg-input border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 ${errors.receivedDate ? 'border-negative' : 'border-border'}`}
-                {...register('receivedDate', { required: 'Enter the date received' })}
+                {...register('receivedDate', { required: t('Enter the date received') })}
               />
-              {errors.receivedDate && <p className="text-xs text-negative">{errors.receivedDate.message}</p>}
+              {errors.receivedDate && <p className="text-xs text-negative">{t(errors.receivedDate.message)}</p>}
             </div>
             <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-foreground">Time Received</label>
+              <label className="block text-sm font-medium text-foreground">{t('Time Received')}</label>
               <input
                 type="time"
                 className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
@@ -1043,11 +1043,11 @@ export default function ReconciliationContent() {
           </div>
 
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Notes</label>
-            <p className="text-xs text-muted-foreground">Optional — any context about this reconciliation batch</p>
+            <label className="block text-sm font-medium text-foreground">{t('Notes')}</label>
+            <p className="text-xs text-muted-foreground">{t('Optional — any context about this reconciliation batch')}</p>
             <textarea
               rows={2}
-              placeholder="e.g. Client confirmed this covers all payments received up to 14/08/2026"
+              placeholder={t('e.g. Client confirmed this covers all payments received up to 14/08/2026')}
               className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 resize-none placeholder:text-muted-foreground"
               {...register('notes')}
             />
@@ -1055,7 +1055,7 @@ export default function ReconciliationContent() {
 
           <div className="flex items-start gap-2 p-3 bg-[var(--info-bg)] border border-[#BFDBFE] rounded-lg text-xs text-info">
             <RefreshCcw size={13} className="mt-0.5 shrink-0" />
-            <span>Processing runs automatically after logging. Agents will see updated balances and a "recently paid" flag on their queue — they never see raw reconciliation data.</span>
+            <span>{t('Processing runs automatically after logging. Agents will see updated balances and a "recently paid" flag on their queue — they never see raw reconciliation data.')}</span>
           </div>
         </form>
       </Modal>
@@ -1065,7 +1065,7 @@ export default function ReconciliationContent() {
       <Modal
         open={!!editingRecon}
         onClose={() => setEditingRecon(null)}
-        title="Edit Reconciliation"
+        title={t('Edit Reconciliation')}
         subtitle={editingRecon ? `${editingRecon.client} — ${editingRecon.batchLabel ?? 'no batch'}` : undefined}
         footer={
           <>
@@ -1073,7 +1073,7 @@ export default function ReconciliationContent() {
               onClick={() => setEditingRecon(null)}
               className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
-              Cancel
+              {t('Cancel')}
             </button>
             <button
               form="edit-recon-form"
@@ -1081,7 +1081,7 @@ export default function ReconciliationContent() {
               disabled={isSavingEdit || offlineBlocked}
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60"
             >
-              {isSavingEdit ? 'Saving…' : 'Save Changes'}
+              {isSavingEdit ? t('Saving…') : t('Save Changes')}
             </button>
           </>
         }
@@ -1089,15 +1089,15 @@ export default function ReconciliationContent() {
         <form id="edit-recon-form" onSubmit={editForm.handleSubmit(onSubmitEditRecon)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-foreground">Date Received</label>
+              <label className="block text-sm font-medium text-foreground">{t('Date Received')}</label>
               <input
                 type="date"
                 className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
-                {...editForm.register('receivedDate', { required: 'Enter the date received' })}
+                {...editForm.register('receivedDate', { required: t('Enter the date received') })}
               />
             </div>
             <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-foreground">Time Received</label>
+              <label className="block text-sm font-medium text-foreground">{t('Time Received')}</label>
               <input
                 type="time"
                 className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
@@ -1106,16 +1106,16 @@ export default function ReconciliationContent() {
             </div>
           </div>
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">Notes</label>
+            <label className="block text-sm font-medium text-foreground">{t('Notes')}</label>
             <textarea
               rows={3}
-              placeholder="Any context about this reconciliation batch"
+              placeholder={t('Any context about this reconciliation batch')}
               className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 resize-none placeholder:text-muted-foreground"
               {...editForm.register('notes')}
             />
           </div>
           <p className="text-xs text-muted-foreground">
-            Type, amounts, and match results can&apos;t be edited — they&apos;re a record of what actually happened to debtor balances, not editable inputs.
+            {t('Type, amounts, and match results can\'t be edited — they\'re a record of what actually happened to debtor balances, not editable inputs.')}
           </p>
         </form>
       </Modal>
@@ -1125,15 +1125,15 @@ export default function ReconciliationContent() {
       <Modal
         open={manualModalOpen}
         onClose={closeManualEntry}
-        title="Manual Entry"
-        subtitle="Record one debtor's payment directly — for a single payment between file uploads"
+        title={t('Manual Entry')}
+        subtitle={t('Record one debtor\'s payment directly — for a single payment between file uploads')}
         footer={
           <>
             <button
               onClick={closeManualEntry}
               className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
-              Cancel
+              {t('Cancel')}
             </button>
             <button
               onClick={submitManualEntry}
@@ -1141,7 +1141,7 @@ export default function ReconciliationContent() {
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <UserCheck size={15} />
-              {isSubmittingManual ? 'Recording…' : 'Record Payment'}
+              {isSubmittingManual ? t('Recording…') : t('Record Payment')}
             </button>
           </>
         }
@@ -1149,21 +1149,21 @@ export default function ReconciliationContent() {
         <div className="space-y-4">
           {!manualSelectedDebtor ? (
             <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-foreground">Debtor</label>
-              <p className="text-xs text-muted-foreground">Search by name, loan reference, or phone</p>
+              <label className="block text-sm font-medium text-foreground">{t('Debtor')}</label>
+              <p className="text-xs text-muted-foreground">{t('Search by name, loan reference, or phone')}</p>
               <div className="relative">
                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   autoFocus
                   value={manualSearch}
                   onChange={(e) => setManualSearch(e.target.value)}
-                  placeholder={DEPLOYMENT.debtorSearchPlaceholder}
+                  placeholder={t(DEPLOYMENT.debtorSearchPlaceholder)}
                   className="w-full pl-9 pr-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
                 />
               </div>
-              {isSearchingDebtors && <p className="text-xs text-muted-foreground">Searching…</p>}
+              {isSearchingDebtors && <p className="text-xs text-muted-foreground">{t('Searching…')}</p>}
               {!isSearchingDebtors && manualSearch.trim().length >= 2 && manualResults.length === 0 && (
-                <p className="text-xs text-muted-foreground">No debtors match &quot;{manualSearch}&quot;.</p>
+                <p className="text-xs text-muted-foreground">{t('No debtors match "{0}".', manualSearch)}</p>
               )}
               {manualResults.length > 0 && (
                 <div className="border border-border rounded-lg divide-y divide-border max-h-56 overflow-y-auto scrollbar-thin">
@@ -1180,7 +1180,7 @@ export default function ReconciliationContent() {
                       </div>
                       <div className="flex items-center justify-between gap-2 mt-0.5">
                         <span className="text-xs font-mono-data text-muted-foreground">{d.loanRef}</span>
-                        <span className="text-xs font-tabular text-muted-foreground">Balance: {formatMoneyM(d.balance)}</span>
+                        <span className="text-xs font-tabular text-muted-foreground">{t('Balance: {0}', formatMoneyM(d.balance))}</span>
                       </div>
                     </button>
                   ))}
@@ -1193,18 +1193,18 @@ export default function ReconciliationContent() {
                 <div>
                   <p className="text-sm font-semibold text-foreground">{manualSelectedDebtor.name}</p>
                   <p className="text-xs font-mono-data text-muted-foreground">{manualSelectedDebtor.loanRef}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Current balance: {formatMoneyM(manualSelectedDebtor.balance)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{t('Current balance: {0}', formatMoneyM(manualSelectedDebtor.balance))}</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setManualSelectedDebtor(null)}
                   className="text-xs text-primary hover:underline shrink-0"
                 >
-                  Change
+                  {t('Change')}
                 </button>
               </div>
               <div className="space-y-1.5">
-                <label className="block text-sm font-medium text-foreground">Amount Collected ({DEPLOYMENT.currencyCode}) <span className="text-negative">*</span></label>
+                <label className="block text-sm font-medium text-foreground">{t('Amount Collected ({0})', DEPLOYMENT.currencyCode)}{' '}<span className="text-negative">*</span></label>
                 <input
                   type="number"
                   autoFocus
@@ -1215,16 +1215,16 @@ export default function ReconciliationContent() {
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="block text-sm font-medium text-foreground">Notes</label>
+                <label className="block text-sm font-medium text-foreground">{t('Notes')}</label>
                 <textarea
                   rows={2}
                   value={manualNote}
                   onChange={(e) => setManualNote(e.target.value)}
-                  placeholder="Optional — e.g. paid via mobile money, confirmed by phone"
+                  placeholder={t('Optional — e.g. paid via mobile money, confirmed by phone')}
                   className="w-full px-3 py-2 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 resize-none placeholder:text-muted-foreground"
                 />
               </div>
-              <p className="text-xs text-muted-foreground">Adds to whatever this debtor has already paid — the same as a partial reconciliation, just for one record.</p>
+              <p className="text-xs text-muted-foreground">{t('Adds to whatever this debtor has already paid — the same as a partial reconciliation, just for one record.')}</p>
             </>
           )}
         </div>

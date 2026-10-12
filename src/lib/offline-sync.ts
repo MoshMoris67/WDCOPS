@@ -1,4 +1,5 @@
 import { db, type PendingCallLog } from './offline-db';
+import { t } from '@/i18n';
 
 export const QUEUE_CHANGED_EVENT = 'wc:queue-changed';
 
@@ -97,7 +98,7 @@ async function pushEntry(entry: PendingCallLog): Promise<SyncOutcome> {
     // allowed to sit at the head of the queue blocking every record behind it.
     const retryable = res.status >= 500;
     const payload = await res.json().catch(() => null);
-    return { ok: false, retryable, message: payload?.error || `Server rejected the request (${res.status})` };
+    return { ok: false, retryable, message: payload?.error || t('Server rejected the request ({0})', res.status) };
   } catch (err) {
     // Network error, timeout, or genuinely offline — always retryable, this says nothing
     // about whether the record itself is valid.

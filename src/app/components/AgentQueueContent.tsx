@@ -15,6 +15,7 @@ import { useCachedQuery } from '@/lib/use-cached-query';
 import { useIsWide } from '@/lib/use-media-query';
 import DebtorDetailContent from '@/app/debtor-detail-call-logging/components/DebtorDetailContent';
 import { formatMoney } from '@/lib/money';
+import { t } from '@/i18n';
 
 interface DispositionCodeOption {
   code: string;
@@ -178,12 +179,12 @@ export default function AgentQueueContent() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-page-title text-foreground">My Queue</h1>
-          <p className="text-sm text-muted-foreground mt-1">{debtorQueue.length} debtors assigned — sorted by priority</p>
+          <h1 className="text-page-title text-foreground">{t('My Queue')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t('{0} debtors assigned — sorted by priority', debtorQueue.length)}</p>
         </div>
         <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium ${isOnline ? 'sync-online' : 'sync-offline'}`}>
           {isOnline ? <Wifi size={13} /> : <WifiOff size={13} />}
-          <span>{isOnline ? 'Synced' : `Offline${pendingSync > 0 ? ` — ${pendingSync} pending` : ''}`}</span>
+          <span>{isOnline ? t('Synced') : `Offline${pendingSync > 0 ? ` — ${pendingSync} pending` : ''}`}</span>
         </div>
       </div>
 
@@ -192,9 +193,9 @@ export default function AgentQueueContent() {
           <WifiOff size={16} className="text-warning shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-warning">
-              Working offline{pendingSync > 0 ? ` — ${pendingSync} call log${pendingSync === 1 ? '' : 's'} pending sync` : ''}
+              {t('Working offline')}{pendingSync > 0 ? ' ' + (pendingSync === 1 ? t('— {0} call log pending sync', pendingSync) : t('— {0} call logs pending sync', pendingSync)) : ''}
             </p>
-            <p className="text-xs text-warning/80">Your logs are saved locally. They will sync automatically when you reconnect.</p>
+            <p className="text-xs text-warning/80">{t('Your logs are saved locally. They will sync automatically when you reconnect.')}</p>
           </div>
         </div>
       )}
@@ -206,14 +207,14 @@ export default function AgentQueueContent() {
         <div className="flex items-center gap-3 bg-[var(--warning-bg)] border border-[#FDE68A] rounded-lg px-4 py-3">
           <AlertTriangle size={16} className="text-warning shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-warning">Could not load your queue — showing what&apos;s saved on this device.</p>
-            <p className="text-xs text-warning/80">{queueError}. Your actual assigned list may be different from what&apos;s shown below.</p>
+            <p className="text-sm font-semibold text-warning">{t('Could not load your queue — showing what\'s saved on this device.')}</p>
+            <p className="text-xs text-warning/80">{t('{0}. Your actual assigned list may be different from what\'s shown below.', queueError)}</p>
           </div>
           <button
             onClick={refetchQueue}
             className="text-xs font-semibold text-warning hover:underline shrink-0"
           >
-            Retry
+            {t('Retry')}
           </button>
         </div>
       )}
@@ -223,7 +224,7 @@ export default function AgentQueueContent() {
         <div className={`bg-card rounded-xl shadow-card border border-border min-w-0 ${isWide && selectedId ? 'xl:flex-1' : ''}`}>
           <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
             <div>
-              <h2 className="text-section-header text-foreground">My Debtor Queue</h2>
+              <h2 className="text-section-header text-foreground">{t('My Debtor Queue')}</h2>
             </div>
             {/* Wraps on narrow screens — as a single non-wrapping row (fixed-width search +
                 select + checkbox) it was wider than a phone, pushing the checkbox off-screen
@@ -233,7 +234,7 @@ export default function AgentQueueContent() {
                 <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
-                  placeholder="Search phone (e.g. 077…)"
+                  placeholder={t('Search phone (e.g. 077…)')}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-8 pr-3 py-1.5 text-sm bg-input border border-border rounded-lg w-full sm:w-52 focus:outline-none focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground"
@@ -244,7 +245,7 @@ export default function AgentQueueContent() {
                 onChange={(e) => setFilterClient(e.target.value)}
                 className="min-w-0 max-w-full text-sm bg-input border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/50"
               >
-                <option value="All">All Clients</option>
+                <option value="All">{t('All Clients')}</option>
                 {clients.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
               </select>
               <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer select-none whitespace-nowrap">
@@ -254,7 +255,7 @@ export default function AgentQueueContent() {
                   onChange={(e) => setUncalledOnly(e.target.checked)}
                   className="rounded border-border"
                 />
-                Not yet called
+                {t('Not yet called')}
               </label>
             </div>
           </div>
@@ -278,7 +279,7 @@ export default function AgentQueueContent() {
                       onClick={() => col.key !== 'actions' && toggleSort(col.key)}
                     >
                       <span className="flex items-center gap-1">
-                        {col.label}
+                        {t(col.label)}
                         {col.key !== 'actions' && <ArrowUpDown size={11} className={sortField === col.key ? 'text-primary' : 'text-muted'} />}
                       </span>
                     </th>
@@ -296,7 +297,7 @@ export default function AgentQueueContent() {
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           {debtor.isPTP && (
-                            <span className="w-1.5 h-1.5 rounded-full bg-positive shrink-0" title="Active PTP" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-positive shrink-0" title={t('Active PTP')} />
                           )}
                           <span className="font-medium text-foreground">{debtor.name}</span>
                         </div>
@@ -321,7 +322,7 @@ export default function AgentQueueContent() {
                         {debtor.lastDisposition ? (
                           <DispositionBadge code={debtor.lastDisposition} color={dispositionColor(debtor.lastDisposition)} />
                         ) : (
-                          <span className="text-xs text-muted-foreground">No calls yet</span>
+                          <span className="text-xs text-muted-foreground">{t('No calls yet')}</span>
                         )}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-muted-foreground">{formatCallTimestamp(debtor.lastCallDate)}</td>
@@ -331,14 +332,14 @@ export default function AgentQueueContent() {
                             href={`tel:${toDialFormat(debtor.phone)}`}
                             onClick={(e) => e.stopPropagation()}
                             className="p-1.5 rounded-md hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground"
-                            title="Call this debtor"
+                            title={t('Call this debtor')}
                           >
                             <Phone size={15} />
                           </a>
                           <button
                             onClick={(e) => { e.stopPropagation(); openDebtor(debtor.id); }}
                             className={`p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground ${selectedId === debtor.id ? 'bg-primary/10 text-primary' : ''}`}
-                            title="View debtor details"
+                            title={t('View debtor details')}
                           >
                             <ChevronRight size={15} />
                           </button>
@@ -353,19 +354,19 @@ export default function AgentQueueContent() {
 
           {!isLoading && sorted.length === 0 && (
             <div className="py-12 text-center">
-              <p className="text-sm text-muted-foreground">No debtors match your search.</p>
+              <p className="text-sm text-muted-foreground">{t('No debtors match your search.')}</p>
             </div>
           )}
 
           {/* Pagination */}
           <div className="px-5 py-3 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
-            <span>Showing {sorted.length === 0 ? 0 : pageStart + 1}-{Math.min(pageStart + PAGE_SIZE, sorted.length)} of {sorted.length} debtors</span>
+            <span>{t('Showing')}{' '}{sorted.length === 0 ? 0 : pageStart + 1}{t('-{0} of {1} debtors', Math.min(pageStart + PAGE_SIZE, sorted.length), sorted.length)}</span>
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
                 className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
-                aria-label="Previous page"
+                aria-label={t('Previous page')}
               >
                 <ChevronLeft size={15} />
               </button>
@@ -393,7 +394,7 @@ export default function AgentQueueContent() {
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page >= totalPages}
                 className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
-                aria-label="Next page"
+                aria-label={t('Next page')}
               >
                 <ChevronRight size={15} />
               </button>
@@ -406,7 +407,7 @@ export default function AgentQueueContent() {
             {!isMaximized && (
               <div
                 onMouseDown={startResize}
-                title="Drag to resize"
+                title={t('Drag to resize')}
                 className="hidden xl:flex w-2.5 shrink-0 self-stretch items-center justify-center cursor-col-resize rounded-full hover:bg-primary/15 transition-colors group"
               >
                 <GripVertical size={14} className="text-muted-foreground/60 group-hover:text-primary transition-colors" />
@@ -425,7 +426,7 @@ export default function AgentQueueContent() {
               <div className="flex justify-end mb-1">
                 <button
                   onClick={() => setIsMaximized((m) => !m)}
-                  title={isMaximized ? 'Restore panel size' : 'Maximize panel'}
+                  title={isMaximized ? t('Restore panel size') : t('Maximize panel')}
                   className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
                 >
                   {isMaximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />}

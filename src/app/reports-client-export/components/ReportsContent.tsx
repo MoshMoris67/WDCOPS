@@ -9,13 +9,14 @@ import DispositionBadge from '@/components/ui/DispositionBadge';
 import ResponsiveList from '@/components/ui/ResponsiveList';
 import ListToolbar from '@/components/ui/ListToolbar';
 import InlineEditCell from '@/components/ui/InlineEditCell';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useClients } from '@/lib/use-clients';
 import { debtorRowTint } from '@/lib/format-rules';
 import { useCachedQuery } from '@/lib/use-cached-query';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
 import { formatMoneyMB } from '@/lib/money';
 import { DEPLOYMENT } from '@/config/deployment';
+import { t } from '@/i18n';
 
 const ReportDispositionChart = dynamic(() => import('./ReportDispositionChart'), { ssr: false });
 const RecoveryRadialChart = dynamic(() => import('./RecoveryRadialChart'), { ssr: false });
@@ -153,10 +154,10 @@ export default function ReportsContent() {
     });
     const payload = await res.json();
     if (!res.ok) {
-      toast.error(payload.error || 'Reassignment failed');
+      toast.error(payload.error || t('Reassignment failed'));
       return;
     }
-    toast.success(`${debtor.name} reassigned — call history preserved`);
+    toast.success(t('{0} reassigned — call history preserved', debtor.name));
     refetchDebtors();
   }
 
@@ -197,7 +198,7 @@ export default function ReportsContent() {
       const res = await fetch(`/api/reports/export?clientId=${selectedClientId}&frequency=${selectedFrequency}&from=${dateFrom}&to=${dateTo}${agentParam}`);
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        toast.error(payload.error || 'Export failed');
+        toast.error(payload.error || t('Export failed'));
         return;
       }
       const blob = await res.blob();
@@ -210,8 +211,11 @@ export default function ReportsContent() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      const scopeLabel = selectedAgentId !== 'All' ? ` for ${selectedAgentName}` : '';
-      toast.success(`${selectedClient?.name} ${selectedFrequency} report${scopeLabel} exported — check your downloads`);
+      toast.success(
+        selectedAgentId !== 'All'
+          ? t('{0} {1} report for {2} exported — check your downloads', selectedClient?.name, t(selectedFrequency), selectedAgentName)
+          : t('{0} {1} report exported — check your downloads', selectedClient?.name, t(selectedFrequency))
+      );
     } catch {
       toast.error('Could not reach the server — try again');
     } finally {
@@ -224,13 +228,13 @@ export default function ReportsContent() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-page-title text-foreground">Reports & Client Export</h1>
-          <p className="text-sm text-muted-foreground mt-1">Generate and export client reports — daily, weekly, and monthly Excel formats</p>
+          <h1 className="text-page-title text-foreground">{t('Reports & Client Export')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t('Generate and export client reports — daily, weekly, and monthly Excel formats')}</p>
         </div>
         <button
           onClick={handleExport}
           disabled={isExporting || offlineBlocked}
-          title={offlineBlocked ? 'Offline — reconnect to export' : undefined}
+          title={offlineBlocked ? t('Offline — reconnect to export') : undefined}
           className="flex items-center gap-1.5 px-4 py-2.5 bg-positive text-white text-sm font-semibold rounded-lg hover:bg-positive/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
         >
           {isExporting ? (
@@ -239,12 +243,12 @@ export default function ReportsContent() {
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              <span>Generating…</span>
+              <span>{t('Generating…')}</span>
             </>
           ) : (
             <>
               <Download size={15} />
-              <span>Export Excel Report</span>
+              <span>{t('Export Excel Report')}</span>
             </>
           )}
         </button>
@@ -257,7 +261,7 @@ export default function ReportsContent() {
               so a long client list scrolls in place instead of forcing the whole page to
               pan sideways on mobile (min-w-0 lets this flex child actually shrink). */}
           <div className="space-y-1 w-full sm:w-auto min-w-0 max-w-full">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Client</p>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('Client')}</p>
             <div className="flex gap-1 overflow-x-auto scrollbar-thin -mx-1 px-1 pb-1">
               {clients.map((c) => (
                 <button
@@ -275,7 +279,7 @@ export default function ReportsContent() {
 
           {/* Frequency selector */}
           <div className="space-y-1">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Frequency</p>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('Frequency')}</p>
             <div className="flex gap-1">
               {frequencies.map((f) => (
                 <button
@@ -283,7 +287,7 @@ export default function ReportsContent() {
                   onClick={() => selectFrequency(f.key)}
                   className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${selectedFrequency === f.key ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'}`}
                 >
-                  {f.label}
+                  {t(f.label)}
                 </button>
               ))}
             </div>
@@ -293,7 +297,7 @@ export default function ReportsContent() {
 
           {/* Date range */}
           <div className="space-y-1">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Date Range</p>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('Date Range')}</p>
             <div className="flex items-center gap-2">
               <input
                 type="date"
@@ -301,7 +305,7 @@ export default function ReportsContent() {
                 onChange={(e) => setDateFrom(e.target.value)}
                 className="px-2.5 py-1.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
               />
-              <span className="text-muted-foreground text-sm">to</span>
+              <span className="text-muted-foreground text-sm">{t('to')}</span>
               <input
                 type="date"
                 value={dateTo}
@@ -315,13 +319,13 @@ export default function ReportsContent() {
 
           {/* Agent — narrows the whole report to one agent's current book on this client */}
           <div className="space-y-1">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Agent</p>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('Agent')}</p>
             <select
               value={selectedAgentId}
               onChange={(e) => setSelectedAgentId(e.target.value)}
               className="px-2.5 py-1.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50"
             >
-              <option value="All">All Agents</option>
+              <option value="All">{t('All Agents')}</option>
               {agents.filter((a) => a.status === 'active').map((a) => (
                 <option key={`report-agent-${a.id}`} value={a.id}>{a.name}</option>
               ))}
@@ -331,7 +335,7 @@ export default function ReportsContent() {
           <div className="ml-auto">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/50 text-xs text-muted-foreground">
               <Clock size={12} />
-              <span>{lastGenerated ? `Last generated: ${lastGenerated}` : 'Generating…'}</span>
+              <span>{lastGenerated ? t('Last generated: {0}', lastGenerated) : t('Generating…')}</span>
             </div>
           </div>
         </div>
@@ -342,13 +346,13 @@ export default function ReportsContent() {
           {/* KPI summary */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              { label: 'Total Debtors', value: data.totalDebtors.toLocaleString(), icon: Users, sub: selectedAgentName ? `${selectedAgentName}'s book` : `${selectedClient?.name ?? ''} active file`, variant: 'info' as const },
+              { label: 'Total Debtors', value: data.totalDebtors.toLocaleString(), icon: Users, sub: selectedAgentName ? t("{0}'s book", selectedAgentName) : t('{0} active file', selectedClient?.name ?? ''), variant: 'info' as const },
               { label: 'Contact Rate', value: `${contactRate}%`, icon: TrendingUp, sub: `${data.contacted} of ${data.totalDebtors} contacted`, variant: 'positive' as const },
-              { label: 'PTP Rate', value: `${ptpRate}%`, icon: CheckCircle, sub: `${data.ptpCount} PTPs · ${formatMoneyMB(data.ptpAmount)} committed`, variant: 'positive' as const },
+              { label: 'PTP Rate', value: `${ptpRate}%`, icon: CheckCircle, sub: t('{0} PTPs · {1} committed', data.ptpCount, formatMoneyMB(data.ptpAmount)), variant: 'positive' as const },
             ].map((kpi) => (
               <div key={`rpt-kpi-${kpi.label}`} className={`bg-card rounded-xl border shadow-card p-4 ${kpi.variant === 'positive' ? 'border-[#BBF7D0]' : 'border-[#BFDBFE]'}`}>
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{kpi.label}</p>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t(kpi.label)}</p>
                   <kpi.icon size={14} className={kpi.variant === 'positive' ? 'text-positive' : 'text-info'} />
                 </div>
                 <p className="font-tabular font-bold text-2xl text-foreground">{kpi.value}</p>
@@ -364,8 +368,8 @@ export default function ReportsContent() {
               <div className="bg-card rounded-xl shadow-card border border-border">
                 <div className="px-5 py-4 border-b border-border flex items-center justify-between">
                   <div>
-                    <h2 className="text-section-header text-foreground">Disposition Summary</h2>
-                    <p className="text-xs text-muted-foreground mt-0.5">{totalDispositions} total dispositions — {selectedFrequency} period</p>
+                    <h2 className="text-section-header text-foreground">{t('Disposition Summary')}</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">{t('{0} total dispositions — {1} period', totalDispositions, selectedFrequency)}</p>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Badge variant="info">{selectedClient?.name}</Badge>
@@ -397,7 +401,7 @@ export default function ReportsContent() {
                           <td className="px-4 py-2.5">
                             <DispositionBadge code={d.code} color={d.color} />
                           </td>
-                          <td className="px-4 py-2.5 text-sm text-foreground">{d.label}</td>
+                          <td className="px-4 py-2.5 text-sm text-foreground">{t(d.label)}</td>
                           <td className="px-4 py-2.5">
                             <span className="font-tabular font-semibold text-foreground">{d.count}</span>
                           </td>
@@ -420,7 +424,7 @@ export default function ReportsContent() {
                             <DispositionBadge code={d.code} color={d.color} />
                             <span className="font-tabular font-semibold text-sm text-foreground">{d.count} · {pct}%</span>
                           </div>
-                          <p className="text-xs text-muted-foreground mb-1.5">{d.label}</p>
+                          <p className="text-xs text-muted-foreground mb-1.5">{t(d.label)}</p>
                           <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
                             <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: d.color }} />
                           </div>
@@ -434,9 +438,9 @@ export default function ReportsContent() {
               {/* Agent performance table */}
               <div className="bg-card rounded-xl shadow-card border border-border">
                 <div className="px-5 py-4 border-b border-border">
-                  <h2 className="text-section-header text-foreground">Agent Performance</h2>
+                  <h2 className="text-section-header text-foreground">{t('Agent Performance')}</h2>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {selectedAgentName ? `${selectedFrequency} breakdown for ${selectedAgentName} on ${selectedClient?.name} file` : `${selectedFrequency} breakdown per agent on ${selectedClient?.name} file`}
+                    {selectedAgentName ? t('{0} breakdown for {1} on {2} file', selectedFrequency, selectedAgentName, selectedClient?.name) : t('{0} breakdown per agent on {1} file', selectedFrequency, selectedClient?.name)}
                   </p>
                 </div>
                 <div className="px-4 pb-4 md:px-0 md:pb-0">
@@ -506,9 +510,9 @@ export default function ReportsContent() {
                             <span className="font-medium text-foreground text-sm">{agent.name}</span>
                           </div>
                           <div className="grid grid-cols-2 gap-2 text-xs">
-                            <span className="text-muted-foreground">Calls: <span className="font-tabular font-semibold text-foreground">{agent.calls}</span></span>
-                            <span className="text-muted-foreground">PTPs: <span className="font-tabular font-semibold text-positive">{agent.ptps}</span> ({agentPtpRate}%)</span>
-                            <span className="text-muted-foreground col-span-2">Recovered: <span className="font-tabular font-semibold text-foreground">{formatMoneyMB(agent.recovered)}</span> ({agentRecoveryPct}%)</span>
+                            <span className="text-muted-foreground">{t('Calls:')}{' '}<span className="font-tabular font-semibold text-foreground">{agent.calls}</span></span>
+                            <span className="text-muted-foreground">{t('PTPs:')}{' '}<span className="font-tabular font-semibold text-positive">{agent.ptps}</span> ({agentPtpRate}%)</span>
+                            <span className="text-muted-foreground col-span-2">{t('Recovered:')}{' '}<span className="font-tabular font-semibold text-foreground">{formatMoneyMB(agent.recovered)}</span> ({agentRecoveryPct}%)</span>
                           </div>
                         </div>
                       );
@@ -522,7 +526,7 @@ export default function ReportsContent() {
             <div className="xl:col-span-1 2xl:col-span-1 space-y-4">
               {/* Recovery rate radial */}
               <div className="bg-card rounded-xl shadow-card border border-border p-5">
-                <h3 className="text-section-header text-foreground mb-4">Recovery Rate</h3>
+                <h3 className="text-section-header text-foreground mb-4">{t('Recovery Rate')}</h3>
                 <div className="flex flex-col items-center gap-4">
                   <RecoveryRadialChart percentage={recoveryPct} label={selectedClient?.name ?? ''} />
                   <div className="w-full space-y-2">
@@ -532,7 +536,7 @@ export default function ReportsContent() {
                       { label: 'Outstanding', value: formatMoneyMB(data.totalOwed - data.recovered), color: 'text-negative' },
                     ].map((item) => (
                       <div key={`rec-${item.label}`} className="flex items-center justify-between py-1.5 border-b border-border/60">
-                        <span className="text-xs text-muted-foreground">{item.label}</span>
+                        <span className="text-xs text-muted-foreground">{t(item.label)}</span>
                         <span className={`font-tabular font-semibold text-sm ${item.color}`}>{item.value}</span>
                       </div>
                     ))}
@@ -542,11 +546,11 @@ export default function ReportsContent() {
 
               {/* Export config */}
               <div className="bg-card rounded-xl shadow-card border border-border p-5 space-y-4">
-                <h3 className="text-section-header text-foreground">Export Configuration</h3>
+                <h3 className="text-section-header text-foreground">{t('Export Configuration')}</h3>
 
                 <div className="space-y-3">
                   {[
-                    { label: 'Report Template', value: `${selectedClient?.name ?? ''} Standard Format`, editable: false },
+                    { label: 'Report Template', value: t('{0} Standard Format', selectedClient?.name ?? ''), editable: false },
                     { label: 'Date Range', value: `${dateFrom} to ${dateTo}`, editable: false },
                     ...(selectedAgentName ? [{ label: 'Agent', value: selectedAgentName, editable: false }] : []),
                     { label: 'Include Agent Breakdown', checked: true },
@@ -568,12 +572,12 @@ export default function ReportsContent() {
 
                 <div className="pt-2 border-t border-border">
                   <p className="text-xs text-muted-foreground mb-3">
-                    Report will be exported as .xlsx matching the {selectedClient?.name} template format. Sent directly to your downloads folder.
+                    {t('Report will be exported as .xlsx matching the {0} template format. Sent directly to your downloads folder.', selectedClient?.name)}
                   </p>
                   <button
                     onClick={handleExport}
                     disabled={isExporting || offlineBlocked}
-                    title={offlineBlocked ? 'Offline — reconnect to export' : undefined}
+                    title={offlineBlocked ? t('Offline — reconnect to export') : undefined}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-positive text-white text-sm font-semibold rounded-lg hover:bg-positive/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
                   >
                     {isExporting ? (
@@ -582,12 +586,12 @@ export default function ReportsContent() {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                         </svg>
-                        <span>Generating Excel…</span>
+                        <span>{t('Generating Excel…')}</span>
                       </>
                     ) : (
                       <>
                         <Download size={15} />
-                        <span>Export {selectedClient?.name} Report</span>
+                        <span>{t('Export {0} Report', selectedClient?.name)}</span>
                       </>
                     )}
                   </button>
@@ -598,7 +602,7 @@ export default function ReportsContent() {
               <div className="bg-card rounded-xl shadow-card border border-border p-5 space-y-3">
                 <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
                   <Calendar size={14} className="text-primary" />
-                  Report Schedule
+                  {t('Report Schedule')}
                 </h3>
                 {[
                   { freq: 'Daily', time: `08:00 ${DEPLOYMENT.zoneAbbrev}`, status: 'active', nextRun: 'Tomorrow 08:00' },
@@ -608,9 +612,9 @@ export default function ReportsContent() {
                   <div key={`sched-${sched.freq}`} className="flex items-center justify-between py-2 border-b border-border/60 last:border-0">
                     <div>
                       <p className="text-sm font-medium text-foreground">{sched.freq}</p>
-                      <p className="text-xs text-muted-foreground">{sched.time} · Next: {sched.nextRun}</p>
+                      <p className="text-xs text-muted-foreground">{t('{0} · Next: {1}', sched.time, sched.nextRun)}</p>
                     </div>
-                    <Badge variant="positive" dot>Active</Badge>
+                    <Badge variant="positive" dot>{t('Active')}</Badge>
                   </div>
                 ))}
               </div>
@@ -624,13 +628,13 @@ export default function ReportsContent() {
         <div className="bg-card rounded-xl shadow-card border border-border">
           <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
             <div>
-              <h2 className="text-section-header text-foreground">Debtors</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">{debtors.length} of {debtorsTotal.toLocaleString()} on {selectedClient?.name}</p>
+              <h2 className="text-section-header text-foreground">{t('Debtors')}</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">{t('{0} of {1} on {2}', debtors.length, debtorsTotal.toLocaleString(), selectedClient?.name)}</p>
             </div>
             <ListToolbar
               search={debtorSearch}
               onSearchChange={setDebtorSearch}
-              searchPlaceholder="Search debtors…"
+              searchPlaceholder={t('Search debtors…')}
               filters={[
                 {
                   key: 'file', value: debtorFileId, onChange: setDebtorFileId,
@@ -649,8 +653,8 @@ export default function ReportsContent() {
               isLoading={debtorsLoading}
               emptyState={
                 debtorsLoading
-                  ? <p className="text-sm text-muted-foreground text-center py-8">Loading…</p>
-                  : <p className="text-sm text-muted-foreground text-center py-8">No debtors match your filters.</p>
+                  ? <p className="text-sm text-muted-foreground text-center py-8">{t('Loading…')}</p>
+                  : <p className="text-sm text-muted-foreground text-center py-8">{t('No debtors match your filters.')}</p>
               }
               renderTableHead={() => (
                 <tr className="border-b border-border bg-secondary/30">
@@ -675,9 +679,9 @@ export default function ReportsContent() {
                   <td className="px-4 py-3 whitespace-nowrap">
                     <InlineEditCell
                       value=""
-                      displayValue="Reassign…"
+                      displayValue={t('Reassign…')}
                       disabled={offlineBlocked}
-                      options={[{ value: '', label: 'Reassign…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: `${a.name} — ${a.assignedCount} assigned` }))]}
+                      options={[{ value: '', label: 'Reassign…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: t('{0} — {1} assigned', a.name, a.assignedCount) }))]}
                       onSave={async (agentId) => { if (agentId) await reassignDebtor(d, agentId); }}
                     />
                   </td>
@@ -692,7 +696,7 @@ export default function ReportsContent() {
                       </div>
                       <p className="text-xs text-muted-foreground">{d.loanRef}</p>
                     </div>
-                    {d.lastDisposition ? <Badge variant={dispositionVariantMap[d.lastDisposition] || 'default'}>{d.lastDisposition}</Badge> : <span className="text-xs text-muted-foreground">No calls yet</span>}
+                    {d.lastDisposition ? <Badge variant={dispositionVariantMap[d.lastDisposition] || 'default'}>{d.lastDisposition}</Badge> : <span className="text-xs text-muted-foreground">{t('No calls yet')}</span>}
                   </div>
                   <div className="flex items-center justify-between mt-3">
                     <span className="font-tabular text-sm text-foreground">{formatMoneyMB(d.balance)}</span>
@@ -701,9 +705,9 @@ export default function ReportsContent() {
                   <div className="mt-3 pt-3 border-t border-border/60">
                     <InlineEditCell
                       value=""
-                      displayValue="Reassign to another agent…"
+                      displayValue={t('Reassign to another agent…')}
                       disabled={offlineBlocked}
-                      options={[{ value: '', label: 'Reassign to another agent…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: `${a.name} — ${a.assignedCount} assigned` }))]}
+                      options={[{ value: '', label: 'Reassign to another agent…' }, ...agents.filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: t('{0} — {1} assigned', a.name, a.assignedCount) }))]}
                       onSave={async (agentId) => { if (agentId) await reassignDebtor(d, agentId); }}
                     />
                   </div>
@@ -713,21 +717,21 @@ export default function ReportsContent() {
           </div>
           {debtorTotalPages > 1 && (
             <div className="px-5 py-3 border-t border-border flex items-center justify-between gap-3">
-              <p className="text-xs text-muted-foreground">Page {debtorPage} of {debtorTotalPages}</p>
+              <p className="text-xs text-muted-foreground">{t('Page {0} of {1}', debtorPage, debtorTotalPages)}</p>
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => setDebtorPage((p) => Math.max(1, p - 1))}
                   disabled={debtorPage <= 1}
                   className="px-2.5 py-1 text-xs font-medium rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
                 >
-                  Previous
+                  {t('Previous')}
                 </button>
                 <button
                   onClick={() => setDebtorPage((p) => Math.min(debtorTotalPages, p + 1))}
                   disabled={debtorPage >= debtorTotalPages}
                   className="px-2.5 py-1 text-xs font-medium rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
                 >
-                  Next
+                  {t('Next')}
                 </button>
               </div>
             </div>

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Search } from 'lucide-react';
+import { t } from '@/i18n';
 
 interface FilterOption {
   value: string;
@@ -65,7 +66,7 @@ export default function ListToolbar({ search, onSearchChange, searchPlaceholder 
             onChange={(e) => f.onChange(e.target.value)}
             className="text-sm bg-input border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/50"
           >
-            {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            {f.options.map((o) => <option key={o.value} value={o.value}>{t(o.label)}</option>)}
           </select>
         ) : (
           <div key={f.key} className="flex items-center gap-1 bg-secondary/60 rounded-lg p-0.5">
@@ -77,7 +78,7 @@ export default function ListToolbar({ search, onSearchChange, searchPlaceholder 
                   f.value === o.value ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                {o.label}
+                {t(o.label)}
               </button>
             ))}
           </div>
