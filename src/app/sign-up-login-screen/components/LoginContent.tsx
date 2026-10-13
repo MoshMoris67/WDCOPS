@@ -189,11 +189,11 @@ export default function LoginContent() {
             </div>
           )}
           {/* Mobile logo */}
-          <div className="flex items-center gap-2.5 mb-8 lg:hidden">
-            <AppLogo size={64} />
+          <div className="flex items-center gap-4 mb-8 lg:hidden">
+            <AppLogo size={112} />
             <div>
-              <BrandWordmark size="sm" />
-              <span className="text-xs text-muted-foreground block mt-1">{t('{0} Branch', DEPLOYMENT.branchName)}</span>
+              <BrandWordmark size="lg" />
+              <span className="text-sm text-muted-foreground block mt-1.5">{t('{0} Branch', DEPLOYMENT.branchName)}</span>
             </div>
           </div>
 
