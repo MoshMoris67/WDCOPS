@@ -1,8 +1,7 @@
 import React from 'react';
-import { t } from '@/i18n';
 
 interface BrandWordmarkProps {
-  size?: 'sm' | 'md';
+  size?: 'sm' | 'md' | 'lg';
 }
 
 // Fixed brand colors (white / red / black), independent of the light/dark theme —
@@ -10,7 +9,7 @@ interface BrandWordmarkProps {
 // The black comes from the glass container itself; white/red are the two text rows.
 export default function BrandWordmark({ size = 'md' }: BrandWordmarkProps) {
   const isSm = size === 'sm';
-  const tagline = t('Debt Collectors');
+  const isLg = size === 'lg';
   return (
     <div
       style={{
@@ -19,7 +18,7 @@ export default function BrandWordmark({ size = 'md' }: BrandWordmarkProps) {
         WebkitBackdropFilter: 'blur(10px)',
         border: '1px solid rgba(255,255,255,0.14)',
         borderRadius: 10,
-        padding: isSm ? '4px 10px' : '6px 13px',
+        padding: isSm ? '4px 10px' : isLg ? '9px 18px' : '6px 13px',
         display: 'inline-flex',
         flexDirection: 'column',
         minWidth: 0,
@@ -27,7 +26,7 @@ export default function BrandWordmark({ size = 'md' }: BrandWordmarkProps) {
     >
       <span
         style={{
-          fontSize: isSm ? 11 : 13,
+          fontSize: isSm ? 11 : isLg ? 19 : 13,
           fontWeight: 800,
           color: '#FFFFFF',
           letterSpacing: '0.02em',
@@ -35,20 +34,20 @@ export default function BrandWordmark({ size = 'md' }: BrandWordmarkProps) {
           whiteSpace: 'nowrap',
         }}
       >
-        {t('WELLCASH')}
+        WELLCASH
       </span>
       <span
         style={{
-          fontSize: isSm ? 8 : 9,
+          fontSize: isSm ? 8 : isLg ? 12 : 9,
           fontWeight: 700,
           color: '#EF4444',
-          letterSpacing: tagline.length > 15 ? '0.03em' : '0.13em', // longer translations need tighter spacing to fit the badge
+          letterSpacing: '0.13em',
           textTransform: 'uppercase',
           lineHeight: 1.3,
           whiteSpace: 'nowrap',
         }}
       >
-        {tagline}
+        Debt Collectors
       </span>
     </div>
   );
