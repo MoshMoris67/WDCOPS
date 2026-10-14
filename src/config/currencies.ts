@@ -7,6 +7,8 @@
 // rate = units of this currency per 1 USD.
 // fractionDigits = most decimals shown for full (unabbreviated) amounts.
 
+import { DEPLOYMENT } from '@/config/deployment';
+
 export interface CurrencyDef {
   code: string;
   name: string;
@@ -27,6 +29,27 @@ export const DEMO_CURRENCIES: CurrencyDef[] = [
   { code: 'AED', name: 'UAE dirham', rate: 3.6725, fractionDigits: 2 },
   { code: 'ZWG', name: 'Zimbabwe Gold (ZiG)', rate: 26.7, fractionDigits: 2 },
 ];
+
+// Currencies a FILE can be in when it is imported (demo only): everything the switcher offers
+// plus UGX, which is accepted on upload but not offered for display. The importer converts the
+// file's amounts to USD once, at upload, at the rates below (indicative, like the display rates).
+export const IMPORT_CURRENCIES: CurrencyDef[] = [
+  ...DEMO_CURRENCIES,
+  { code: 'UGX', name: 'Shilling (UGX)', rate: 3700, fractionDigits: 0 },
+];
+
+/**
+ * An amount read from an uploaded file, in the currency the uploader said the file is in,
+ * as the USD amount to store. No currency (or USD, or anything unrecognised) leaves the
+ * amount untouched, and a deployment that is not the demo never converts: the Uganda system
+ * has no currency choice and always stores what the file says.
+ */
+export function usdFromFileAmount(value: number, currencyCode: string | null | undefined): number {
+  if (!DEPLOYMENT.demo || !currencyCode || currencyCode === BASE_CURRENCY_CODE) return value;
+  const currency = IMPORT_CURRENCIES.find((c) => c.code === currencyCode);
+  if (!currency || !(currency.rate > 0)) return value;
+  return Math.round((value / currency.rate) * 100) / 100;
+}
 
 export const RATES_NOTE =
   'Indicative rates for demonstration — not live. Amounts are stored in USD.';

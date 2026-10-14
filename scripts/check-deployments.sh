@@ -15,7 +15,9 @@ set -euo pipefail
 : "${SESSION_SECRET:=check-only}"
 export DATABASE_URL SESSION_SECRET NEXT_TELEMETRY_DISABLED=1
 
-FORBIDDEN='Uganda|uganda|UGX|Kampala|Every shilling|wellcash\.ug|en-UG|Nakato|Mukasa|KCB|HFB|Mopesa'
+# The demo may name UGX as a currency a FILE can be in (config/currencies.ts), but it must never
+# print a UGX amount, so only "UGX" followed by a number counts as a leak.
+FORBIDDEN='Uganda|uganda|UGX[[:space:]]?[0-9]|Kampala|Every shilling|wellcash\.ug|en-UG|Nakato|Mukasa|KCB|HFB|Mopesa'
 DEMO_DIST=".check-demo-build"
 UG_DIST=".check-uganda-build"
 trap 'rm -rf "$DEMO_DIST" "$UG_DIST"' EXIT

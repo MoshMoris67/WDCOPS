@@ -91,6 +91,23 @@ on phones, and on the login page). Choices: USD, EUR, MZN, KES, TZS, ZMW, ZAR, A
   that way, so what is typed or exported is never ambiguous.
 - The Uganda system has no switcher and prints UGX exactly as before.
 
+## Importing files in another currency
+
+The demo stores everything in USD. The upload screens (Import New File, Sync Update and Log
+Reconciliation) therefore have an **"Amounts in this file are in"** selector. Pick the file's
+currency and every amount in it (balances, payments, commissions) is converted to USD once, when
+the file is imported, at the indicative rates in `src/config/currencies.ts`.
+
+- The list is the nine display currencies plus UGX (accepted on upload, never shown as a display
+  choice). Edit `IMPORT_CURRENCIES` to add more.
+- The converted amount is stored; changing the rates later does not re-convert old files.
+- Other columns kept as "Additional Info" (for example a disbursed amount) are shown as typed in
+  the file, in its original currency.
+- Pick the right balance column in the mapping step (for example "Loan Bal." rather than
+  "Disb. Amt").
+- The Uganda system has no selector and stores amounts exactly as the file gives them.
+- The demo's balance bands are set for dollar amounts, so convert before distributing.
+
 ## Language switcher
 
 The same menu (globe icon, "Language and currency") offers **English, Portuguese (Mozambique),
