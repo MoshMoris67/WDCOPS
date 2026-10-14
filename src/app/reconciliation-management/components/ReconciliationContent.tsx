@@ -16,6 +16,7 @@ import { useCachedQuery } from '@/lib/use-cached-query';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
 import { formatMoneyM } from '@/lib/money';
 import { DEPLOYMENT } from '@/config/deployment';
+import FileCurrencySelect from '@/components/ui/FileCurrencySelect';
 import { t , localeFor } from '@/i18n';
 
 interface ReconRow {
@@ -149,6 +150,7 @@ export default function ReconciliationContent() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [reconPreview, setReconPreview] = useState<ReconPreview | null>(null);
   const [reconMapping, setReconMapping] = useState<ReconMappingState>(EMPTY_RECON_MAPPING);
+  const [reconCurrency, setReconCurrency] = useState('USD');
   const [isPreviewingRecon, setIsPreviewingRecon] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [editingRecon, setEditingRecon] = useState<ReconRow | null>(null);
@@ -268,7 +270,7 @@ export default function ReconciliationContent() {
   async function onReconFileSelected(file: globalThis.File | null) {
     setSelectedUploadFile(file);
     setReconPreview(null);
-    setReconMapping(EMPTY_RECON_MAPPING);
+    setReconMapping(EMPTY_RECON_MAPPING); setReconCurrency('USD');
     if (!file) return;
 
     setIsPreviewingRecon(true);
@@ -317,7 +319,7 @@ export default function ReconciliationContent() {
       form.append('receivedDate', data.receivedDate);
       form.append('receivedTime', data.receivedTime);
       form.append('notes', data.notes);
-      form.append('mapping', JSON.stringify(buildReconMappingPayload(reconMapping)));
+      form.append('mapping', JSON.stringify({ ...buildReconMappingPayload(reconMapping), currency: reconCurrency }));
 
       const res = await fetch('/api/reconciliations', { method: 'POST', body: form });
       const payload = await res.json();
@@ -329,7 +331,7 @@ export default function ReconciliationContent() {
       reset();
       setSelectedUploadFile(null);
       setReconPreview(null);
-      setReconMapping(EMPTY_RECON_MAPPING);
+      setReconMapping(EMPTY_RECON_MAPPING); setReconCurrency('USD');
       refetchReconciliations();
       setSelectedReconId(payload.reconciliation.id);
       toast.success(
@@ -833,7 +835,7 @@ export default function ReconciliationContent() {
       {/* Upload Modal */}
       <Modal
         open={uploadModalOpen}
-        onClose={() => { setUploadModalOpen(false); reset(); setSelectedUploadFile(null); setReconPreview(null); setReconMapping(EMPTY_RECON_MAPPING); }}
+        onClose={() => { setUploadModalOpen(false); reset(); setSelectedUploadFile(null); setReconPreview(null); setReconMapping(EMPTY_RECON_MAPPING); setReconCurrency('USD'); }}
         title={t('Log New Reconciliation')}
         subtitle={t('Upload a reconciliation file received from a client and log the event')}
         size="lg"
@@ -841,7 +843,7 @@ export default function ReconciliationContent() {
           <>
             <button
               type="button"
-              onClick={() => { setUploadModalOpen(false); reset(); setSelectedUploadFile(null); setReconPreview(null); setReconMapping(EMPTY_RECON_MAPPING); }}
+              onClick={() => { setUploadModalOpen(false); reset(); setSelectedUploadFile(null); setReconPreview(null); setReconMapping(EMPTY_RECON_MAPPING); setReconCurrency('USD'); }}
               className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
             >
               {t('Cancel')}
@@ -935,6 +937,8 @@ export default function ReconciliationContent() {
                     : t('Showing a sample — the full row count is confirmed during processing.')}{' '}{t('Matched what we could recognize — confirm or fix anything below before logging.')}
                 </p>
               </div>
+
+              <FileCurrencySelect value={reconCurrency} onChange={setReconCurrency} />
 
               <div className="grid grid-cols-2 gap-3">
                 {([

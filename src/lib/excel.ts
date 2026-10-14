@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import { Readable } from 'stream';
 import * as XLSX from 'xlsx';
 import { DEPLOYMENT } from '@/config/deployment';
+import { usdFromFileAmount } from '@/config/currencies';
 
 function normalizeHeader(raw: string): string {
   return raw.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -416,6 +417,8 @@ export interface ImportMapping {
   phone2Col?: number;
   loanRefCol?: number;
   amountOwedCol?: number;
+  /** Demo only: the currency the file's amounts are in. They are converted to USD on import. */
+  currency?: string;
 }
 
 const SYNONYMS = {
@@ -686,6 +689,8 @@ export interface SyncPaymentMapping {
    * lib/commission.ts). Left unmapped, companyCommission on the resulting entries is null,
    * same as any client with no commission tracking configured. */
   companyCommissionCol?: number;
+  /** Demo only: the currency the file's amounts are in. They are converted to USD on import. */
+  currency?: string;
 }
 
 /** Best-effort auto-detect for the payments sheet — same idea as suggestImportMapping. */
@@ -733,7 +738,16 @@ export function mapSyncPaymentRow(row: string[], mapping: SyncPaymentMapping, ro
     return { kind: 'error', message: `Row ${rowNumber}: missing or invalid loan ref/payment date/payment amount — skipped` };
   }
   const companyCommission = mapping.companyCommissionCol !== undefined ? cellNumber(row, mapping.companyCommissionCol) : null;
-  return { kind: 'row', row: { rowNumber, loanRef, paidDate, paidAmount, companyCommission } };
+  return {
+    kind: 'row',
+    row: {
+      rowNumber,
+      loanRef,
+      paidDate,
+      paidAmount: usdFromFileAmount(paidAmount, mapping.currency),
+      companyCommission: companyCommission === null ? null : usdFromFileAmount(companyCommission, mapping.currency),
+    },
+  };
 }
 
 /** Parses payment rows from a pre-loaded table (the payments sheet only — caller passes
@@ -840,7 +854,7 @@ export function mapImportRow(row: string[], mapping: ImportMapping, rowNumber: n
       phone1,
       phone2: mapping.phone2Col !== undefined ? cellText(row, mapping.phone2Col) || null : null,
       loanRef,
-      amountOwed,
+      amountOwed: usdFromFileAmount(amountOwed, mapping.currency),
       extra: buildExtra(row, headers, mapping),
     },
   };
@@ -937,6 +951,8 @@ export interface ReconciliationMapping {
   amountCol?: number;
   nameCol?: number;
   amountOwedCol?: number;
+  /** Demo only: the currency the file's amounts are in. They are converted to USD on import. */
+  currency?: string;
 }
 
 /** Best-effort auto-detect from a header row — same idea as suggestImportMapping: a starting
@@ -1038,7 +1054,15 @@ export function parseReconciliationRows(
       errors.push(`Row ${rowNumber}: no payment amount, and not enough info (name, phone, amount owed) to add as a new account — skipped`);
       continue;
     }
-    rows.push({ rowNumber, loanRef, phone, amount: amount ?? 0, name, amountOwed, bucketRaw: sheetTags?.[i] ?? null });
+    rows.push({
+      rowNumber,
+      loanRef,
+      phone,
+      amount: usdFromFileAmount(amount ?? 0, mapping.currency),
+      name,
+      amountOwed: amountOwed === null ? null : usdFromFileAmount(amountOwed, mapping.currency),
+      bucketRaw: sheetTags?.[i] ?? null,
+    });
   }
 
   return { rows, errors };

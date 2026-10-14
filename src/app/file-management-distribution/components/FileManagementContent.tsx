@@ -21,6 +21,7 @@ import { useCachedQuery } from '@/lib/use-cached-query';
 import { useOfflineGuard } from '@/lib/use-offline-guard';
 import { formatMoneyMB } from '@/lib/money';
 import { DEPLOYMENT } from '@/config/deployment';
+import FileCurrencySelect from '@/components/ui/FileCurrencySelect';
 import { t , localeFor } from '@/i18n';
 import { tx } from '@/i18n/tx';
 import { BALANCE_BANDS, BAND_RANGE_LABELS } from '@/lib/distribution';
@@ -315,6 +316,8 @@ export default function FileManagementContent() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [mapping, setMapping] = useState<MappingState>(EMPTY_MAPPING);
+  const [importCurrency, setImportCurrency] = useState('USD');
+  const [syncCurrency, setSyncCurrency] = useState('USD');
   const [editingFile, setEditingFile] = useState<FileRow | null>(null);
   const [isSavingFile, setIsSavingFile] = useState(false);
 
@@ -393,6 +396,7 @@ export default function FileManagementContent() {
     setSelectedUploadFile(null);
     setPreview(null);
     setMapping(EMPTY_MAPPING);
+    setImportCurrency('USD');
     setIsMidMonth(false);
     setIsDistributedImport(false);
     setDistributedSheets([]);
@@ -404,6 +408,7 @@ export default function FileManagementContent() {
     setSelectedUploadFile(file);
     setPreview(null);
     setMapping(EMPTY_MAPPING);
+    setImportCurrency('USD');
     setDistributedSheets([]);
     setDistributedAgents([]);
     setSheetActions({});
@@ -480,7 +485,7 @@ export default function FileManagementContent() {
       form.append('batchLabel', data.batchLabel);
       form.append('receivedDate', data.receivedDate);
       form.append('isMidMonthTopup', String(isMidMonth));
-      form.append('mapping', JSON.stringify(buildMappingPayload(mapping)));
+      form.append('mapping', JSON.stringify({ ...buildMappingPayload(mapping), currency: importCurrency }));
       if (isDistributedImport) {
         form.append('isDistributedImport', 'true');
         form.append('sheetPlan', JSON.stringify(sheetActions));
@@ -566,6 +571,7 @@ export default function FileManagementContent() {
     setSyncUploadFile(null);
     setSyncPreview(null);
     setCallingListMapping(EMPTY_MAPPING);
+    setSyncCurrency('USD');
     setPaymentMapping(EMPTY_PAYMENT_MAPPING);
   }
 
@@ -573,6 +579,7 @@ export default function FileManagementContent() {
     setSyncUploadFile(file);
     setSyncPreview(null);
     setCallingListMapping(EMPTY_MAPPING);
+    setSyncCurrency('USD');
     setPaymentMapping(EMPTY_PAYMENT_MAPPING);
     if (!file || !selectedFile) return;
 
@@ -613,8 +620,8 @@ export default function FileManagementContent() {
     try {
       const form = new FormData();
       form.append('file', syncUploadFile);
-      form.append('callingListMapping', JSON.stringify(buildMappingPayload(callingListMapping)));
-      form.append('paymentMapping', JSON.stringify(buildPaymentMappingPayload(paymentMapping)));
+      form.append('callingListMapping', JSON.stringify({ ...buildMappingPayload(callingListMapping), currency: syncCurrency }));
+      form.append('paymentMapping', JSON.stringify({ ...buildPaymentMappingPayload(paymentMapping), currency: syncCurrency }));
 
       const res = await fetch(`/api/files/${selectedFile.id}/sync`, { method: 'POST', body: form });
       const payload = await res.json();
@@ -1596,6 +1603,8 @@ export default function FileManagementContent() {
                 </p>
               </div>
 
+              <FileCurrencySelect value={importCurrency} onChange={setImportCurrency} />
+
               {/* Name */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
@@ -1898,6 +1907,8 @@ export default function FileManagementContent() {
 
           {syncPreview && (
             <>
+              <FileCurrencySelect value={syncCurrency} onChange={setSyncCurrency} />
+
               {/* Calling list mapping */}
               <div className="space-y-4 p-4 bg-secondary/30 rounded-xl border border-border">
                 <div>
