@@ -28,6 +28,11 @@ model Client {
   commissionRates      CommissionRate[]
   agentCommissionShare Float            @default(0.20)
 
+  // How this client's debtors pay, as it appears in the WhatsApp reminder (e.g. "Dial
+  // *165*45# to pay."). It is the 4th template variable, so one template serves every client.
+  // Null falls back to a generic line — see lib/whatsapp.ts.
+  whatsappPayInstruction String?
+
   files           File[]
   reconciliations Reconciliation[]
 }

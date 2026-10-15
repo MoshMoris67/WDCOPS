@@ -14,11 +14,13 @@ import { DEPLOYMENT } from '@/config/deployment';
 //                                    debtor names/numbers through Meta's servers, which the
 //                                    self-hosted Uganda system must not do until agreed.
 // The template is expected to take three body variables, in this order:
-//   {{1}} debtor name, {{2}} client name (e.g. the loan product), {{3}} outstanding balance
-// e.g. "Dear {{1}}, kindly make a payment towards your {{2}} of {{3}} which is overdue. ...".
+//   {{1}} debtor name, {{2}} client name (e.g. the loan product), {{3}} outstanding balance,
+//   {{4}} how to pay (per client, Client.whatsappPayInstruction)
+// e.g. "Dear {{1}}, kindly make a payment towards your {{2}} of {{3}} which is overdue. {{4}} Reply STOP to opt out.".
 // The amount goes through Meta's servers, so see WHATSAPP_ALLOW_REAL_DATA above.
 
 const GRAPH_VERSION = 'v21.0';
+const DEFAULT_PAY_INSTRUCTION = 'Please contact us to arrange payment.';
 
 export function isDemo(): boolean {
   return process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
@@ -66,6 +68,7 @@ export async function sendReminderTemplate(
   name: string,
   clientName: string,
   amount: number,
+  payInstruction: string | null,
 ): Promise<SendResult> {
   const url = `https://graph.facebook.com/${GRAPH_VERSION}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
   try {
@@ -89,6 +92,7 @@ export async function sendReminderTemplate(
                 { type: 'text', text: name.slice(0, 60) },
                 { type: 'text', text: clientName.slice(0, 60) },
                 { type: 'text', text: formatAmount(amount) },
+                { type: 'text', text: (payInstruction?.trim() || DEFAULT_PAY_INSTRUCTION).slice(0, 120) },
               ],
             },
           ],

@@ -14,6 +14,12 @@ interface FileOption {
   debtorCount: number;
 }
 
+interface ClientRow {
+  id: string;
+  name: string;
+  whatsappPayInstruction: string | null;
+}
+
 interface Stats {
   total: number;
   withBalance: number;
@@ -57,6 +63,7 @@ export default function WhatsappRemindersContent() {
   const [fileId, setFileId] = useState('');
   const [dispositionOptions, setDispositionOptions] = useState<DispositionOption[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
+  const [clients, setClients] = useState<ClientRow[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [attested, setAttested] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -85,6 +92,29 @@ export default function WhatsappRemindersContent() {
       .then((d) => setFiles(d.files ?? []))
       .catch(() => undefined);
   }, []);
+  const loadClients = useCallback(() => {
+    fetch('/api/whatsapp/clients')
+      .then((r) => (r.ok ? r.json() : { clients: [] }))
+      .then((d) => setClients(d.clients ?? []))
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => { loadClients(); }, [loadClients]);
+
+  async function savePayInstruction(clientId: string, payInstruction: string) {
+    try {
+      const res = await fetch('/api/whatsapp/clients', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, payInstruction }),
+      });
+      if (!res.ok) return toast.error((await res.json()).error || 'Could not save');
+      toast.success('Saved');
+      loadClients();
+    } catch {
+      toast.error('Could not reach the server — try again');
+    }
+  }
+
   useEffect(() => {
     fetch('/api/disposition-codes')
       .then((r) => (r.ok ? r.json() : { codes: [] }))
@@ -261,6 +291,28 @@ export default function WhatsappRemindersContent() {
         {lastResult && lastResult.skippedNoNumber > 0 && (
           <p className="text-sm text-muted-foreground">{lastResult.skippedNoNumber} skipped: no usable phone number.</p>
         )}
+      </div>
+
+      <div className="bg-card rounded-xl shadow-card border border-border p-5 space-y-3">
+        <div>
+          <h2 className="text-section-header text-foreground">How each client pays</h2>
+          <p className="text-xs text-muted-foreground mt-1">Shown at the end of the reminder, for example "Dial *165*45# to pay." A client left blank gets "Please contact us to arrange payment."</p>
+        </div>
+        {clients.map((c) => (
+          <div key={c.id} className="flex items-center gap-3 flex-wrap">
+            <label htmlFor={`pay-${c.id}`} className="w-48 text-sm text-foreground">{c.name}</label>
+            <input
+              id={`pay-${c.id}`}
+              defaultValue={c.whatsappPayInstruction ?? ''}
+              maxLength={120}
+              placeholder="e.g. Dial *165*45# to pay."
+              onBlur={(e) => {
+                if (e.target.value.trim() !== (c.whatsappPayInstruction ?? '')) savePayInstruction(c.id, e.target.value);
+              }}
+              className="flex-1 min-w-[16rem] max-w-xl px-3 py-2 text-sm rounded-lg border border-border bg-background"
+            />
+          </div>
+        ))}
       </div>
 
       <div className="bg-card rounded-xl shadow-card border border-border p-5">

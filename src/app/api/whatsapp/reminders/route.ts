@@ -79,7 +79,7 @@ export async function POST(req: Request) {
   const audience = ids.length ? { id: { in: ids } } : await audienceWhere(fileId, dispositions);
   const debtors = await prisma.debtor.findMany({
     where: { AND: [eligibleWhere(), audience] },
-    select: { id: true, name: true, phone1: true, phone2: true, balance: true, file: { select: { client: { select: { name: true } } } } },
+    select: { id: true, name: true, phone1: true, phone2: true, balance: true, file: { select: { client: { select: { name: true, whatsappPayInstruction: true } } } } },
     take: MAX_PER_REQUEST,
   });
 
@@ -94,7 +94,7 @@ export async function POST(req: Request) {
       skippedNoNumber++;
       continue;
     }
-    const result = await sendReminderTemplate(to, d.name, d.file.client.name, d.balance);
+    const result = await sendReminderTemplate(to, d.name, d.file.client.name, d.balance, d.file.client.whatsappPayInstruction);
     await prisma.whatsappMessage.create({
       data: {
         debtorId: d.id,
