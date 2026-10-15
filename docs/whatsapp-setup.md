@@ -22,11 +22,16 @@ Webhook URL to give Meta: `https://<your-render-host>/api/whatsapp/webhook`
 
 ## Template
 
-Create a **utility** template named `payment_reminder` with two variables:
+Create a **utility** template named `payment_reminder` with three variables, in this order:
+{{1}} debtor name, {{2}} client name (the loan product), {{3}} outstanding balance.
 
-> Hello {{1}}, this is a friendly reminder about your loan {{2}}. Reply STOP to opt out.
+> Dear {{1}}, kindly make a payment towards your {{2}} of {{3}} which is overdue. Dial *165*45# to pay. Reply STOP to opt out.
 
-No amounts, no threats or deadlines — Meta rejects aggressive collection wording.
+Notes: the text must not start or end with a variable. Meta reviews collection wording
+closely, so avoid threats ("to avoid inconveniences" can read as one), deadlines and legal
+language. The pay instruction is fixed text in the template; if it differs per client,
+create one template per client (set `WHATSAPP_TEMPLATE_NAME`) or add a fourth variable.
+The balance is shown in the deployment's base currency (UGX in Uganda, USD in the demo).
 
 ## Flow
 

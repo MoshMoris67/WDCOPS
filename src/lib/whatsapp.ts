@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { DEPLOYMENT } from '@/config/deployment';
 
 // WhatsApp Business Cloud API (Meta) — server-side only. Configuration is entirely env:
 //   WHATSAPP_ENABLED=true            master switch; everything below is inert without it
@@ -12,8 +13,10 @@ import crypto from 'crypto';
 //   WHATSAPP_ALLOW_REAL_DATA=true    required to send outside demo mode: sending routes real
 //                                    debtor names/numbers through Meta's servers, which the
 //                                    self-hosted Uganda system must not do until agreed.
-// The template is expected to take two body variables: {{1}} debtor name, {{2}} loan reference.
-// Amounts are kept out of the message on purpose (privacy, and Meta's review of collection text).
+// The template is expected to take three body variables, in this order:
+//   {{1}} debtor name, {{2}} client name (e.g. the loan product), {{3}} outstanding balance
+// e.g. "Dear {{1}}, kindly make a payment towards your {{2}} of {{3}} which is overdue. ...".
+// The amount goes through Meta's servers, so see WHATSAPP_ALLOW_REAL_DATA above.
 
 const GRAPH_VERSION = 'v21.0';
 
@@ -51,7 +54,19 @@ export function toWhatsappNumber(raw: string): string | null {
 
 export type SendResult = { ok: true; waMessageId: string } | { ok: false; error: string };
 
-export async function sendReminderTemplate(to: string, name: string, loanRef: string): Promise<SendResult> {
+/** Balance as it appears in the message, in the deployment's base currency (UGX in Uganda,
+ *  USD in the demo — stored amounts are never converted server-side), e.g. "UGX 563,572". */
+export function formatAmount(amount: number): string {
+  const digits = DEPLOYMENT.demo ? 2 : 0;
+  return `${DEPLOYMENT.currencyCode} ${amount.toLocaleString(DEPLOYMENT.locale, { maximumFractionDigits: digits })}`;
+}
+
+export async function sendReminderTemplate(
+  to: string,
+  name: string,
+  clientName: string,
+  amount: number,
+): Promise<SendResult> {
   const url = `https://graph.facebook.com/${GRAPH_VERSION}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
   try {
     const res = await fetch(url, {
@@ -72,7 +87,8 @@ export async function sendReminderTemplate(to: string, name: string, loanRef: st
               type: 'body',
               parameters: [
                 { type: 'text', text: name.slice(0, 60) },
-                { type: 'text', text: loanRef.slice(0, 60) },
+                { type: 'text', text: clientName.slice(0, 60) },
+                { type: 'text', text: formatAmount(amount) },
               ],
             },
           ],

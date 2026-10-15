@@ -19,7 +19,7 @@ Do Part A and B for the **demo** now (no verification needed). Part C onward is 
 - [ ] Create a token: temporary (24h) for a first test, or a **System User** token (Business Settings > Users > System users > Generate token with `whatsapp_business_messaging` and `whatsapp_business_management`) so it does not expire.
 - [ ] App > Settings > Basic: copy the **App secret**.
 - [ ] WhatsApp > Configuration > Webhook: callback URL `https://<render-host>/api/whatsapp/webhook`, verify token = your `WHATSAPP_VERIFY_TOKEN`; subscribe to **messages**.
-- [ ] WhatsApp Manager > Message templates: create `payment_reminder` (category **Utility**, language English) with two variables; wait for Approved. Text in `docs/whatsapp-setup.md`.
+- [ ] WhatsApp Manager > Message templates: create `payment_reminder` (category **Utility**, language English) with three variables (name, client, amount); wait for Approved. Text in `docs/whatsapp-setup.md`.
 - [ ] Set the Render environment variables from `docs/whatsapp-setup.md` and redeploy.
 - [ ] Send yourself a test from the Reminders page.
 
