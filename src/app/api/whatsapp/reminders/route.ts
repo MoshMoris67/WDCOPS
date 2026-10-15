@@ -28,12 +28,25 @@ export async function GET(req: Request) {
   if (!isSessionPayload(session)) return session;
 
   const fileId = new URL(req.url).searchParams.get('fileId') ?? undefined;
-  const eligible = await prisma.debtor.count({
-    where: { ...(fileId ? { fileId } : {}), ...eligibleWhere() },
+  const inFile = fileId ? { fileId } : {};
+  const msgInFile = { debtor: inFile };
+  const [total, withBalance, optedIn, optedOut, eligible, sent, delivered, read, failed] = await Promise.all([
+    prisma.debtor.count({ where: inFile }),
+    prisma.debtor.count({ where: { ...inFile, balance: { gt: 0 } } }),
+    prisma.debtor.count({ where: { ...inFile, whatsappOptedInAt: { not: null }, whatsappOptedOutAt: null } }),
+    prisma.debtor.count({ where: { ...inFile, whatsappOptedOutAt: { not: null } } }),
+    prisma.debtor.count({ where: { ...inFile, ...eligibleWhere() } }),
+    prisma.whatsappMessage.count({ where: { ...msgInFile, direction: 'outbound', status: 'sent' } }),
+    prisma.whatsappMessage.count({ where: { ...msgInFile, direction: 'outbound', status: 'delivered' } }),
+    prisma.whatsappMessage.count({ where: { ...msgInFile, direction: 'outbound', status: 'read' } }),
+    prisma.whatsappMessage.count({ where: { ...msgInFile, direction: 'outbound', status: 'failed' } }),
+  ]);
+  return NextResponse.json({
+    ...whatsappStatus(),
+    maxPerRequest: MAX_PER_REQUEST,
+    stats: { total, withBalance, optedIn, optedOut, eligible, sent, delivered, read, failed },
   });
-  return NextResponse.json({ ...whatsappStatus(), eligible, maxPerRequest: MAX_PER_REQUEST });
 }
-
 
 // Bulk reminder: sends the approved template to opted-in debtors with a balance, either an
 // explicit list or everyone in a file. Body: { debtorIds?: string[], fileId?: string }.
