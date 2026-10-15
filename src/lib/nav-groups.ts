@@ -7,6 +7,7 @@ import {
   Settings,
   Phone,
   CalendarClock,
+  MessageCircle,
 } from 'lucide-react';
 
 export interface CurrentUser {
@@ -46,6 +47,10 @@ export function getNavGroups(role: CurrentUser['role']): NavGroup[] {
       { href: '/file-management-distribution', label: 'Files', icon: FolderOpen },
       { href: '/reconciliation-management', label: 'Reconciliations', icon: RefreshCcw },
       { href: '/reports-client-export', label: 'Reports', icon: BarChart2 },
+      // WhatsApp reminders are demo-only for now (see docs/whatsapp-setup.md).
+      ...(process.env.NEXT_PUBLIC_DEMO_MODE === 'true'
+        ? [{ href: '/whatsapp-reminders', label: 'Reminders', icon: MessageCircle }]
+        : []),
       { href: '/admin-users', label: 'Users', icon: Users },
       { href: '/admin-settings', label: 'Settings', icon: Settings },
     ] },

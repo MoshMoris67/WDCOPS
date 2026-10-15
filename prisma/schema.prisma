@@ -28,6 +28,11 @@ model Client {
   commissionRates      CommissionRate[]
   agentCommissionShare Float            @default(0.20)
 
+  // How this client's debtors pay, as it appears in the WhatsApp reminder (e.g. "Dial
+  // *165*45# to pay."). It is the 4th template variable, so one template serves every client.
+  // Null falls back to a generic line — see lib/whatsapp.ts.
+  whatsappPayInstruction String?
+
   files           File[]
   reconciliations Reconciliation[]
 }
@@ -127,6 +132,11 @@ model Debtor {
   assignedAgentId String?
   assignedAgent   User?     @relation("AgentDebtors", fields: [assignedAgentId], references: [id])
   branch          String    @default("uganda")
+  // WhatsApp consent. Bulk reminders only go to debtors with whatsappOptedInAt set and
+  // whatsappOptedOutAt null (an inbound STOP sets the latter). Never defaulted to opted-in:
+  // a number in a loan file is not consent.
+  whatsappOptedInAt  DateTime?
+  whatsappOptedOutAt DateTime?
   // Every column from the source file that isn't one of the fixed fields above (e.g. Days
   // In Arrears, Last Payment Date, Installment, Payroll Status, Status, CS NPL Reason Code)
   // — keyed by the file's own header text, value as the raw cell text. Nothing here is
@@ -140,6 +150,7 @@ model Debtor {
   callLogs             CallLog[]
   assignments          Assignment[]
   reconciliationEntries ReconciliationEntry[]
+  whatsappMessages     WhatsappMessage[]
 
   @@index([fileId])
   @@index([assignedAgentId])
@@ -360,4 +371,24 @@ model DispositionCode {
   color            String  @default("#64748B") // hex, drives badge + chart colors
   requiresCallback Boolean @default(false)
   requiresPtp      Boolean @default(false)
+}
+
+// Every WhatsApp message sent to or received from a debtor. Outbound rows are created with
+// status "queued", then updated to sent/delivered/read/failed from Meta's webhook, matched
+// on waMessageId. Message bodies are deliberately not stored — only the template name.
+model WhatsappMessage {
+  id            String   @id @default(cuid())
+  debtorId      String
+  debtor        Debtor   @relation(fields: [debtorId], references: [id], onDelete: Cascade)
+  direction     String // outbound | inbound
+  templateName  String?
+  status        String // queued | sent | delivered | read | failed | received
+  waMessageId   String?  @unique
+  error         String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([debtorId])
+  @@index([status])
 }
