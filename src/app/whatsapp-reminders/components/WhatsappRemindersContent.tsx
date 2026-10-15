@@ -26,7 +26,13 @@ interface Stats {
   failed: number;
 }
 
+interface DispositionOption {
+  code: string;
+  label: string;
+}
+
 interface Overview {
+  dispositionCounts: Record<string, number>;
   enabled: boolean;
   configured: boolean;
   allowed: boolean;
@@ -49,14 +55,19 @@ export default function WhatsappRemindersContent() {
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [files, setFiles] = useState<FileOption[]>([]);
   const [fileId, setFileId] = useState('');
+  const [dispositionOptions, setDispositionOptions] = useState<DispositionOption[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [attested, setAttested] = useState(false);
   const [busy, setBusy] = useState(false);
   const [lastResult, setLastResult] = useState<SendResult | null>(null);
 
-  const loadOverview = useCallback(async (id: string) => {
+  const loadOverview = useCallback(async (id: string, codes: string[]) => {
     try {
-      const res = await fetch(`/api/whatsapp/reminders${id ? `?fileId=${encodeURIComponent(id)}` : ''}`);
+      const params = new URLSearchParams();
+      if (id) params.set('fileId', id);
+      if (codes.length) params.set('dispositions', codes.join(','));
+      const res = await fetch(`/api/whatsapp/reminders?${params}`);
       if (res.status === 403) {
         setAuthorized(false);
         return;
@@ -74,23 +85,35 @@ export default function WhatsappRemindersContent() {
       .then((d) => setFiles(d.files ?? []))
       .catch(() => undefined);
   }, []);
-  useEffect(() => { loadOverview(fileId); setAttested(false); setLastResult(null); }, [fileId, loadOverview]);
+  useEffect(() => {
+    fetch('/api/disposition-codes')
+      .then((r) => (r.ok ? r.json() : { codes: [] }))
+      .then((d) => setDispositionOptions((d.codes ?? []).map((c: { code: string; label: string }) => ({ code: c.code, label: c.label }))))
+      .catch(() => undefined);
+  }, []);
+  // Changing the file clears the chosen dispositions — they're picked per file, on purpose.
+  useEffect(() => { setSelected([]); setAttested(false); setLastResult(null); }, [fileId]);
+  useEffect(() => { loadOverview(fileId, selected); setAttested(false); }, [fileId, selected, loadOverview]);
+
+  function toggle(code: string) {
+    setSelected((cur) => (cur.includes(code) ? cur.filter((c) => c !== code) : [...cur, code]));
+  }
   useEffect(() => { if (authorized === false) router.replace('/agent-dashboard'); }, [authorized, router]);
 
   async function recordConsent() {
-    if (!fileId) return;
+    if (!fileId || !selected.length) return;
     setBusy(true);
     try {
       const res = await fetch('/api/whatsapp/consent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId, optedIn: true }),
+        body: JSON.stringify({ fileId, dispositions: selected, optedIn: true }),
       });
       const data = await res.json();
       if (!res.ok) return toast.error(data.error || 'Could not record consent');
       toast.success(`Consent recorded for ${data.updated} debtors`);
       setAttested(false);
-      await loadOverview(fileId);
+      await loadOverview(fileId, selected);
     } catch {
       toast.error('Could not reach the server — try again');
     } finally {
@@ -99,20 +122,20 @@ export default function WhatsappRemindersContent() {
   }
 
   async function sendBatch() {
-    if (!fileId || !overview) return;
+    if (!fileId || !selected.length || !overview) return;
     if (!window.confirm(`Send a WhatsApp reminder to up to ${Math.min(overview.stats.eligible, overview.maxPerRequest)} debtors?`)) return;
     setBusy(true);
     try {
       const res = await fetch('/api/whatsapp/reminders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId }),
+        body: JSON.stringify({ fileId, dispositions: selected }),
       });
       const data = await res.json();
       if (!res.ok) return toast.error(data.error || 'Could not send reminders');
       setLastResult(data);
       toast.success(`${data.sent} sent, ${data.failed} failed`);
-      await loadOverview(fileId);
+      await loadOverview(fileId, selected);
     } catch {
       toast.error('Could not reach the server — try again');
     } finally {
@@ -144,8 +167,8 @@ export default function WhatsappRemindersContent() {
   return (
     <div className="p-6 xl:p-8 2xl:p-10 max-w-screen-2xl mx-auto space-y-6">
       <div>
-        <h1 className="text-page-title text-foreground flex items-center gap-2"><MessageCircle size={22} /> WhatsApp reminders</h1>
-        <p className="text-sm text-muted-foreground mt-1">Send an approved payment-reminder template to debtors who have agreed to WhatsApp messages.</p>
+        <h1 className="text-page-title text-foreground flex items-center gap-2"><MessageCircle size={22} /> Reminders</h1>
+        <p className="text-sm text-muted-foreground mt-1">Send a WhatsApp payment reminder to debtors in a file who have agreed to receive them. You choose which dispositions to target.</p>
       </div>
 
       {overview && !overview.allowed && (
@@ -171,6 +194,30 @@ export default function WhatsappRemindersContent() {
           </select>
         </div>
 
+        {fileId && (
+          <div>
+            <p className="block text-sm font-medium text-foreground mb-1.5">Last disposition to target</p>
+            <div className="flex flex-wrap gap-2">
+              {[...dispositionOptions, { code: 'NONE', label: 'Never called' }]
+                .filter((o) => (overview?.dispositionCounts?.[o.code] ?? 0) > 0)
+                .map((o) => {
+                  const on = selected.includes(o.code);
+                  return (
+                    <button
+                      key={o.code}
+                      type="button"
+                      onClick={() => toggle(o.code)}
+                      className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${on ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-foreground hover:bg-secondary'}`}
+                    >
+                      {o.label} ({overview?.dispositionCounts?.[o.code] ?? 0})
+                    </button>
+                  );
+                })}
+            </div>
+            {!selected.length && <p className="text-xs text-muted-foreground mt-1.5">Choose at least one. The counts below then show only those debtors.</p>}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {tiles.map((t) => (
             <div key={t.label} className="rounded-lg border border-border p-3">
@@ -180,7 +227,7 @@ export default function WhatsappRemindersContent() {
           ))}
         </div>
 
-        {fileId && (
+        {fileId && selected.length > 0 && (
           <div className="space-y-3 rounded-lg border border-border p-4">
             <h2 className="text-section-header text-foreground flex items-center gap-2"><ShieldCheck size={16} /> Consent</h2>
             <label className="flex items-start gap-2 text-sm text-foreground">
@@ -192,7 +239,7 @@ export default function WhatsappRemindersContent() {
               disabled={!attested || busy || offlineBlocked}
               className="px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Record consent for this file
+              Record consent for these debtors
             </button>
           </div>
         )}
@@ -200,13 +247,14 @@ export default function WhatsappRemindersContent() {
         <div className="flex items-center gap-3 flex-wrap">
           <button
             onClick={sendBatch}
-            disabled={!fileId || !overview?.allowed || !s?.eligible || busy || offlineBlocked}
+            disabled={!fileId || !selected.length || !overview?.allowed || !s?.eligible || busy || offlineBlocked}
             className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <Send size={15} />
             {busy ? 'Working…' : `Send reminders${s?.eligible ? ` (${Math.min(s.eligible, overview?.maxPerRequest ?? 0)})` : ''}`}
           </button>
           {!fileId && <span className="text-sm text-muted-foreground">Pick a file to send.</span>}
+          {fileId && !selected.length && <span className="text-sm text-muted-foreground">Choose which dispositions to send to.</span>}
           {fileId && needsConsent && <span className="text-sm text-muted-foreground">Record consent first.</span>}
           {lastResult?.capped && <span className="text-sm text-muted-foreground">More are waiting — send the next batch.</span>}
         </div>

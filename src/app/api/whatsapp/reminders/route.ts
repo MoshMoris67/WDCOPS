@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireRole, isSessionPayload } from '@/lib/rbac';
+import { audienceWhere, dispositionCounts, parseDispositions } from '@/lib/whatsapp-audience';
 import { sendReminderTemplate, toWhatsappNumber, whatsappStatus } from '@/lib/whatsapp';
 
 const MAX_PER_REQUEST = 200;
@@ -27,10 +28,13 @@ export async function GET(req: Request) {
   const session = await requireRole(['admin']);
   if (!isSessionPayload(session)) return session;
 
-  const fileId = new URL(req.url).searchParams.get('fileId') ?? undefined;
-  const inFile = fileId ? { fileId } : {};
+  const q = new URL(req.url).searchParams;
+  const fileId = q.get('fileId') ?? undefined;
+  const dispositions = parseDispositions((q.get('dispositions') ?? '').split(',').filter(Boolean));
+  const inFile = await audienceWhere(fileId, dispositions);
   const msgInFile = { debtor: inFile };
-  const [total, withBalance, optedIn, optedOut, eligible, sent, delivered, read, failed] = await Promise.all([
+  const [counts, total, withBalance, optedIn, optedOut, eligible, sent, delivered, read, failed] = await Promise.all([
+    dispositionCounts(fileId),
     prisma.debtor.count({ where: inFile }),
     prisma.debtor.count({ where: { ...inFile, balance: { gt: 0 } } }),
     prisma.debtor.count({ where: { ...inFile, whatsappOptedInAt: { not: null }, whatsappOptedOutAt: null } }),
@@ -44,12 +48,14 @@ export async function GET(req: Request) {
   return NextResponse.json({
     ...whatsappStatus(),
     maxPerRequest: MAX_PER_REQUEST,
+    dispositionCounts: counts,
     stats: { total, withBalance, optedIn, optedOut, eligible, sent, delivered, read, failed },
   });
 }
 
 // Bulk reminder: sends the approved template to opted-in debtors with a balance, either an
-// explicit list or everyone in a file. Body: { debtorIds?: string[], fileId?: string }.
+// explicit list or everyone in a file, optionally only those whose latest disposition is in
+// `dispositions`. Body: { debtorIds?: string[], fileId?: string, dispositions?: string[] }.
 // Capped per request; send sequentially so Meta's rate limits are never the thing that fails.
 export async function POST(req: Request) {
   const session = await requireRole(['admin']);
@@ -58,15 +64,21 @@ export async function POST(req: Request) {
   const status = whatsappStatus();
   if (!status.allowed) return NextResponse.json({ error: status.reason }, { status: 403 });
 
-  const body = (await req.json().catch(() => null)) as { debtorIds?: unknown; fileId?: unknown } | null;
+  const body = (await req.json().catch(() => null)) as { debtorIds?: unknown; fileId?: unknown; dispositions?: unknown } | null;
   const ids = Array.isArray(body?.debtorIds) ? body.debtorIds.filter((x): x is string => typeof x === 'string') : [];
   const fileId = typeof body?.fileId === 'string' ? body.fileId : undefined;
   if (!ids.length && !fileId) {
     return NextResponse.json({ error: 'Provide debtorIds or fileId' }, { status: 400 });
   }
+  // A file-wide send must name the dispositions to target — never silently "everyone".
+  const dispositions = parseDispositions(body?.dispositions);
+  if (!ids.length && !dispositions.length) {
+    return NextResponse.json({ error: 'Choose at least one disposition to send to' }, { status: 400 });
+  }
 
+  const audience = ids.length ? { id: { in: ids } } : await audienceWhere(fileId, dispositions);
   const debtors = await prisma.debtor.findMany({
-    where: { ...eligibleWhere(), ...(ids.length ? { id: { in: ids } } : { fileId }) },
+    where: { AND: [eligibleWhere(), audience] },
     select: { id: true, name: true, phone1: true, phone2: true, loanRef: true },
     take: MAX_PER_REQUEST,
   });

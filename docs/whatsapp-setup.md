@@ -30,12 +30,13 @@ No amounts, no threats or deadlines — Meta rejects aggressive collection wordi
 
 ## Flow
 
-In demo mode, admins get a **WhatsApp** page in the sidebar (`/whatsapp-reminders`) that does
-steps 1-3 below: pick a file, confirm consent, send a batch, and see delivery counts.
+In demo mode, admins get a **Reminders** page in the sidebar (`/whatsapp-reminders`) that does
+steps 1-3 below: pick a file, choose which last dispositions to target, confirm consent, send a
+batch, and see delivery counts. A send always needs at least one disposition chosen.
 
-1. `POST /api/whatsapp/consent` `{ debtorIds, optedIn: true }` (admin) records consent.
+1. `POST /api/whatsapp/consent` `{ debtorIds | fileId + dispositions, optedIn: true }` (admin) records consent.
 2. `GET /api/whatsapp/reminders?fileId=` shows status and how many debtors are eligible.
-3. `POST /api/whatsapp/reminders` `{ fileId }` or `{ debtorIds }` (admin) sends up to 200 per
+3. `POST /api/whatsapp/reminders` `{ fileId, dispositions }` (`NONE` = never called) or `{ debtorIds }` (admin) sends up to 200 per
    call. Debtors reminded in the last 24h, opted out, or with no balance are skipped.
 4. Delivery status and STOP replies arrive on the webhook and update `WhatsappMessage` /
    `Debtor.whatsappOptedOutAt`.
