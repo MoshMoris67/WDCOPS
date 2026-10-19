@@ -155,7 +155,14 @@ export default function AdminUsersContent() {
   }
 
   async function deleteUser(user: UserRow) {
-    if (!window.confirm(t('Delete {0}? This only works if they have no assigned debtors or call history.', user.name))) return;
+    if (
+      !window.confirm(
+        t(
+          'Delete {0}? They must be inactive and have no assigned debtors. Historical call records will be retained.',
+          user.name
+        )
+      )
+    ) return;
     const res = await fetch(`/api/users/${user.id}`, { method: 'DELETE' });
     const payload = await res.json();
     if (!res.ok) {

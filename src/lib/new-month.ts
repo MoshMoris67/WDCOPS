@@ -365,7 +365,7 @@ export async function buildDispositionsExport(fileId: string): Promise<{ buffer:
   for (let cursor: string | undefined; ; ) {
     const page = await prisma.callLog.findMany({
       where: { debtor: { fileId } },
-      include: { debtor: { select: { loanRef: true, name: true, phone1: true } }, agent: { select: { name: true } } },
+      include: { debtor: { select: { loanRef: true, name: true, phone1: true } } },
       orderBy: { id: 'asc' },
       take: PAGE,
       ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
@@ -376,7 +376,7 @@ export async function buildDispositionsExport(fileId: string): Promise<{ buffer:
         loanRef: c.debtor.loanRef,
         name: c.debtor.name,
         phone: c.debtor.phone1,
-        agent: c.agent.name,
+        agent: c.agentName,
         code: c.dispositionCode,
         note: c.note ?? '',
         promisedAmount: c.promisedAmount,
