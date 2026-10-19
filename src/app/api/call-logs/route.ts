@@ -22,7 +22,7 @@ function resolveCreatedAt(body: { queuedAt?: unknown; sentAt?: unknown } | null)
   return new Date(now - ageMs);
 }
 
-function logResponse(log: CallLog & { agent: { name: string } }) {
+function logResponse(log: CallLog) {
   return {
     log: {
       id: log.id,
@@ -31,7 +31,7 @@ function logResponse(log: CallLog & { agent: { name: string } }) {
       promisedAmount: log.promisedAmount,
       promisedDate: log.promisedDate,
       createdAt: log.createdAt,
-      agentName: log.agent.name,
+      agentName: log.agentName,
       synced: true,
     },
   };
@@ -40,7 +40,7 @@ function logResponse(log: CallLog & { agent: { name: string } }) {
 /** A retry of a call that already reached the server: the saved row if this caller owns
  *  it, a 409 if somehow another account does, or null if it was never saved. */
 async function findExisting(clientRequestId: string, agentId: string) {
-  const existing = await prisma.callLog.findUnique({ where: { clientRequestId }, include: { agent: true } });
+  const existing = await prisma.callLog.findUnique({ where: { clientRequestId } });
   if (!existing) return null;
   if (existing.agentId !== agentId) {
     return NextResponse.json({ error: 'This request belongs to another account' }, { status: 409 });
@@ -103,6 +103,8 @@ export async function POST(req: Request) {
         clientRequestId,
         debtorId,
         agentId: session.sub,
+        agentName: session.name,
+        agentEmail: session.email,
         dispositionCode,
         note,
         promisedAmount,
@@ -110,7 +112,6 @@ export async function POST(req: Request) {
         createdAt: resolveCreatedAt(body),
         syncedAt: new Date(),
       },
-      include: { agent: true },
     });
   } catch (err) {
     // Two copies of the same retry raced past the lookup above and the other one won the

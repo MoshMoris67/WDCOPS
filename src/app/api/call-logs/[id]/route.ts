@@ -53,6 +53,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       data: {
         callLogId: log.id,
         correctedById: session.sub,
+        correctedByName: session.name,
+        correctedByEmail: session.email,
         previousDispositionCode: log.dispositionCode,
         previousNote: log.note,
         previousPromisedAmount: log.promisedAmount,
@@ -62,7 +64,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     prisma.callLog.update({
       where: { id: log.id },
       data: { dispositionCode, note, promisedAmount, promisedDate, editedAt: new Date() },
-      include: { agent: true },
     }),
   ]);
 
@@ -75,7 +76,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       promisedDate: updated.promisedDate,
       createdAt: updated.createdAt,
       agentId: updated.agentId,
-      agentName: updated.agent.name,
+      agentName: updated.agentName,
       synced: true,
       editedAt: updated.editedAt,
     },

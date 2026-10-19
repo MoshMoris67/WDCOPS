@@ -94,7 +94,7 @@ interface CallHistoryItem {
   promisedAmount: number | null;
   promisedDate: string | null;
   createdAt: string;
-  agentId?: string;
+  agentId?: string | null;
   agentName: string;
   synced: boolean;
   editedAt?: string | null;

@@ -44,7 +44,14 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date,
     getContactedCountsByFile(fileIds, { from, to }, agentId),
     prisma.callLog.findMany({
       where: { debtor: debtorWhere, createdAt: { gte: from, lte: to } },
-      select: { debtorId: true, agentId: true, dispositionCode: true, promisedAmount: true },
+      select: {
+        debtorId: true,
+        agentId: true,
+        agentName: true,
+        agentEmail: true,
+        dispositionCode: true,
+        promisedAmount: true,
+      },
     }),
     // Agent display names come from the debtor's *current* assignedAgent, not callLog.agentId
     // (a reassigned debtor's historical calls are relabeled under the new agent) — a
@@ -122,9 +129,13 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date,
 
   const agentStats = new Map<string, { agentId: string; name: string; calls: number; ptps: number }>();
   for (const log of logsInRange) {
-    const agentId = log.agentId;
+    const currentAgentId = agentIdByDebtorId.get(log.debtorId);
+    const agentId = currentAgentId ?? log.agentId ?? `deleted:${log.agentEmail}`;
+    let name = log.agentName;
+    if (currentAgentId) name = agentNameByDebtorId.get(log.debtorId) ?? name;
+    else if (log.agentId) name = 'Unassigned';
     if (!agentStats.has(agentId)) {
-      agentStats.set(agentId, { agentId, name: agentNameByDebtorId.get(log.debtorId) ?? 'Unassigned', calls: 0, ptps: 0 });
+      agentStats.set(agentId, { agentId, name, calls: 0, ptps: 0 });
     }
     const s = agentStats.get(agentId)!;
     s.calls++;

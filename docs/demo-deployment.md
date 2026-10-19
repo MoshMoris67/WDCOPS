@@ -70,8 +70,10 @@ day you run the seed. Running it again resets everything to the same starting st
 
 - The office server never sets `NEXT_PUBLIC_DEMO_MODE`, so a `git pull` and rebuild there
   gives it the same behaviour as before: UGX, the Uganda text, `@wellcash.ug`.
-- No database migrations are involved, so pulling and rebuilding does not touch the office
-  database structure.
+- The demo and office copy use separate databases. Deploying a migration to one does not
+  update the other: Render's build applies migrations to the demo Neon database, and the
+  office Docker build applies migrations to the office Postgres database. Deploy and verify
+  schema changes for both copies separately, using each copy's own `DATABASE_URL`.
 - Before updating the office server, note the commit it is on (`git rev-parse HEAD`). To roll
   back, `git checkout <that commit>` and rebuild.
 - `npm run check:deployments` builds both versions and fails if the demo build contains any

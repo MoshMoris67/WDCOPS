@@ -167,8 +167,11 @@ model CallLog {
   clientRequestId String?   @unique
   debtorId        String
   debtor          Debtor    @relation(fields: [debtorId], references: [id])
-  agentId         String
-  agent           User      @relation("AgentCallLogs", fields: [agentId], references: [id])
+  // Snapshots preserve attribution when the corresponding user account is removed.
+  agentId         String?
+  agent           User?     @relation("AgentCallLogs", fields: [agentId], references: [id], onDelete: SetNull)
+  agentName       String
+  agentEmail      String
   dispositionCode String
   note            String?
   promisedAmount  Float?
@@ -196,8 +199,11 @@ model CallLogCorrection {
   id                      String    @id @default(cuid())
   callLogId               String
   callLog                 CallLog   @relation(fields: [callLogId], references: [id])
-  correctedById           String
-  correctedBy             User      @relation("CallLogCorrections", fields: [correctedById], references: [id])
+  // Keep the editor identity in the correction audit after account deletion.
+  correctedById           String?
+  correctedBy             User?     @relation("CallLogCorrections", fields: [correctedById], references: [id], onDelete: SetNull)
+  correctedByName         String
+  correctedByEmail        String
   previousDispositionCode String
   previousNote            String?
   previousPromisedAmount  Float?

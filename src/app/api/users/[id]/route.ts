@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { requireRole, isSessionPayload } from '@/lib/rbac';
 import { hashPassword } from '@/lib/auth';
@@ -61,36 +62,57 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "You can't delete your own account" }, { status: 400 });
   }
 
-  const [assignedDebtorCount, callLogCount, correctionHistoryCount] = await Promise.all([
-    prisma.debtor.count({ where: { assignedAgentId: id } }),
-    prisma.callLog.count({ where: { agentId: id } }),
-    prisma.callLogCorrection.count({ where: { correctedById: id } }),
-  ]);
-
-  if (assignedDebtorCount > 0) {
-    return NextResponse.json(
-      { error: `This user still has ${assignedDebtorCount} debtor(s) assigned — reassign those first (Team Overview).` },
-      { status: 400 }
-    );
-  }
-  if (callLogCount > 0) {
-    return NextResponse.json(
-      { error: 'This user has logged calls — deleting would break the audit trail. Deactivate them instead.' },
-      { status: 400 }
-    );
-  }
-  if (correctionHistoryCount > 0) {
-    return NextResponse.json(
-      { error: `This user has ${correctionHistoryCount} call-log correction record(s) — deleting would break the audit trail. Deactivate them instead.` },
-      { status: 400 }
-    );
-  }
-
   try {
-    await prisma.user.delete({ where: { id } });
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const user = await tx.user.findUnique({ where: { id }, select: { status: true } });
+        if (!user) return { error: 'not-found' as const };
+        if (user.status !== 'inactive') {
+          return { error: 'active' as const };
+        }
+
+        const assignedDebtorCount = await tx.debtor.count({
+          where: { assignedAgentId: id },
+        });
+        if (assignedDebtorCount > 0) {
+          return { error: 'assigned' as const, assignedDebtorCount };
+        }
+
+        await tx.user.delete({ where: { id } });
+        return { ok: true as const };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    );
+
+    if ('error' in result) {
+      if (result.error === 'not-found') {
+        return NextResponse.json(
+          { error: 'User not found' },
+          { status: 404 }
+        );
+      }
+      if (result.error === 'active') {
+        return NextResponse.json(
+          { error: 'Deactivate this user before deleting them.' },
+          { status: 400 }
+        );
+      }
+      return NextResponse.json(
+        {
+          error: `This user still has ${result.assignedDebtorCount} debtor(s) assigned — reassign those first (Team Overview).`,
+        },
+        { status: 400 }
+      );
+    }
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'P2025') {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2034') {
+      return NextResponse.json(
+        { error: 'The user or their assignments changed while deleting. Refresh and try again.' },
+        { status: 409 }
+      );
     }
     console.error('Failed to delete user', { userId: id, error });
     return NextResponse.json({ error: 'Could not delete user because related records still reference this account.' }, { status: 409 });
