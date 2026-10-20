@@ -33,7 +33,8 @@ export async function applyAssignment(
 export async function writeAssignment(
   tx: Prisma.TransactionClient,
   assignment: Map<string, string>,
-  reassignedFrom?: Map<string, string | null>
+  reassignedFrom?: Map<string, string | null>,
+  reassignmentBatchId?: string
 ): Promise<void> {
   if (assignment.size === 0) return;
 
@@ -44,7 +45,16 @@ export async function writeAssignment(
   }
 
   const agents = await tx.user.findMany({
-    where: { id: { in: [...debtorIdsByAgent.keys()] } },
+    where: {
+      id: {
+        in: [
+          ...new Set([
+            ...debtorIdsByAgent.keys(),
+            ...[...(reassignedFrom?.values() ?? [])].filter((id): id is string => id !== null),
+          ]),
+        ],
+      },
+    },
     select: { id: true, name: true, email: true },
   });
   const agentById = new Map(agents.map((agent) => [agent.id, agent]));
@@ -53,12 +63,20 @@ export async function writeAssignment(
     await tx.debtor.updateMany({ where: { id: { in: debtorIds } }, data: { assignedAgentId: agentId } });
   }
   await tx.assignment.createMany({
-    data: [...assignment.entries()].map(([debtorId, agentId]) => ({
-      debtorId,
-      agentId,
-      agentName: agentById.get(agentId)?.name,
-      agentEmail: agentById.get(agentId)?.email,
-      reassignedFromId: reassignedFrom?.get(debtorId) ?? null,
-    })),
+    data: [...assignment.entries()].map(([debtorId, agentId]) => {
+      const previousAgentId = reassignedFrom?.get(debtorId) ?? null;
+      const previousAgent = previousAgentId ? agentById.get(previousAgentId) : null;
+      const agent = agentById.get(agentId);
+      return {
+        debtorId,
+        agentId,
+        agentName: agent?.name,
+        agentEmail: agent?.email,
+        reassignedFromId: previousAgentId,
+        reassignedFromName: previousAgent?.name ?? null,
+        reassignedFromEmail: previousAgent?.email ?? null,
+        reassignmentBatchId,
+      };
+    }),
   });
 }

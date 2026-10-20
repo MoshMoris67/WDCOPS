@@ -1,6 +1,6 @@
 import { prisma } from './db';
 import { assignByBalanceBand } from './distribution';
-import { applyAssignment } from './assignment';
+import { writeAssignment } from './assignment';
 
 export interface ReassignResult {
   movedCount: number;
@@ -39,7 +39,10 @@ export async function reassignFile(fileId: string, agentIds: string[]): Promise<
 
   const assignment = assignByBalanceBand(toMove, agentIds);
   const reassignedFrom = new Map(toMove.map((d) => [d.id, d.assignedAgentId]));
-  await applyAssignment(assignment, reassignedFrom);
+  await prisma.$transaction(async (tx) => {
+    const batch = await tx.reassignmentBatch.create({ data: { fileId } });
+    await writeAssignment(tx, assignment, reassignedFrom, batch.id);
+  }, { timeout: 60_000 });
 
   return { movedCount: toMove.length, keptCount, droppedAgentCount: droppedAgentIds.size };
 }

@@ -101,6 +101,18 @@ interface DistributionRow {
   total: number;
 }
 
+interface ReassignmentBatchRow {
+  id: string;
+  createdAt: string;
+  undoneAt: string | null;
+  movedCount: number;
+}
+
+interface ReassignmentHistoryPayload {
+  fileId: string;
+  batches: ReassignmentBatchRow[];
+}
+
 interface ImportFormData {
   clientId: string;
   batchLabel: string;
@@ -298,6 +310,7 @@ export default function FileManagementContent() {
   const [rebalanceAgentId, setRebalanceAgentId] = useState('');
   const [isRebalancing, setIsRebalancing] = useState(false);
   const [isReassigning, setIsReassigning] = useState(false);
+  const [undoingBatchId, setUndoingBatchId] = useState<string | null>(null);
   const [isMidMonth, setIsMidMonth] = useState(false);
   const [selectedUploadFile, setSelectedUploadFile] = useState<globalThis.File | null>(null);
   const [preview, setPreview] = useState<FilePreview | null>(null);
@@ -378,6 +391,13 @@ export default function FileManagementContent() {
   const distributionUrl = distributionFileId ? `/api/files/${distributionFileId}/distribution` : null;
   const { data: distributionPayload, refetch: refetchDistribution } = useCachedQuery<{ distribution: DistributionRow[] }>(distributionUrl);
   const distributionData = distributionPayload?.distribution ?? [];
+
+  const selectedFileIsRecalled = files.some((file) => file.id === distributionFileId && file.status === 'recalled');
+  const reassignmentHistoryUrl = distributionFileId && selectedFileIsRecalled ? `/api/files/${distributionFileId}/reassign` : null;
+  const { data: reassignmentHistory, refetch: refetchReassignmentHistory } =
+    useCachedQuery<ReassignmentHistoryPayload>(reassignmentHistoryUrl);
+  const reassignmentBatches =
+    reassignmentHistory?.fileId === distributionFileId ? reassignmentHistory.batches : [];
 
   const syncStatusUrl = distributionFileId ? `/api/files/${distributionFileId}/sync` : null;
   const { data: syncStatusPayload, refetch: refetchSyncStatus } = useCachedQuery<{ latest: LastSync | null }>(syncStatusUrl);
@@ -691,11 +711,37 @@ export default function FileManagementContent() {
       }
       refetchFiles();
       refetchDistribution();
+      refetchReassignmentHistory();
       toast.success(t('{0} debtor(s) moved, {1} left with their current agent', payload.movedCount, payload.keptCount));
     } catch {
       toast.error('Could not reach the server — try again');
     } finally {
       setIsReassigning(false);
+    }
+  }
+
+  async function undoReassignment(file: FileRow, batch: ReassignmentBatchRow) {
+    if (!window.confirm(t('Undo this redistribution of {0} accounts from {1}? Accounts reassigned again since then will be left as they are. Call logs and payment history are preserved.', batch.movedCount, new Date(batch.createdAt).toLocaleString(localeFor('en-GB'))))) return;
+    setUndoingBatchId(batch.id);
+    try {
+      const res = await fetch(`/api/files/${file.id}/reassign/undo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batchId: batch.id }),
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        toast.error(payload.error || t('Could not undo redistribution'));
+        return;
+      }
+      refetchFiles();
+      refetchDistribution();
+      refetchReassignmentHistory();
+      toast.success(t('Restored {0} account(s); skipped {1} changed since the redistribution', payload.restoredCount, payload.skippedCount));
+    } catch {
+      toast.error('Could not reach the server — try again');
+    } finally {
+      setUndoingBatchId(null);
     }
   }
 
@@ -1438,6 +1484,33 @@ export default function FileManagementContent() {
 
               {selectedFile.status === 'recalled' && (
                 <div className="p-4 border-t border-border space-y-3">
+                  {reassignmentBatches.length > 0 && (
+                    <div className="space-y-2 rounded-lg border border-border p-3">
+                      <p className="text-xs font-semibold text-foreground">{t('Recent redistributions')}</p>
+                      {reassignmentBatches.map((batch) => (
+                        <div key={batch.id} className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-xs text-foreground">{new Date(batch.createdAt).toLocaleString(localeFor('en-GB'))}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {batch.undoneAt
+                                ? t('Undone')
+                                : t('{0} account(s) reassigned', batch.movedCount)}
+                            </p>
+                          </div>
+                          {!batch.undoneAt && (
+                            <button
+                              onClick={() => undoReassignment(selectedFile, batch)}
+                              disabled={!!undoingBatchId || offlineBlocked}
+                              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-secondary disabled:opacity-50"
+                            >
+                              <Undo2 size={13} />
+                              {undoingBatchId === batch.id ? t('Undoing…') : t('Undo')}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div>
                     <p className="text-xs font-semibold text-foreground">{t('Reassign this file')}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
