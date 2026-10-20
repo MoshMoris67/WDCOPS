@@ -3,6 +3,28 @@ import { prisma } from '@/lib/db';
 import { requireRole, isSessionPayload } from '@/lib/rbac';
 import { reassignFile } from '@/lib/reassign';
 
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await requireRole(['admin']);
+  if (!isSessionPayload(session)) return session;
+
+  const { id } = await params;
+  const batches = await prisma.reassignmentBatch.findMany({
+    where: { fileId: id },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+    select: {
+      id: true,
+      createdAt: true,
+      undoneAt: true,
+      _count: { select: { assignments: true } },
+    },
+  });
+  return NextResponse.json({
+    fileId: id,
+    batches: batches.map(({ _count, ...batch }) => ({ ...batch, movedCount: _count.assignments })),
+  });
+}
+
 /**
  * Redistributes an already-distributed file across a new agent roster — see
  * lib/reassign.ts for the algorithm. Requires the file to be recalled first: reassigning

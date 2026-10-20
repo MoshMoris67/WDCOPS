@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Users, TrendingUp, Wallet, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Users, TrendingUp, Wallet, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import Badge from '@/components/ui/Badge';
 import ClientCard from '@/components/ui/ClientCard';
 import TeamCoverageSection from './TeamCoverageSection';
@@ -121,6 +121,7 @@ export default function TeamDashboardContent() {
   const [perfFileId, setPerfFileId] = useState('All');
   const [perfAgentId, setPerfAgentId] = useState('All');
   const [commissionCards, setCommissionCards] = useState<CommissionCard[]>([]);
+  const [exportingCommissionClientId, setExportingCommissionClientId] = useState<string | null>(null);
 
   const { blocked: mutationsBlocked, reason: offlineReason } = useOfflineGuard();
 
@@ -183,6 +184,35 @@ export default function TeamDashboardContent() {
     })();
     return () => { cancelled = true; };
   }, [authorized, clients]);
+
+  async function exportCommission(clientId: string, clientName: string) {
+    setExportingCommissionClientId(clientId);
+    try {
+      const res = await fetch(`/api/team/commission/export?clientId=${encodeURIComponent(clientId)}`);
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || t('Could not export commission report'));
+        return;
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') ?? '';
+      const encodedFilename = /filename\*=UTF-8''([^;]+)/.exec(disposition)?.[1];
+      const filename = encodedFilename ? decodeURIComponent(encodedFilename) : `${clientName}-commission.xlsx`;
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+      toast.success(t('Commission report exported — check your downloads'));
+    } catch {
+      toast.error(t('Could not reach the server — try again'));
+    } finally {
+      setExportingCommissionClientId(null);
+    }
+  }
 
   const { data: filesData } = useCachedQuery<{ files: FileOption[] }>(authorized ? '/api/files' : null);
   const files = filesData?.files ?? [];
@@ -693,10 +723,23 @@ export default function TeamDashboardContent() {
         return (
           <div key={card.clientId} className="bg-card rounded-xl shadow-card border border-border">
             <div className="px-5 py-4 border-b border-border">
-              <h2 className="text-section-header text-foreground">{t('Commission — {0}', card.clientName)}</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {t('{0} company commission · {1} agent commission (20% share)', formatMoneyM(totalCompany), formatMoneyM(totalAgent))}
-              </p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-section-header text-foreground">{t('Commission — {0}', card.clientName)}</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {t('{0} company commission · {1} agent commission (20% share)', formatMoneyM(totalCompany), formatMoneyM(totalAgent))}
+                  </p>
+                </div>
+                <button
+                  onClick={() => exportCommission(card.clientId, card.clientName)}
+                  disabled={exportingCommissionClientId === card.clientId || mutationsBlocked}
+                  title={mutationsBlocked ? t('Offline — reconnect to export') : t('Export Excel Report')}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary disabled:opacity-50"
+                >
+                  <Download size={15} />
+                  {exportingCommissionClientId === card.clientId ? t('Exporting…') : t('Export Excel')}
+                </button>
+              </div>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border">
               <div className="overflow-x-auto">

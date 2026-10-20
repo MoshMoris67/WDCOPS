@@ -114,6 +114,7 @@ model File {
   debtors         Debtor[]
   reconciliations Reconciliation[]
   fileSyncs       FileSync[]
+  reassignmentBatches ReassignmentBatch[]
 
   @@index([clientId])
 }
@@ -355,17 +356,34 @@ model User {
 }
 
 model Assignment {
-  id               String   @id @default(cuid())
-  debtorId         String
-  debtor           Debtor   @relation(fields: [debtorId], references: [id])
-  agentId          String?
-  agent            User?    @relation("AssignedTo", fields: [agentId], references: [id], onDelete: SetNull)
-  agentName        String?
-  agentEmail       String?
-  assignedAt       DateTime @default(now())
-  reassignedFromId String?
+  id                   String             @id @default(cuid())
+  debtorId             String
+  debtor               Debtor             @relation(fields: [debtorId], references: [id])
+  agentId              String?
+  agent                User?              @relation("AssignedTo", fields: [agentId], references: [id], onDelete: SetNull)
+  agentName            String?
+  agentEmail           String?
+  assignedAt           DateTime           @default(now())
+  reassignedFromId     String?
+  reassignedFromName   String?
+  reassignedFromEmail  String?
+  reassignmentBatchId  String?
+  reassignmentBatch    ReassignmentBatch? @relation(fields: [reassignmentBatchId], references: [id], onDelete: SetNull)
+  reversesAssignmentId String?
 
   @@index([debtorId])
+  @@index([reassignmentBatchId])
+}
+
+model ReassignmentBatch {
+  id          String       @id @default(cuid())
+  fileId      String
+  file        File         @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  createdAt   DateTime     @default(now())
+  undoneAt    DateTime?
+  assignments Assignment[]
+
+  @@index([fileId, createdAt])
 }
 
 // Admin-managed — the whole point is that new codes an admin adds show up

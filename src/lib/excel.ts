@@ -1136,6 +1136,100 @@ export async function buildReportWorkbook(input: {
   return Buffer.from(buffer);
 }
 
+export async function buildTeamCommissionWorkbook(input: {
+  clientName: string;
+  buckets: {
+    label: string;
+    loans: number;
+    collections: number;
+    companyCommission: number;
+    agentCommission: number;
+  }[];
+  agents: {
+    agentName: string;
+    loans: number;
+    collections: number;
+    companyCommission: number;
+    agentCommission: number;
+  }[];
+}): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'WellcashOps';
+  workbook.created = new Date();
+
+  const total = <
+    T extends {
+      loans: number;
+      collections: number;
+      companyCommission: number;
+      agentCommission: number;
+    },
+  >(
+    rows: T[],
+    key: 'loans' | 'collections' | 'companyCommission' | 'agentCommission'
+  ) => rows.reduce((sum, row) => sum + row[key], 0);
+  const summary = workbook.addWorksheet('Summary');
+  summary.columns = [
+    { header: 'Metric', key: 'metric', width: 28 },
+    { header: 'Value', key: 'value', width: 22 },
+  ];
+  summary.getRow(1).font = { bold: true };
+  summary.addRow({ metric: 'Client', value: input.clientName });
+  summary.addRow({ metric: 'Loans', value: total(input.buckets, 'loans') });
+  summary.addRow({ metric: 'Collections', value: total(input.buckets, 'collections') });
+  summary.addRow({
+    metric: 'Company commission',
+    value: total(input.buckets, 'companyCommission'),
+  });
+  summary.addRow({ metric: 'Agent commission', value: total(input.buckets, 'agentCommission') });
+
+  const bucketSheet = workbook.addWorksheet('By Bucket');
+  bucketSheet.columns = [
+    { header: 'Band', key: 'label', width: 22 },
+    { header: 'Loans', key: 'loans', width: 14 },
+    { header: `Collections (${DEPLOYMENT.currencyCode})`, key: 'collections', width: 22 },
+    {
+      header: `Company commission (${DEPLOYMENT.currencyCode})`,
+      key: 'companyCommission',
+      width: 30,
+    },
+    { header: `Agent commission (${DEPLOYMENT.currencyCode})`, key: 'agentCommission', width: 28 },
+  ];
+  bucketSheet.getRow(1).font = { bold: true };
+  input.buckets.forEach((row) => bucketSheet.addRow(row));
+  bucketSheet.addRow({
+    label: 'Total',
+    loans: total(input.buckets, 'loans'),
+    collections: total(input.buckets, 'collections'),
+    companyCommission: total(input.buckets, 'companyCommission'),
+    agentCommission: total(input.buckets, 'agentCommission'),
+  }).font = { bold: true };
+
+  const agentSheet = workbook.addWorksheet('By Agent');
+  agentSheet.columns = [
+    { header: 'Agent', key: 'agentName', width: 28 },
+    { header: 'Loans', key: 'loans', width: 14 },
+    { header: `Collections (${DEPLOYMENT.currencyCode})`, key: 'collections', width: 22 },
+    {
+      header: `Company commission (${DEPLOYMENT.currencyCode})`,
+      key: 'companyCommission',
+      width: 30,
+    },
+    { header: `Agent commission (${DEPLOYMENT.currencyCode})`, key: 'agentCommission', width: 28 },
+  ];
+  agentSheet.getRow(1).font = { bold: true };
+  input.agents.forEach((row) => agentSheet.addRow(row));
+  agentSheet.addRow({
+    agentName: 'Total',
+    loans: total(input.agents, 'loans'),
+    collections: total(input.agents, 'collections'),
+    companyCommission: total(input.agents, 'companyCommission'),
+    agentCommission: total(input.agents, 'agentCommission'),
+  }).font = { bold: true };
+
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+
 // Excel worksheet names can't contain [ ] : * ? / \ and cap out at 31 characters — and two
 // agents can share a display name (or collide after truncation), which ExcelJS rejects
 // outright as a duplicate. Sanitize once, then de-dupe by appending "(2)", "(3)", etc.
