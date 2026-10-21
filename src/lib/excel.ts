@@ -1086,7 +1086,7 @@ export async function buildReportWorkbook(input: {
   to: string;
   commentSummary: { label: string; count: number }[];
   debtorReport: { name: string; phone: string; loanRef: string; balance: number; comment: string; note: string; callDate: Date | null }[];
-  agents: { name: string; calls: number; ptps: number; recovered: number }[];
+  agents: { name: string; calls: number; ptps: number; recovered: number; openingBalance: number }[];
 }): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'WellcashOps';
@@ -1127,10 +1127,18 @@ export async function buildReportWorkbook(input: {
     { header: 'Agent', key: 'name', width: 24 },
     { header: 'Calls Logged', key: 'calls', width: 14 },
     { header: 'PTPs', key: 'ptps', width: 10 },
-    { header: `Recovered (${DEPLOYMENT.currencyCode})`, key: 'recovered', width: 18 },
+    { header: `Collections in Period (${DEPLOYMENT.currencyCode})`, key: 'recovered', width: 30 },
+    { header: `Opening Balance (${DEPLOYMENT.currencyCode})`, key: 'openingBalance', width: 22 },
+    { header: 'Recovery %', key: 'recoveryRate', width: 14 },
   ];
   agentSheet.getRow(1).font = { bold: true };
-  input.agents.forEach((row) => agentSheet.addRow(row));
+  input.agents.forEach((row) => {
+    const excelRow = agentSheet.addRow({
+      ...row,
+      recoveryRate: row.openingBalance > 0 ? row.recovered / row.openingBalance : 0,
+    });
+    excelRow.getCell('recoveryRate').numFmt = '0%';
+  });
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);

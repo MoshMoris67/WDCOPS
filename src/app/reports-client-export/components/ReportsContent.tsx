@@ -19,6 +19,7 @@ import { DEPLOYMENT } from '@/config/deployment';
 import { t , localeFor } from '@/i18n';
 
 const ReportDispositionChart = dynamic(() => import('./ReportDispositionChart'), { ssr: false });
+const ReportActivityChart = dynamic(() => import('./ReportActivityChart'), { ssr: false });
 const RecoveryRadialChart = dynamic(() => import('./RecoveryRadialChart'), { ssr: false });
 
 interface DispositionCodeOption { code: string; color: string }
@@ -29,9 +30,14 @@ interface ReportSummary {
   ptpCount: number;
   ptpAmount: number;
   recovered: number;
-  totalOwed: number;
+  openingBalance: number;
+  closingBalance: number;
   dispositions: { code: string; label: string; count: number }[];
-  agentSummary: { agentId: string; name: string; calls: number; ptps: number; recovered: number }[];
+  activityTrend: { date: string; calls: number; collected: number }[];
+  contactFunnel: { contactedDebtors: number; ptpDebtors: number };
+  promiseFollowThrough: { ptpDebtors: number; paidAfterPtpDebtors: number };
+  balanceBands: { band: string; debtors: number; balance: number }[];
+  agentSummary: { agentId: string; name: string; calls: number; ptps: number; recovered: number; openingBalance: number }[];
 }
 
 interface DebtorRow {
@@ -162,7 +168,7 @@ export default function ReportsContent() {
   }
 
   const summaryUrl = selectedClientId
-    ? `/api/reports/summary?clientId=${selectedClientId}&from=${dateFrom}&to=${dateTo}${selectedAgentId !== 'All' ? `&agentId=${selectedAgentId}` : ''}`
+    ? `/api/reports/summary?clientId=${selectedClientId}&from=${dateFrom}&to=${dateTo}${selectedAgentId !== 'All' ? `&agentId=${selectedAgentId}` : ''}&v=2`
     : null;
   const { data: summaryPayload } = useCachedQuery<{ summary: ReportSummary }>(summaryUrl);
   const data = summaryPayload?.summary ?? null;
@@ -172,9 +178,11 @@ export default function ReportsContent() {
 
   const selectedClient = clients.find((c) => c.id === selectedClientId);
   const selectedAgentName = agents.find((a) => a.id === selectedAgentId)?.name;
-  const recoveryPct = data && data.totalOwed > 0 ? Math.round((data.recovered / data.totalOwed) * 100) : 0;
+  const recoveryPct = data && data.openingBalance > 0 ? Math.round((data.recovered / data.openingBalance) * 100) : 0;
   const contactRate = data && data.totalDebtors > 0 ? Math.round((data.contacted / data.totalDebtors) * 100) : 0;
-  const ptpRate = data && data.contacted > 0 ? Math.round((data.ptpCount / data.contacted) * 100) : 0;
+  const ptpRate = data && data.contacted > 0
+    ? Math.round((data.contactFunnel.ptpDebtors / data.contacted) * 100)
+    : 0;
   const totalDispositions = data ? data.dispositions.reduce((s, d) => s + d.count, 0) : 0;
   const dispositionsWithColor = data
     ? data.dispositions.map((d) => ({ ...d, color: dispositionCodes.find((c) => c.code === d.code)?.color ?? '#94A3B8' }))
@@ -346,9 +354,9 @@ export default function ReportsContent() {
           {/* KPI summary */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              { label: 'Total Debtors', value: data.totalDebtors.toLocaleString(), icon: Users, sub: selectedAgentName ? t("{0}'s book", selectedAgentName) : t('{0} active file', selectedClient?.name ?? ''), variant: 'info' as const },
+              { label: 'Current Debtors', value: data.totalDebtors.toLocaleString(), icon: Users, sub: selectedAgentName ? t("{0}'s current book", selectedAgentName) : t('Across {0} files', selectedClient?.name ?? ''), variant: 'info' as const },
               { label: 'Contact Rate', value: `${contactRate}%`, icon: TrendingUp, sub: t('{0} of {1} contacted', data.contacted, data.totalDebtors), variant: 'positive' as const },
-              { label: 'PTP Rate', value: `${ptpRate}%`, icon: CheckCircle, sub: t('{0} PTPs · {1} committed', data.ptpCount, formatMoneyMB(data.ptpAmount)), variant: 'positive' as const },
+              { label: 'PTP Rate', value: `${ptpRate}%`, icon: CheckCircle, sub: t('{0} of {1} contacted debtors had a PTP · {2} committed', data.contactFunnel.ptpDebtors, data.contacted, formatMoneyMB(data.ptpAmount)), variant: 'positive' as const },
             ].map((kpi) => (
               <div key={`rpt-kpi-${kpi.label}`} className={`bg-card rounded-xl border shadow-card p-4 ${kpi.variant === 'positive' ? 'border-[#BBF7D0]' : 'border-[#BFDBFE]'}`}>
                 <div className="flex items-center justify-between mb-2">
@@ -359,6 +367,77 @@ export default function ReportsContent() {
                 <p className="text-xs text-muted-foreground mt-1">{kpi.sub}</p>
               </div>
             ))}
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            <section className="xl:col-span-2 bg-card rounded-xl shadow-card border border-border p-5">
+              <h2 className="text-section-header text-foreground">{t('Activity & Collections Trend')}</h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                {t('Calls use the current book; collections use accounts in the opening book.')}
+              </p>
+              <div className="mt-3">
+                <ReportActivityChart data={data.activityTrend} />
+              </div>
+            </section>
+
+            <section className="bg-card rounded-xl shadow-card border border-border p-5">
+              <h2 className="text-section-header text-foreground">{t('Contact Funnel')}</h2>
+              <p className="text-xs text-muted-foreground mt-1">{t('Unique debtors in the current book during this period.')}</p>
+              <div className="mt-5 space-y-4">
+                {[
+                  { label: 'Current debtors', value: data.totalDebtors },
+                  { label: 'Contacted', value: data.contactFunnel.contactedDebtors },
+                  { label: 'With a PTP', value: data.contactFunnel.ptpDebtors },
+                ].map((stage) => (
+                  <div key={stage.label}>
+                    <div className="flex justify-between text-xs mb-1.5">
+                      <span className="text-muted-foreground">{t(stage.label)}</span>
+                      <span className="font-tabular font-semibold text-foreground">{stage.value.toLocaleString()}</span>
+                    </div>
+                    <div className="h-2 bg-secondary rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full"
+                        style={{ width: `${data.totalDebtors > 0 ? Math.min((stage.value / data.totalDebtors) * 100, 100) : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="bg-card rounded-xl shadow-card border border-border p-5">
+              <h2 className="text-section-header text-foreground">{t('PTP Follow-through')}</h2>
+              <p className="text-xs text-muted-foreground mt-1">{t('PTP accounts with a recorded collection after the first PTP was logged.')}</p>
+              <p className="font-tabular font-bold text-3xl text-foreground mt-5">
+                {data.promiseFollowThrough.ptpDebtors > 0
+                  ? `${Math.round((data.promiseFollowThrough.paidAfterPtpDebtors / data.promiseFollowThrough.ptpDebtors) * 100)}%`
+                  : '0%'}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {t('{0} of {1} PTP accounts had a later recorded collection.', data.promiseFollowThrough.paidAfterPtpDebtors, data.promiseFollowThrough.ptpDebtors)}
+              </p>
+            </section>
+
+            <section className="xl:col-span-2 bg-card rounded-xl shadow-card border border-border p-5">
+              <h2 className="text-section-header text-foreground">{t('Current Book Balance Distribution')}</h2>
+              <p className="text-xs text-muted-foreground mt-1">{t('Current balances divided into three similarly sized groups by balance.')}</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+                {data.balanceBands.map((band) => {
+                  const maxDebtors = Math.max(...data.balanceBands.map((item) => item.debtors), 1);
+                  return (
+                    <div key={band.band} className="rounded-lg bg-secondary/40 border border-border/60 p-3">
+                      <p className="text-xs font-semibold text-muted-foreground">{t(band.band)}</p>
+                      <p className="font-tabular font-bold text-xl text-foreground mt-2">{band.debtors.toLocaleString()}</p>
+                      <p className="text-xs text-muted-foreground">{t('debtors')}</p>
+                      <div className="h-1.5 bg-secondary rounded-full overflow-hidden mt-3">
+                        <div className="h-full bg-info rounded-full" style={{ width: `${(band.debtors / maxDebtors) * 100}%` }} />
+                      </div>
+                      <p className="font-tabular font-semibold text-sm text-foreground mt-2">{formatMoneyMB(band.balance)}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-3 2xl:grid-cols-3 gap-6">
@@ -442,6 +521,9 @@ export default function ReportsContent() {
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {selectedAgentName ? t('{0} breakdown for {1} on {2} file', selectedFrequency, selectedAgentName, selectedClient?.name) : t('{0} breakdown per agent on {1} file', selectedFrequency, selectedClient?.name)}
                   </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('Recovery % uses collections from accounts in the opening book divided by their opening balance.')}
+                  </p>
                 </div>
                 <div className="px-4 pb-4 md:px-0 md:pb-0">
                   <ResponsiveList
@@ -449,7 +531,7 @@ export default function ReportsContent() {
                     keyFor={(agent) => agent.agentId}
                     renderTableHead={() => (
                       <tr className="border-b border-border bg-secondary/30">
-                        {['Agent', 'Calls Logged', 'PTPs', 'PTP Rate', 'Recovered', 'Recovery %'].map((col) => (
+                        {['Agent', 'Calls Logged', 'PTPs', 'PTP Rate', 'Collected in Period', 'Opening Balance', 'Recovery %'].map((col) => (
                           <th key={`ath-${t(col)}`} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
                             {t(col)}
                           </th>
@@ -458,8 +540,8 @@ export default function ReportsContent() {
                     )}
                     renderTableRow={(agent) => {
                       const agentPtpRate = agent.calls > 0 ? Math.round((agent.ptps / agent.calls) * 100) : 0;
-                      const agentRecoveryPct = data.totalOwed > 0
-                        ? Math.round((agent.recovered / (data.totalOwed / data.agentSummary.length)) * 100)
+                      const agentRecoveryPct = agent.openingBalance > 0
+                        ? Math.round((agent.recovered / agent.openingBalance) * 100)
                         : 0;
                       return (
                         <tr className="border-b border-border/60 hover:bg-secondary/30 transition-colors">
@@ -486,6 +568,9 @@ export default function ReportsContent() {
                             <span className="font-tabular font-semibold text-foreground">{formatMoneyMB(agent.recovered)}</span>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
+                            <span className="font-tabular text-sm text-foreground">{formatMoneyMB(agent.openingBalance)}</span>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
                             <div className="flex items-center gap-2">
                               <div className="w-16 h-1.5 bg-secondary rounded-full overflow-hidden">
                                 <div className="h-full bg-positive rounded-full" style={{ width: `${Math.min(agentRecoveryPct, 100)}%` }} />
@@ -498,8 +583,8 @@ export default function ReportsContent() {
                     }}
                     renderCard={(agent) => {
                       const agentPtpRate = agent.calls > 0 ? Math.round((agent.ptps / agent.calls) * 100) : 0;
-                      const agentRecoveryPct = data.totalOwed > 0
-                        ? Math.round((agent.recovered / (data.totalOwed / data.agentSummary.length)) * 100)
+                      const agentRecoveryPct = agent.openingBalance > 0
+                        ? Math.round((agent.recovered / agent.openingBalance) * 100)
                         : 0;
                       return (
                         <div className="bg-secondary/30 border border-border/60 rounded-lg p-3">
@@ -512,7 +597,8 @@ export default function ReportsContent() {
                           <div className="grid grid-cols-2 gap-2 text-xs">
                             <span className="text-muted-foreground">{t('Calls:')}{' '}<span className="font-tabular font-semibold text-foreground">{agent.calls}</span></span>
                             <span className="text-muted-foreground">{t('PTPs:')}{' '}<span className="font-tabular font-semibold text-positive">{agent.ptps}</span> ({agentPtpRate}%)</span>
-                            <span className="text-muted-foreground col-span-2">{t('Recovered:')}{' '}<span className="font-tabular font-semibold text-foreground">{formatMoneyMB(agent.recovered)}</span> ({agentRecoveryPct}%)</span>
+                            <span className="text-muted-foreground col-span-2">{t('Collected in Period:')}{' '}<span className="font-tabular font-semibold text-foreground">{formatMoneyMB(agent.recovered)}</span> ({agentRecoveryPct}%)</span>
+                            <span className="text-muted-foreground col-span-2">{t('Opening balance:')}{' '}<span className="font-tabular font-semibold text-foreground">{formatMoneyMB(agent.openingBalance)}</span></span>
                           </div>
                         </div>
                       );
@@ -527,13 +613,16 @@ export default function ReportsContent() {
               {/* Recovery rate radial */}
               <div className="bg-card rounded-xl shadow-card border border-border p-5">
                 <h3 className="text-section-header text-foreground mb-4">{t('Recovery Rate')}</h3>
+                <p className="text-xs text-muted-foreground -mt-2 mb-4">
+                  {t('Collections in the selected period ÷ opening balance of accounts in the book at period start.')}
+                </p>
                 <div className="flex flex-col items-center gap-4">
                   <RecoveryRadialChart percentage={recoveryPct} label={selectedClient?.name ?? ''} />
                   <div className="w-full space-y-2">
                     {[
-                      { label: 'Total Owed', value: formatMoneyMB(data.totalOwed), color: 'text-foreground' },
-                      { label: 'Recovered', value: formatMoneyMB(data.recovered), color: 'text-positive' },
-                      { label: 'Outstanding', value: formatMoneyMB(data.totalOwed - data.recovered), color: 'text-negative' },
+                      { label: 'Opening Balance', value: formatMoneyMB(data.openingBalance), color: 'text-foreground' },
+                      { label: 'Collected in Period', value: formatMoneyMB(data.recovered), color: 'text-positive' },
+                      { label: 'Closing Balance', value: formatMoneyMB(data.closingBalance), color: 'text-negative' },
                     ].map((item) => (
                       <div key={`rec-${item.label}`} className="flex items-center justify-between py-1.5 border-b border-border/60">
                         <span className="text-xs text-muted-foreground">{t(item.label)}</span>
