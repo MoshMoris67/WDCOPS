@@ -21,6 +21,8 @@ export async function GET(req: Request) {
 
     const buffer = await buildTeamCommissionWorkbook({
       clientName: commission.clientName,
+      totalLoans: commission.totalLoans,
+      assignedLoans: commission.assignedLoans,
       buckets: commission.buckets,
       agents: commission.agents,
     });

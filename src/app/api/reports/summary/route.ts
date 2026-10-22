@@ -17,9 +17,18 @@ export async function GET(req: Request) {
   }
 
   try {
-    const summary = await buildReportSummary(clientId, new Date(`${from}T00:00:00`), new Date(`${to}T23:59:59.999`), agentId);
+    const summary = await buildReportSummary(
+      clientId,
+      new Date(`${from}T00:00:00`),
+      new Date(`${to}T23:59:59.999`),
+      agentId
+    );
     return NextResponse.json({ summary });
-  } catch {
-    return NextResponse.json({ error: 'Unknown client' }, { status: 404 });
+  } catch (error) {
+    console.error('Report summary generation failed', error);
+    return NextResponse.json(
+      { error: 'Could not generate the report — try again or contact IT' },
+      { status: 500 }
+    );
   }
 }

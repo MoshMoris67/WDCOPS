@@ -22,6 +22,8 @@ export interface TeamCommissionAgentRow {
 export interface TeamCommission {
   clientId: string;
   clientName: string;
+  totalLoans: number;
+  assignedLoans: number;
   buckets: TeamCommissionBucketRow[];
   agents: TeamCommissionAgentRow[];
 }
@@ -41,16 +43,21 @@ export async function getTeamCommission(clientId: string): Promise<TeamCommissio
       paidAmount: true,
       companyCommission: true,
       agentCommission: true,
-      debtor: { select: { assignedAgentId: true } },
+      debtor: { select: { assignedAgentId: true, loanRef: true } },
     },
   });
 
   const byBucket = new Map<string, TeamCommissionBucketRow>();
   const byAgent = new Map<string, TeamCommissionAgentRow>();
+  const loanRefsByBucket = new Map<string, Set<string>>();
+  const loanRefsByAgent = new Map<string, Set<string>>();
+  const allLoanRefs = new Set<string>();
+  const assignedLoanRefs = new Set<string>();
   const agentIds = new Set<string>();
 
   for (const entry of entries) {
     const bucket = entry.bucket as CanonicalBucket;
+    allLoanRefs.add(entry.debtor.loanRef);
     const bucketRow = byBucket.get(bucket) ?? {
       bucket,
       label: BUCKET_LABELS[bucket] ?? bucket,
@@ -59,7 +66,9 @@ export async function getTeamCommission(clientId: string): Promise<TeamCommissio
       companyCommission: 0,
       agentCommission: 0,
     };
-    bucketRow.loans += 1;
+    const bucketLoanRefs = loanRefsByBucket.get(bucket) ?? new Set<string>();
+    bucketLoanRefs.add(entry.debtor.loanRef);
+    loanRefsByBucket.set(bucket, bucketLoanRefs);
     bucketRow.collections += entry.paidAmount;
     bucketRow.companyCommission += entry.companyCommission ?? 0;
     bucketRow.agentCommission += entry.agentCommission ?? 0;
@@ -68,6 +77,7 @@ export async function getTeamCommission(clientId: string): Promise<TeamCommissio
     const agentId = entry.debtor.assignedAgentId;
     if (!agentId) continue;
 
+    assignedLoanRefs.add(entry.debtor.loanRef);
     agentIds.add(agentId);
     const agentRow = byAgent.get(agentId) ?? {
       agentId,
@@ -77,7 +87,9 @@ export async function getTeamCommission(clientId: string): Promise<TeamCommissio
       companyCommission: 0,
       agentCommission: 0,
     };
-    agentRow.loans += 1;
+    const agentLoanRefs = loanRefsByAgent.get(agentId) ?? new Set<string>();
+    agentLoanRefs.add(entry.debtor.loanRef);
+    loanRefsByAgent.set(agentId, agentLoanRefs);
     agentRow.collections += entry.paidAmount;
     agentRow.companyCommission += entry.companyCommission ?? 0;
     agentRow.agentCommission += entry.agentCommission ?? 0;
@@ -93,10 +105,14 @@ export async function getTeamCommission(clientId: string): Promise<TeamCommissio
       : [];
   const nameById = new Map(users.map((user) => [user.id, user.name]));
   for (const agent of byAgent.values()) agent.agentName = nameById.get(agent.agentId) ?? 'Unknown';
+  for (const [bucket, row] of byBucket) row.loans = loanRefsByBucket.get(bucket)?.size ?? 0;
+  for (const [agentId, row] of byAgent) row.loans = loanRefsByAgent.get(agentId)?.size ?? 0;
 
   return {
     clientId,
     clientName: client.name,
+    totalLoans: allLoanRefs.size,
+    assignedLoans: assignedLoanRefs.size,
     buckets: BUCKET_ORDER.map((key) => byBucket.get(key)).filter(
       (row): row is TeamCommissionBucketRow => !!row
     ),
