@@ -195,7 +195,7 @@ export async function buildReportSummary(
         WHERE COALESCE(entry."paidDate", entry."createdAt") >= ${from}
           AND COALESCE(entry."paidDate", entry."createdAt") <= ${to}
           ${agentId ? Prisma.sql`AND owner."agentId" = ${agentId}` : Prisma.empty}
-        GROUP BY owner."agentId", u.name, date_trunc(${bucketUnit}, COALESCE(entry."paidDate", entry."createdAt"))
+        GROUP BY 1, 2, 3
         ORDER BY "bucketStart"
       `
     ),
