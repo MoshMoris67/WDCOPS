@@ -170,7 +170,11 @@ export default function ReportsContent() {
   const summaryUrl = selectedClientId
     ? `/api/reports/summary?clientId=${selectedClientId}&from=${dateFrom}&to=${dateTo}${selectedAgentId !== 'All' ? `&agentId=${selectedAgentId}` : ''}&v=2`
     : null;
-  const { data: summaryPayload } = useCachedQuery<{ summary: ReportSummary }>(summaryUrl);
+  const {
+    data: summaryPayload,
+    error: summaryError,
+    isLoading: summaryLoading,
+  } = useCachedQuery<{ summary: ReportSummary }>(summaryUrl);
   const data = summaryPayload?.summary ?? null;
   useEffect(() => {
     if (data) setLastGenerated(new Date().toLocaleString(localeFor('en-GB'), { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }));
@@ -343,11 +347,25 @@ export default function ReportsContent() {
           <div className="ml-auto">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/50 text-xs text-muted-foreground">
               <Clock size={12} />
-              <span>{lastGenerated ? t('Last generated: {0}', lastGenerated) : t('Generating…')}</span>
+              <span>
+                {lastGenerated
+                  ? t('Last generated: {0}', lastGenerated)
+                  : summaryError
+                    ? t('Report unavailable')
+                    : summaryLoading
+                      ? t('Generating…')
+                      : t('Waiting for report')}
+              </span>
             </div>
           </div>
         </div>
       </div>
+
+      {summaryError && (
+        <div role="alert" className="rounded-lg border border-negative/30 bg-negative/5 px-4 py-3 text-sm text-negative">
+          {t('The report could not be generated: {0}', summaryError)}
+        </div>
+      )}
 
       {data && (
         <>

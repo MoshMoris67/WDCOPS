@@ -1146,6 +1146,8 @@ export async function buildReportWorkbook(input: {
 
 export async function buildTeamCommissionWorkbook(input: {
   clientName: string;
+  totalLoans: number;
+  assignedLoans: number;
   buckets: {
     label: string;
     loans: number;
@@ -1179,22 +1181,26 @@ export async function buildTeamCommissionWorkbook(input: {
   const summary = workbook.addWorksheet('Summary');
   summary.columns = [
     { header: 'Metric', key: 'metric', width: 28 },
-    { header: 'Value', key: 'value', width: 22 },
+    { header: 'Value', key: 'value', width: 72 },
   ];
   summary.getRow(1).font = { bold: true };
   summary.addRow({ metric: 'Client', value: input.clientName });
-  summary.addRow({ metric: 'Loans', value: total(input.buckets, 'loans') });
+  summary.addRow({ metric: 'Distinct loans', value: input.totalLoans });
   summary.addRow({ metric: 'Collections', value: total(input.buckets, 'collections') });
   summary.addRow({
     metric: 'Company commission',
     value: total(input.buckets, 'companyCommission'),
   });
   summary.addRow({ metric: 'Agent commission', value: total(input.buckets, 'agentCommission') });
+  summary.addRow({
+    metric: 'Note',
+    value: 'Distinct loan references; agent counts use each debtor’s current assignment. Bucket counts may overlap.',
+  });
 
   const bucketSheet = workbook.addWorksheet('By Bucket');
   bucketSheet.columns = [
     { header: 'Band', key: 'label', width: 22 },
-    { header: 'Loans', key: 'loans', width: 14 },
+    { header: 'Distinct loans', key: 'loans', width: 18 },
     { header: `Collections (${DEPLOYMENT.currencyCode})`, key: 'collections', width: 22 },
     {
       header: `Company commission (${DEPLOYMENT.currencyCode})`,
@@ -1207,7 +1213,7 @@ export async function buildTeamCommissionWorkbook(input: {
   input.buckets.forEach((row) => bucketSheet.addRow(row));
   bucketSheet.addRow({
     label: 'Total',
-    loans: total(input.buckets, 'loans'),
+    loans: input.totalLoans,
     collections: total(input.buckets, 'collections'),
     companyCommission: total(input.buckets, 'companyCommission'),
     agentCommission: total(input.buckets, 'agentCommission'),
@@ -1216,7 +1222,7 @@ export async function buildTeamCommissionWorkbook(input: {
   const agentSheet = workbook.addWorksheet('By Agent');
   agentSheet.columns = [
     { header: 'Agent', key: 'agentName', width: 28 },
-    { header: 'Loans', key: 'loans', width: 14 },
+    { header: 'Distinct loans', key: 'loans', width: 18 },
     { header: `Collections (${DEPLOYMENT.currencyCode})`, key: 'collections', width: 22 },
     {
       header: `Company commission (${DEPLOYMENT.currencyCode})`,
@@ -1229,7 +1235,7 @@ export async function buildTeamCommissionWorkbook(input: {
   input.agents.forEach((row) => agentSheet.addRow(row));
   agentSheet.addRow({
     agentName: 'Total',
-    loans: total(input.agents, 'loans'),
+    loans: input.assignedLoans,
     collections: total(input.agents, 'collections'),
     companyCommission: total(input.agents, 'companyCommission'),
     agentCommission: total(input.agents, 'agentCommission'),

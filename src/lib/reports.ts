@@ -27,7 +27,13 @@ export interface ReportSummary {
   debtorReport: { name: string; phone: string; loanRef: string; balance: number; comment: string; note: string; callDate: Date | null }[];
 }
 
-export async function buildReportSummary(clientId: string, from: Date, to: Date, agentId?: string): Promise<ReportSummary> {
+export async function buildReportSummary(
+  clientId: string,
+  from: Date,
+  to: Date,
+  agentId?: string,
+  options: { includeDebtorReport?: boolean } = {}
+): Promise<ReportSummary> {
   const [client, files, dispositionCodes] = await Promise.all([
     prisma.client.findUniqueOrThrow({ where: { id: clientId } }),
     prisma.file.findMany({ where: { clientId }, select: { id: true } }),
@@ -37,11 +43,50 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date,
   const labelByCode = new Map(dispositionCodes.map((d) => [d.code, d.label]));
   const rangeDays = Math.ceil((to.getTime() - from.getTime()) / 86_400_000);
   const bucketUnit = rangeDays <= 31 ? 'day' : rangeDays <= 120 ? 'week' : 'month';
+  const includeDebtorReport = options.includeDebtorReport ?? false;
 
   // Debtor lists and call activity retain the existing current-book scope. Recovery
   // percentages use the separate opening-book snapshot so their numerator and denominator
   // describe the same accounts throughout the selected period.
   const debtorWhere = agentId ? { fileId: { in: fileIds }, assignedAgentId: agentId } : { fileId: { in: fileIds } };
+  const openingCohortCtes = Prisma.sql`
+    WITH target_debtors AS MATERIALIZED (
+      SELECT d.id, d."fileId", d."createdAt", d."assignedAgentId", d."amountOwed"
+      FROM "Debtor" d
+      WHERE d."fileId" IN (${Prisma.join(fileIds)})
+        AND d."createdAt" < ${from}
+    ),
+    past_assignment AS MATERIALIZED (
+      SELECT DISTINCT ON (a."debtorId") a."debtorId", a."agentId", a."agentName"
+      FROM "Assignment" a
+      JOIN target_debtors d ON d.id = a."debtorId"
+      WHERE a."assignedAt" < ${from}
+      ORDER BY a."debtorId", a."assignedAt" DESC, a.id DESC
+    ),
+    first_assignment AS MATERIALIZED (
+      SELECT DISTINCT ON (a."debtorId") a."debtorId", a."reassignedFromId", a."reassignedFromName"
+      FROM "Assignment" a
+      JOIN target_debtors d ON d.id = a."debtorId"
+      ORDER BY a."debtorId", a."assignedAt", a.id
+    ),
+    opening_owners AS MATERIALIZED (
+      SELECT
+        d.id AS "debtorId",
+        CASE
+          WHEN past."debtorId" IS NOT NULL THEN past."agentId"
+          WHEN first."debtorId" IS NOT NULL THEN first."reassignedFromId"
+          ELSE d."assignedAgentId"
+        END AS "agentId",
+        CASE
+          WHEN past."debtorId" IS NOT NULL THEN past."agentName"
+          WHEN first."debtorId" IS NOT NULL THEN first."reassignedFromName"
+          ELSE NULL
+        END AS "snapshotName"
+      FROM target_debtors d
+      LEFT JOIN past_assignment past ON past."debtorId" = d.id
+      LEFT JOIN first_assignment first ON first."debtorId" = d.id
+    )
+  `;
 
   const [
     debtorAgg,
@@ -49,8 +94,7 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date,
     assignedAgentsOnClient,
     debtorsForReport,
     balanceByAgent,
-    recoveredByOpeningAgent,
-    recoveredTrendRows,
+    recoveryTrendRows,
     promiseFollowThrough,
     balanceBands,
   ] = await Promise.all([
@@ -65,13 +109,25 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date,
         agentEmail: true,
         dispositionCode: true,
         promisedAmount: true,
+        debtor: {
+          select: {
+            assignedAgentId: true,
+            assignedAgent: { select: { name: true } },
+          },
+        },
       },
     }),
-    // The report table remains scoped to agents' current books for call activity.
-    prisma.debtor.findMany({
-      where: agentId ? { fileId: { in: fileIds }, assignedAgentId: agentId } : { fileId: { in: fileIds }, assignedAgentId: { not: null } },
-      select: { id: true, assignedAgentId: true, assignedAgent: { select: { name: true } } },
-    }),
+    prisma.$queryRaw<{ id: string; name: string | null }[]>(
+      Prisma.sql`
+        SELECT d."assignedAgentId" AS id, u.name
+        FROM "Debtor" d
+        LEFT JOIN "User" u ON u.id = d."assignedAgentId"
+        WHERE d."fileId" IN (${Prisma.join(fileIds)})
+          AND d."assignedAgentId" IS NOT NULL
+          ${agentId ? Prisma.sql`AND d."assignedAgentId" = ${agentId}` : Prisma.empty}
+        GROUP BY d."assignedAgentId", u.name
+      `
+    ),
     // Raw SQL, not a nested Prisma `include` — tested directly against KCB Mopesa's real
     // 47,928-debtor file first, where the Prisma-relation version (findMany with a nested
     // callLogs orderBy+take:1) reliably crashed the query engine outright ("no entry found
@@ -79,8 +135,9 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date,
     // DISTINCT ON is the "latest row per group" pattern used elsewhere in this codebase for
     // similar per-debtor aggregation, just returning full debtor fields instead of a count —
     // 0.3s for the same 47,928 rows in testing, no crash.
-    prisma.$queryRaw<{ name: string; phone: string; loanRef: string; balance: number; dispositionCode: string | null; note: string | null; callDate: Date | null }[]>(
-      Prisma.sql`
+    includeDebtorReport
+      ? prisma.$queryRaw<{ name: string; phone: string; loanRef: string; balance: number; dispositionCode: string | null; note: string | null; callDate: Date | null }[]>(
+          Prisma.sql`
         SELECT DISTINCT ON (d.id) d.name, d.phone1 AS phone, d."loanRef" AS "loanRef", d.balance,
           cl."dispositionCode" AS "dispositionCode", cl.note, cl."createdAt" AS "callDate"
         FROM "Debtor" d
@@ -89,151 +146,56 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date,
           ${agentId ? Prisma.sql`AND d."assignedAgentId" = ${agentId}` : Prisma.empty}
         ORDER BY d.id, cl."createdAt" DESC NULLS LAST
       `
-    ),
+        )
+      : Promise.resolve([]),
     prisma.$queryRaw<{ agentId: string | null; agentName: string | null; openingBalance: number; closingBalance: number }[]>(
       Prisma.sql`
-        SELECT
-          owner."agentId" AS "agentId",
-          COALESCE(u.name, MAX(owner."snapshotName")) AS "agentName",
-          SUM(COALESCE(opening."newBalance", period_start."oldBalance", d."amountOwed")) AS "openingBalance",
-          SUM(COALESCE(closing."newBalance", COALESCE(opening."newBalance", period_start."oldBalance", d."amountOwed"))) AS "closingBalance"
-        FROM "Debtor" d
-        LEFT JOIN LATERAL (
-          SELECT past."id", past."agentId", past."agentName"
-          FROM "Assignment" past
-          WHERE past."debtorId" = d.id AND past."assignedAt" < ${from}
-          ORDER BY past."assignedAt" DESC, past."id" DESC
-          LIMIT 1
-        ) past_assignment ON true
-        LEFT JOIN LATERAL (
-          SELECT first_assignment."id", first_assignment."reassignedFromId", first_assignment."reassignedFromName"
-          FROM "Assignment" first_assignment
-          WHERE first_assignment."debtorId" = d.id
-          ORDER BY first_assignment."assignedAt" ASC, first_assignment."id" ASC
-          LIMIT 1
-        ) first_assignment ON true
-        LEFT JOIN LATERAL (
-          SELECT CASE
-            WHEN past_assignment."id" IS NOT NULL THEN past_assignment."agentId"
-            WHEN first_assignment."id" IS NOT NULL THEN first_assignment."reassignedFromId"
-            ELSE d."assignedAgentId"
-          END AS "agentId",
-          CASE
-            WHEN past_assignment."id" IS NOT NULL THEN past_assignment."agentName"
-            WHEN first_assignment."id" IS NOT NULL THEN first_assignment."reassignedFromName"
-            ELSE NULL
-          END AS "snapshotName"
-        ) owner ON true
-        LEFT JOIN "User" u ON u.id = owner."agentId"
-        LEFT JOIN LATERAL (
-          SELECT entry."newBalance"
-          FROM "ReconciliationEntry" entry
-          WHERE entry."debtorId" = d.id AND COALESCE(entry."paidDate", entry."createdAt") < ${from}
-          ORDER BY COALESCE(entry."paidDate", entry."createdAt") DESC, entry."createdAt" DESC, entry.id DESC
-          LIMIT 1
-        ) opening ON true
-        LEFT JOIN LATERAL (
-          SELECT entry."oldBalance"
-          FROM "ReconciliationEntry" entry
-          WHERE entry."debtorId" = d.id
-            AND COALESCE(entry."paidDate", entry."createdAt") >= ${from}
-            AND COALESCE(entry."paidDate", entry."createdAt") <= ${to}
-          ORDER BY COALESCE(entry."paidDate", entry."createdAt") ASC, entry."createdAt" ASC, entry.id ASC
-          LIMIT 1
-        ) period_start ON true
-        LEFT JOIN LATERAL (
-          SELECT entry."newBalance"
-          FROM "ReconciliationEntry" entry
-          WHERE entry."debtorId" = d.id AND COALESCE(entry."paidDate", entry."createdAt") <= ${to}
-          ORDER BY COALESCE(entry."paidDate", entry."createdAt") DESC, entry."createdAt" DESC, entry.id DESC
-          LIMIT 1
-        ) closing ON true
-        WHERE d."fileId" IN (${Prisma.join(fileIds)})
-          AND d."createdAt" < ${from}
-          ${agentId ? Prisma.sql`AND owner."agentId" = ${agentId}` : Prisma.empty}
-        GROUP BY owner."agentId", u.name
+          ${openingCohortCtes},
+          debtor_balances AS (
+            SELECT
+              entry."debtorId",
+              (ARRAY_AGG(entry."newBalance" ORDER BY COALESCE(entry."paidDate", entry."createdAt") DESC, entry."createdAt" DESC, entry.id DESC)
+                FILTER (WHERE COALESCE(entry."paidDate", entry."createdAt") < ${from}))[1] AS opening,
+              (ARRAY_AGG(entry."oldBalance" ORDER BY COALESCE(entry."paidDate", entry."createdAt"), entry."createdAt", entry.id)
+                FILTER (WHERE COALESCE(entry."paidDate", entry."createdAt") >= ${from}
+                  AND COALESCE(entry."paidDate", entry."createdAt") <= ${to}))[1] AS period_start,
+              (ARRAY_AGG(entry."newBalance" ORDER BY COALESCE(entry."paidDate", entry."createdAt") DESC, entry."createdAt" DESC, entry.id DESC)
+                FILTER (WHERE COALESCE(entry."paidDate", entry."createdAt") <= ${to}))[1] AS closing
+            FROM "ReconciliationEntry" entry
+            JOIN target_debtors d ON d.id = entry."debtorId"
+            WHERE COALESCE(entry."paidDate", entry."createdAt") <= ${to}
+            GROUP BY entry."debtorId"
+          )
+          SELECT
+            owner."agentId" AS "agentId",
+            COALESCE(u.name, MAX(owner."snapshotName")) AS "agentName",
+            SUM(COALESCE(b.opening, b.period_start, d."amountOwed")) AS "openingBalance",
+            SUM(COALESCE(b.closing, b.opening, b.period_start, d."amountOwed")) AS "closingBalance"
+          FROM target_debtors d
+          JOIN opening_owners owner ON owner."debtorId" = d.id
+          LEFT JOIN debtor_balances b ON b."debtorId" = d.id
+          LEFT JOIN "User" u ON u.id = owner."agentId"
+          WHERE true
+            ${agentId ? Prisma.sql`AND owner."agentId" = ${agentId}` : Prisma.empty}
+          GROUP BY owner."agentId", u.name
       `
     ),
-    prisma.$queryRaw<{ agentId: string | null; agentName: string | null; recovered: number }[]>(
+    prisma.$queryRaw<{ agentId: string | null; agentName: string | null; bucketStart: Date; recovered: number }[]>(
       Prisma.sql`
+        ${openingCohortCtes}
         SELECT
           owner."agentId" AS "agentId",
           COALESCE(u.name, MAX(owner."snapshotName")) AS "agentName",
+          date_trunc(${bucketUnit}, COALESCE(entry."paidDate", entry."createdAt")) AS "bucketStart",
           SUM(entry."paidAmount") AS "recovered"
         FROM "ReconciliationEntry" entry
-        JOIN "Debtor" d ON d.id = entry."debtorId"
-        LEFT JOIN LATERAL (
-          SELECT past."id", past."agentId", past."agentName"
-          FROM "Assignment" past
-          WHERE past."debtorId" = d.id AND past."assignedAt" < ${from}
-          ORDER BY past."assignedAt" DESC, past."id" DESC
-          LIMIT 1
-        ) past_assignment ON true
-        LEFT JOIN LATERAL (
-          SELECT first_assignment."id", first_assignment."reassignedFromId", first_assignment."reassignedFromName"
-          FROM "Assignment" first_assignment
-          WHERE first_assignment."debtorId" = d.id
-          ORDER BY first_assignment."assignedAt" ASC, first_assignment."id" ASC
-          LIMIT 1
-        ) first_assignment ON true
-        LEFT JOIN LATERAL (
-          SELECT
-            CASE
-              WHEN past_assignment."id" IS NOT NULL THEN past_assignment."agentId"
-              WHEN first_assignment."id" IS NOT NULL THEN first_assignment."reassignedFromId"
-              ELSE d."assignedAgentId"
-            END AS "agentId",
-            CASE
-              WHEN past_assignment."id" IS NOT NULL THEN past_assignment."agentName"
-              WHEN first_assignment."id" IS NOT NULL THEN first_assignment."reassignedFromName"
-              ELSE NULL
-            END AS "snapshotName"
-        ) owner ON true
+        JOIN target_debtors d ON d.id = entry."debtorId"
+        JOIN opening_owners owner ON owner."debtorId" = d.id
         LEFT JOIN "User" u ON u.id = owner."agentId"
-        WHERE d."fileId" IN (${Prisma.join(fileIds)})
-          AND d."createdAt" < ${from}
-          AND COALESCE(entry."paidDate", entry."createdAt") >= ${from}
+        WHERE COALESCE(entry."paidDate", entry."createdAt") >= ${from}
           AND COALESCE(entry."paidDate", entry."createdAt") <= ${to}
           ${agentId ? Prisma.sql`AND owner."agentId" = ${agentId}` : Prisma.empty}
-        GROUP BY owner."agentId", u.name
-      `
-    ),
-    prisma.$queryRaw<{ bucketStart: Date; collected: number }[]>(
-      Prisma.sql`
-        SELECT date_trunc(${bucketUnit}, COALESCE(entry."paidDate", entry."createdAt")) AS "bucketStart",
-          SUM(entry."paidAmount") AS "collected"
-        FROM "ReconciliationEntry" entry
-        JOIN "Debtor" d ON d.id = entry."debtorId"
-        LEFT JOIN LATERAL (
-          SELECT past."id", past."agentId"
-          FROM "Assignment" past
-          WHERE past."debtorId" = d.id AND past."assignedAt" < ${from}
-          ORDER BY past."assignedAt" DESC, past."id" DESC
-          LIMIT 1
-        ) past_assignment ON true
-        LEFT JOIN LATERAL (
-          SELECT first_assignment."id", first_assignment."reassignedFromId"
-          FROM "Assignment" first_assignment
-          WHERE first_assignment."debtorId" = d.id
-          ORDER BY first_assignment."assignedAt" ASC, first_assignment."id" ASC
-          LIMIT 1
-        ) first_assignment ON true
-        WHERE d."fileId" IN (${Prisma.join(fileIds)})
-          AND d."createdAt" < ${from}
-          AND COALESCE(entry."paidDate", entry."createdAt") >= ${from}
-          AND COALESCE(entry."paidDate", entry."createdAt") <= ${to}
-          ${
-            agentId
-              ? Prisma.sql`AND (
-                  CASE
-                    WHEN past_assignment."id" IS NOT NULL THEN past_assignment."agentId"
-                    WHEN first_assignment."id" IS NOT NULL THEN first_assignment."reassignedFromId"
-                    ELSE d."assignedAgentId"
-                  END
-                ) = ${agentId}`
-              : Prisma.empty
-          }
-        GROUP BY date_trunc(${bucketUnit}, COALESCE(entry."paidDate", entry."createdAt"))
+        GROUP BY owner."agentId", u.name, date_trunc(${bucketUnit}, COALESCE(entry."paidDate", entry."createdAt"))
         ORDER BY "bucketStart"
       `
     ),
@@ -290,8 +252,7 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date,
   const totalDebtors = debtorAgg._count._all;
   const contacted = new Set(logsInRange.map((log) => log.debtorId)).size;
 
-  const agentNameByDebtorId = new Map(assignedAgentsOnClient.map((d) => [d.id, d.assignedAgent?.name ?? 'Unassigned']));
-  const agentIdByDebtorId = new Map(assignedAgentsOnClient.map((d) => [d.id, d.assignedAgentId!]));
+  const agentNameById = new Map(assignedAgentsOnClient.map((agent) => [agent.id, agent.name ?? 'Unknown']));
 
   const ptpLogs = logsInRange.filter((l) => l.dispositionCode === 'PTP');
   const ptpCount = ptpLogs.length;
@@ -325,10 +286,10 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date,
     row.calls++;
     trendByDate.set(date, row);
   }
-  for (const row of recoveredTrendRows) {
+  for (const row of recoveryTrendRows) {
     const date = bucketDate(row.bucketStart);
     const trend = trendByDate.get(date) ?? { date, calls: 0, collected: 0 };
-    trend.collected = row.collected;
+    trend.collected += row.recovered;
     trendByDate.set(date, trend);
   }
 
@@ -353,9 +314,9 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date,
 
   const recoveredByAgent = new Map<string, number>();
   const nameByHistoricalAgentId = new Map<string, string>();
-  for (const row of recoveredByOpeningAgent) {
+  for (const row of recoveryTrendRows) {
     if (!row.agentId) continue;
-    recoveredByAgent.set(row.agentId, row.recovered);
+    recoveredByAgent.set(row.agentId, (recoveredByAgent.get(row.agentId) ?? 0) + row.recovered);
     if (row.agentName) nameByHistoricalAgentId.set(row.agentId, row.agentName);
   }
 
@@ -371,10 +332,10 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date,
 
   const agentStats = new Map<string, { agentId: string; name: string; calls: number; ptps: number }>();
   for (const log of logsInRange) {
-    const currentAgentId = agentIdByDebtorId.get(log.debtorId);
+    const currentAgentId = log.debtor.assignedAgentId;
     const agentId = currentAgentId ?? log.agentId ?? `deleted:${log.agentEmail}`;
     let name = log.agentName;
-    if (currentAgentId) name = agentNameByDebtorId.get(log.debtorId) ?? name;
+    if (currentAgentId) name = log.debtor.assignedAgent?.name ?? name;
     else if (log.agentId) name = 'Unassigned';
     if (!agentStats.has(agentId)) {
       agentStats.set(agentId, { agentId, name, calls: 0, ptps: 0 });
@@ -384,9 +345,9 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date,
     if (log.dispositionCode === 'PTP') s.ptps++;
   }
   // Include agents assigned on this client's file even if they logged nothing in range.
-  for (const d of assignedAgentsOnClient) {
-    if (d.assignedAgentId && !agentStats.has(d.assignedAgentId)) {
-      agentStats.set(d.assignedAgentId, { agentId: d.assignedAgentId, name: d.assignedAgent?.name ?? 'Unassigned', calls: 0, ptps: 0 });
+  for (const agent of assignedAgentsOnClient) {
+    if (agent.id && !agentStats.has(agent.id)) {
+      agentStats.set(agent.id, { agentId: agent.id, name: agent.name ?? 'Unknown', calls: 0, ptps: 0 });
     }
   }
   for (const agent of openingByAgent.values()) {
@@ -409,7 +370,7 @@ export async function buildReportSummary(clientId: string, from: Date, to: Date,
     contacted,
     ptpCount,
     ptpAmount,
-    recovered: recoveredByOpeningAgent.reduce((sum, row) => sum + row.recovered, 0),
+    recovered: recoveryTrendRows.reduce((sum, row) => sum + row.recovered, 0),
     openingBalance,
     closingBalance,
     dispositions,
