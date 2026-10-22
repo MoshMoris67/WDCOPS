@@ -182,20 +182,29 @@ export async function buildReportSummary(
     ),
     prisma.$queryRaw<{ agentId: string | null; agentName: string | null; bucketStart: Date; recovered: number }[]>(
       Prisma.sql`
-        ${openingCohortCtes}
+        ${openingCohortCtes},
+        trend_entries AS (
+          SELECT
+            owner."agentId" AS "agentId",
+            owner."snapshotName" AS "snapshotName",
+            u.name AS "currentAgentName",
+            date_trunc(${bucketUnit}, COALESCE(entry."paidDate", entry."createdAt")) AS "bucketStart",
+            entry."paidAmount" AS "paidAmount"
+          FROM "ReconciliationEntry" entry
+          JOIN target_debtors d ON d.id = entry."debtorId"
+          JOIN opening_owners owner ON owner."debtorId" = d.id
+          LEFT JOIN "User" u ON u.id = owner."agentId"
+          WHERE COALESCE(entry."paidDate", entry."createdAt") >= ${from}
+            AND COALESCE(entry."paidDate", entry."createdAt") <= ${to}
+            ${agentId ? Prisma.sql`AND owner."agentId" = ${agentId}` : Prisma.empty}
+        )
         SELECT
-          owner."agentId" AS "agentId",
-          COALESCE(u.name, MAX(owner."snapshotName")) AS "agentName",
-          date_trunc(${bucketUnit}, COALESCE(entry."paidDate", entry."createdAt")) AS "bucketStart",
-          SUM(entry."paidAmount") AS "recovered"
-        FROM "ReconciliationEntry" entry
-        JOIN target_debtors d ON d.id = entry."debtorId"
-        JOIN opening_owners owner ON owner."debtorId" = d.id
-        LEFT JOIN "User" u ON u.id = owner."agentId"
-        WHERE COALESCE(entry."paidDate", entry."createdAt") >= ${from}
-          AND COALESCE(entry."paidDate", entry."createdAt") <= ${to}
-          ${agentId ? Prisma.sql`AND owner."agentId" = ${agentId}` : Prisma.empty}
-        GROUP BY 1, 2, 3
+          "agentId",
+          COALESCE("currentAgentName", MAX("snapshotName")) AS "agentName",
+          "bucketStart",
+          SUM("paidAmount") AS "recovered"
+        FROM trend_entries
+        GROUP BY "agentId", "currentAgentName", "bucketStart"
         ORDER BY "bucketStart"
       `
     ),
