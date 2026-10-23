@@ -65,7 +65,17 @@ export async function discardFailedLog(localId: number): Promise<void> {
   notifyQueueChanged();
 }
 
-type SyncOutcome = { ok: true } | { ok: false; retryable: boolean; message: string };
+// 'network' = request never got an answer (offline/timeout); 'server' = a 5xx; 'auth' = 401
+// (session expired); 'rejected' = a 4xx judging this record invalid.
+type FailKind = 'network' | 'server' | 'auth' | 'rejected';
+type SyncOutcome = { ok: true } | { ok: false; retryable: boolean; kind: FailKind; message: string };
+
+// A record that keeps getting a 5xx is almost certainly one the server can't process (bad
+// data), not an outage. After this many such attempts it is parked as 'failed' so it stops
+// holding up everything queued behind it.
+const MAX_SERVER_ERROR_ATTEMPTS = 5;
+// Consecutive 5xx in one pass that means the server itself is down, not one bad record.
+const MAX_CONSECUTIVE_SERVER_ERRORS = 5;
 
 /** Pushes one queued entry to the real API. Never throws — every failure mode (network,
  *  timeout, server rejection) comes back as data so the caller can decide what to do. */
@@ -96,13 +106,18 @@ async function pushEntry(entry: PendingCallLog): Promise<SyncOutcome> {
     // A 4xx means the server has judged this exact record invalid (deleted debtor, retired
     // disposition code, etc). Retrying it unchanged will never succeed, so it must not be
     // allowed to sit at the head of the queue blocking every record behind it.
-    const retryable = res.status >= 500;
+    // Exception: 401 means the *session* expired, not that the record is bad. Marking it
+    // 'failed' would quarantine the whole queue the moment the login lapses, so it stays
+    // 'pending' and the flush pauses until the agent signs in again.
     const payload = await res.json().catch(() => null);
-    return { ok: false, retryable, message: payload?.error || t('Server rejected the request ({0})', res.status) };
+    const message = payload?.error || t('Server rejected the request ({0})', res.status);
+    if (res.status === 401) return { ok: false, retryable: true, kind: 'auth', message: t('Session expired — sign in again to sync') };
+    if (res.status >= 500) return { ok: false, retryable: true, kind: 'server', message };
+    return { ok: false, retryable: false, kind: 'rejected', message };
   } catch (err) {
     // Network error, timeout, or genuinely offline — always retryable, this says nothing
     // about whether the record itself is valid.
-    return { ok: false, retryable: true, message: err instanceof Error ? err.message : t('Network error') };
+    return { ok: false, retryable: true, kind: 'network', message: err instanceof Error ? err.message : t('Network error') };
   } finally {
     clearTimeout(timeout);
   }
@@ -113,10 +128,12 @@ async function markOutcome(entry: PendingCallLog, outcome: SyncOutcome): Promise
     await db.pendingCallLogs.delete(entry.localId!);
     return;
   }
+  const attempts = (entry.attempts ?? 0) + 1;
+  const parked = !outcome.retryable || (outcome.kind === 'server' && attempts >= MAX_SERVER_ERROR_ATTEMPTS);
   await db.pendingCallLogs.update(entry.localId!, {
-    attempts: (entry.attempts ?? 0) + 1,
+    attempts,
     lastError: outcome.message,
-    status: outcome.retryable ? 'pending' : 'failed',
+    status: parked ? 'failed' : 'pending',
   });
 }
 
@@ -151,6 +168,7 @@ export async function flushQueue(): Promise<{ synced: number; failed: number }> 
   let synced = 0;
   let failed = 0;
   let consecutiveNetworkFailures = 0;
+  let consecutiveServerErrors = 0;
   try {
     const pending = await db.pendingCallLogs.where('status').equals('pending').sortBy('queuedAt');
     for (const entry of pending) {
@@ -159,12 +177,21 @@ export async function flushQueue(): Promise<{ synced: number; failed: number }> 
       if (outcome.ok) {
         synced++;
         consecutiveNetworkFailures = 0;
-      } else if (outcome.retryable) {
+        consecutiveServerErrors = 0;
+      } else if (outcome.kind === 'auth') {
+        break; // every remaining record would 401 too
+      } else if (outcome.kind === 'network') {
         consecutiveNetworkFailures++;
         if (consecutiveNetworkFailures >= 2) break;
+      } else if (outcome.kind === 'server') {
+        // Counted separately from network failures: one or two bad records at the head of
+        // the queue used to trip the "offline" early-exit and strand all ~1000 behind them.
+        consecutiveServerErrors++;
+        if (consecutiveServerErrors >= MAX_CONSECUTIVE_SERVER_ERRORS) break;
       } else {
         failed++;
         consecutiveNetworkFailures = 0;
+        consecutiveServerErrors = 0;
       }
     }
   } finally {

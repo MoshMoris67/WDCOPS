@@ -82,9 +82,9 @@ export default function AgentDashboardContent() {
           <p className="text-sm text-muted-foreground mt-1">{t('{0} — {1} Branch', todayLabel, DEPLOYMENT.branchName)}</p>
         </div>
         <div className="flex items-center gap-2">
-          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium ${isOnline ? 'sync-online' : 'sync-offline'}`}>
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium ${isOnline && pendingSync === 0 ? 'sync-online' : 'sync-offline'}`}>
             {isOnline ? <Wifi size={13} /> : <WifiOff size={13} />}
-            <span>{isOnline ? t('Synced {0}', nowLabel) : `Offline${pendingSync > 0 ? ` — ${pendingSync} pending` : ''}`}</span>
+            <span>{isOnline ? (pendingSync > 0 ? t('Online — syncing {0}…', pendingSync) : t('Synced {0}', nowLabel)) : `Offline${pendingSync > 0 ? ` — ${pendingSync} pending` : ''}`}</span>
           </div>
         </div>
       </div>
