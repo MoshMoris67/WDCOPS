@@ -1,5 +1,5 @@
 import { prisma } from './db';
-import { BUCKET_LABELS, BUCKET_ORDER, type CanonicalBucket } from './commission';
+import { BUCKET_LABELS, COMMISSION_BUCKET_ORDER, type CommissionBucket } from './commission';
 
 export interface TeamCommissionBucketRow {
   bucket: string;
@@ -56,11 +56,11 @@ export async function getTeamCommission(clientId: string): Promise<TeamCommissio
   const agentIds = new Set<string>();
 
   for (const entry of entries) {
-    const bucket = entry.bucket as CanonicalBucket;
+    const bucket = entry.bucket as CommissionBucket;
     allLoanRefs.add(entry.debtor.loanRef);
     const bucketRow = byBucket.get(bucket) ?? {
       bucket,
-      label: BUCKET_LABELS[bucket] ?? bucket,
+      label: bucket === 'FLAT' ? 'All collections' : (BUCKET_LABELS[bucket] ?? bucket),
       loans: 0,
       collections: 0,
       companyCommission: 0,
@@ -113,7 +113,7 @@ export async function getTeamCommission(clientId: string): Promise<TeamCommissio
     clientName: client.name,
     totalLoans: allLoanRefs.size,
     assignedLoans: assignedLoanRefs.size,
-    buckets: BUCKET_ORDER.map((key) => byBucket.get(key)).filter(
+    buckets: COMMISSION_BUCKET_ORDER.map((key) => byBucket.get(key)).filter(
       (row): row is TeamCommissionBucketRow => !!row
     ),
     agents: [...byAgent.values()].sort((a, b) => b.collections - a.collections),

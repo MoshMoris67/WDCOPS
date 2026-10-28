@@ -3,7 +3,7 @@ import { requireRole, isSessionPayload } from '@/lib/rbac';
 import { getTeamCommission } from '@/lib/team-commission';
 
 /**
- * Per-bucket and per-agent commission rollups for one client — the numbers behind the
+ * Per-scope and per-agent commission rollups for one client — the numbers behind the
  * "Commission — {client}" card on Team Dashboard. Only meaningful for a client with
  * CommissionRate rows configured (see lib/commission.ts); returns empty otherwise, so the
  * frontend can hide the card entirely for every other client with a single check.

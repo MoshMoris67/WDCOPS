@@ -11,7 +11,10 @@ export async function GET(req: Request) {
   const clientId = new URL(req.url).searchParams.get('clientId');
   if (!clientId) return NextResponse.json({ error: 'clientId is required' }, { status: 400 });
 
-  const rates = await prisma.commissionRate.findMany({ where: { clientId }, orderBy: { bucket: 'asc' } });
+  const rates = await prisma.commissionRate.findMany({
+    where: { clientId },
+    orderBy: { bucket: 'asc' },
+  });
   return NextResponse.json({ rates });
 }
 
@@ -25,18 +28,44 @@ export async function POST(req: Request) {
   const rate = Number(body?.rate);
 
   if (!clientId) return NextResponse.json({ error: 'clientId is required' }, { status: 400 });
-  if (!BUCKET_ORDER.includes(bucket as (typeof BUCKET_ORDER)[number])) {
-    return NextResponse.json({ error: `bucket must be one of: ${BUCKET_ORDER.join(', ')}` }, { status: 400 });
+  if (bucket !== 'FLAT' && !BUCKET_ORDER.includes(bucket as (typeof BUCKET_ORDER)[number])) {
+    return NextResponse.json(
+      { error: `bucket must be FLAT or one of: ${BUCKET_ORDER.join(', ')}` },
+      { status: 400 }
+    );
   }
   if (!Number.isFinite(rate) || rate <= 0 || rate > 1) {
-    return NextResponse.json({ error: 'rate must be a fraction between 0 and 1, e.g. 0.07 for 7%' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'rate must be a fraction between 0 and 1, e.g. 0.07 for 7%' },
+      { status: 400 }
+    );
   }
 
   const client = await prisma.client.findUnique({ where: { id: clientId } });
   if (!client) return NextResponse.json({ error: 'Unknown client' }, { status: 400 });
 
-  const existing = await prisma.commissionRate.findUnique({ where: { clientId_bucket: { clientId, bucket } } });
-  if (existing) return NextResponse.json({ error: `A rate for ${bucket} already exists for this client — edit it instead` }, { status: 409 });
+  const existing = await prisma.commissionRate.findUnique({
+    where: { clientId_bucket: { clientId, bucket } },
+  });
+  if (existing)
+    return NextResponse.json(
+      { error: `A rate for ${bucket} already exists for this client — edit it instead` },
+      { status: 409 }
+    );
+
+  const existingRates = await prisma.commissionRate.findMany({
+    where: { clientId },
+    select: { bucket: true },
+  });
+  if (
+    (bucket === 'FLAT' && existingRates.length > 0) ||
+    (bucket !== 'FLAT' && existingRates.some((existingRate) => existingRate.bucket === 'FLAT'))
+  ) {
+    return NextResponse.json(
+      { error: 'Flat and bucket-specific rates cannot be mixed for one client' },
+      { status: 409 }
+    );
+  }
 
   const created = await prisma.commissionRate.create({ data: { clientId, bucket, rate } });
   return NextResponse.json({ rate: created }, { status: 201 });

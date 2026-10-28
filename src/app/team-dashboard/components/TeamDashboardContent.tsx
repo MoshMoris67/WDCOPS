@@ -746,7 +746,7 @@ export default function TeamDashboardContent() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-border bg-secondary/30">
-                      {['Band', 'Distinct loans', 'Collections', 'Company', 'Agent (20%)'].map((col) => (
+                      {['Bucket / scope', 'Distinct loans', 'Collections', 'Company', 'Agent (20%)'].map((col) => (
                         <th key={t(col)} className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{t(col)}</th>
                       ))}
                     </tr>

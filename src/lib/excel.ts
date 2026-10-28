@@ -1194,12 +1194,12 @@ export async function buildTeamCommissionWorkbook(input: {
   summary.addRow({ metric: 'Agent commission', value: total(input.buckets, 'agentCommission') });
   summary.addRow({
     metric: 'Note',
-    value: 'Distinct loan references; agent counts use each debtor’s current assignment. Bucket counts may overlap.',
+    value: 'Distinct loan references; agent attribution uses each debtor’s current assignment. A loan may appear in multiple aging buckets.',
   });
 
   const bucketSheet = workbook.addWorksheet('By Bucket');
   bucketSheet.columns = [
-    { header: 'Band', key: 'label', width: 22 },
+    { header: 'Bucket / scope', key: 'label', width: 22 },
     { header: 'Distinct loans', key: 'loans', width: 18 },
     { header: `Collections (${DEPLOYMENT.currencyCode})`, key: 'collections', width: 22 },
     {
