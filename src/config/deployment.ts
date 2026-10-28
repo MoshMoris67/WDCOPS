@@ -43,7 +43,7 @@ interface Deployment {
   branchNote: string;
   /** Settings > Hosting card (shown instead of the standard hosting note when set). */
   hostingNote: string | null;
-  /** Settings > commission rates: which client the aging-bucket commission applies to. */
+  /** Settings > commission rates: clarifies the bucket-based example client. */
   commissionClientHint: string;
   clientNamePlaceholder: string;
 }
@@ -77,7 +77,7 @@ const UGANDA: Deployment = {
   branchNote:
     'Every record carries this branch field from day one, per the requirements doc — Uganda is the only value in use today, but the schema is ready if WellcashOps is adopted by other country branches.',
   hostingNote: null,
-  commissionClientHint: '(currently KCB Mopesa)',
+  commissionClientHint: '(KCB Mopesa uses bucket-based rates)',
   clientNamePlaceholder: 'e.g. Airtel',
 };
 
@@ -111,7 +111,7 @@ const DEMO: Deployment = {
     'Every record carries this branch field, so one WellcashOps platform can serve several country branches side by side.',
   hostingNote:
     'This demo runs on a hosted test environment and holds fictional data only. A production deployment keeps client data on a self-hosted PostgreSQL instance.',
-  commissionClientHint: '(in this demo, Savanna Bank)',
+  commissionClientHint: '(Savanna Bank is the demo bucket-based example)',
   clientNamePlaceholder: 'e.g. Northwind Microfinance',
 };
 

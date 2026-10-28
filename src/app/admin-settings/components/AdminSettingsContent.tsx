@@ -66,6 +66,7 @@ const BUCKET_OPTIONS = [
   { value: 'B120', label: 'Above 120' },
   { value: 'WO', label: 'Written off' },
 ] as const;
+const FLAT_RATE_OPTION = { value: 'FLAT', label: 'All collections (flat rate)' } as const;
 const BUCKET_LABEL_BY_KEY: Record<string, string> = Object.fromEntries(BUCKET_OPTIONS.map((b) => [b.value, b.label]));
 
 export default function AdminSettingsContent() {
@@ -82,12 +83,16 @@ export default function AdminSettingsContent() {
   const [codeModalOpen, setCodeModalOpen] = useState(false);
 
   // Commission rates are per-client (unlike disposition codes, which are global), so this
-  // needs its own client selector rather than one flat list — see lib/commission.ts for
-  // why this exists at all (KCB Mopesa's per-aging-bucket commission structure).
+  // needs its own client selector. Clients can use per-aging-bucket rates or one flat rate.
   const [rateClientId, setRateClientId] = useState('');
   const [rates, setRates] = useState<CommissionRateRow[]>([]);
   const [editingRate, setEditingRate] = useState<CommissionRateRow | null>(null);
   const [rateModalOpen, setRateModalOpen] = useState(false);
+  const availableRateOptions = rates.some((rate) => rate.bucket === 'FLAT')
+    ? []
+    : rates.length > 0
+      ? BUCKET_OPTIONS.filter((option) => !rates.some((rate) => rate.bucket === option.value))
+      : [FLAT_RATE_OPTION, ...BUCKET_OPTIONS];
 
   const clientForm = useForm<ClientForm>({ defaultValues: { name: '', reconciliationType: 'partial', reportingFrequency: 'weekly' } });
   const codeForm = useForm<CodeForm>({ defaultValues: { code: '', label: '', description: '', color: '#64748B', requiresCallback: false, requiresPtp: false } });
@@ -247,7 +252,7 @@ export default function AdminSettingsContent() {
 
   function openAddRate() {
     setEditingRate(null);
-    const nextBucket = BUCKET_OPTIONS.find((b) => !rates.some((r) => r.bucket === b.value))?.value ?? 'B30';
+    const nextBucket = availableRateOptions[0]?.value ?? 'B30';
     rateForm.reset({ bucket: nextBucket, ratePercent: '' });
     setRateModalOpen(true);
   }
@@ -448,8 +453,16 @@ export default function AdminSettingsContent() {
             </select>
             <button
               onClick={openAddRate}
-              disabled={offlineBlocked || !rateClientId || rates.length >= BUCKET_OPTIONS.length}
-              title={!rateClientId ? t('Select a client first') : rates.length >= BUCKET_OPTIONS.length ? t('Every bucket already has a rate') : offlineBlocked ? t('Offline — reconnect to add a rate') : undefined}
+              disabled={offlineBlocked || !rateClientId || availableRateOptions.length === 0}
+              title={
+                !rateClientId
+                  ? t('Select a client first')
+                  : availableRateOptions.length === 0
+                    ? t('Every commission rate is configured')
+                    : offlineBlocked
+                      ? t('Offline — reconnect to add a rate')
+                      : undefined
+              }
               className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <Plus size={14} />
@@ -458,13 +471,16 @@ export default function AdminSettingsContent() {
           </div>
         </div>
         <p className="text-xs text-muted-foreground px-5 pt-3">
-          {t('Only applies to a client whose reconciliation files carry aging buckets by sheet{0} — a client with no rates configured here is completely unaffected. A bucket left unconfigured falls back to a standard rate (4/7/9/10/10%) rather than earning nothing.', ' ' + t(DEPLOYMENT.commissionClientHint))}
+          {t(
+            'Configure one flat rate for all collections, or bucket-specific rates for clients whose reconciliation sheets represent aging bands{0}. When at least one bucket rate is configured, missing buckets use the standard rates (4/7/9/10/10%). Flat rates apply to each collected amount; the agent receives 20% of company commission. Rates apply to new reconciliations only.',
+            ' ' + t(DEPLOYMENT.commissionClientHint)
+          )}
         </p>
         <div className="overflow-x-auto scrollbar-thin">
           <table className="w-full text-table-cell">
             <thead>
               <tr className="border-b border-border bg-secondary/30">
-                {['Aging Band', 'Rate', ''].map((col) => (
+                {['Aging Band / scope', 'Rate', ''].map((col) => (
                   <th key={t(col)} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t(col)}</th>
                 ))}
               </tr>
@@ -472,7 +488,11 @@ export default function AdminSettingsContent() {
             <tbody>
               {rates.map((r) => (
                 <tr key={r.id} className="border-b border-border/60 hover:bg-secondary/30 transition-colors group">
-                  <td className="px-4 py-2.5 text-sm text-foreground">{BUCKET_LABEL_BY_KEY[r.bucket] ?? r.bucket}</td>
+                  <td className="px-4 py-2.5 text-sm text-foreground">
+                    {r.bucket === 'FLAT'
+                      ? t(FLAT_RATE_OPTION.label)
+                      : t(BUCKET_LABEL_BY_KEY[r.bucket] ?? r.bucket)}
+                  </td>
                   <td className="px-4 py-2.5 text-sm font-tabular text-foreground">{(r.rate * 100).toFixed(1)}%</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -487,7 +507,7 @@ export default function AdminSettingsContent() {
                 </tr>
               ))}
               {rateClientId && rates.length === 0 && (
-                <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-muted-foreground">{t('No commission rates set for this client — standard rates (4/7/9/10/10%) apply until you add some.')}</td></tr>
+                <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-muted-foreground">{t('No commission rates configured. Add one flat rate for all collections or bucket-specific rates.')}</td></tr>
               )}
               {!rateClientId && (
                 <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-muted-foreground">{t('Add a client first.')}</td></tr>
@@ -670,15 +690,19 @@ export default function AdminSettingsContent() {
       >
         <form id="rate-form" onSubmit={rateForm.handleSubmit(onSubmitRate)} className="space-y-4">
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-foreground">{t('Aging Band')}</label>
+            <label className="block text-sm font-medium text-foreground">{t('Commission scope')}</label>
             <select
               disabled={!!editingRate}
               className="w-full px-3 py-2.5 text-sm bg-input border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:opacity-60"
               {...rateForm.register('bucket')}
             >
-              {BUCKET_OPTIONS.map((b) => <option key={b.value} value={b.value}>{t(b.label)}</option>)}
+              {(editingRate ? [FLAT_RATE_OPTION, ...BUCKET_OPTIONS] : availableRateOptions).map((option) => (
+                <option key={option.value} value={option.value}>
+                  {t(option.label)}
+                </option>
+              ))}
             </select>
-            {editingRate && <p className="text-xs text-muted-foreground">{t('The band can\'t be changed after it\'s created — delete and re-add instead.')}</p>}
+            {editingRate && <p className="text-xs text-muted-foreground">{t('The commission scope can\'t be changed after it\'s created — delete and re-add instead.')}</p>}
           </div>
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-foreground">{t('Commission Rate (%)')}{' '}<span className="text-negative">*</span></label>

@@ -7,8 +7,10 @@
 import { prisma } from './db';
 
 export type CanonicalBucket = 'B30' | 'B60' | 'B90' | 'B120' | 'WO';
+export type CommissionBucket = CanonicalBucket | 'FLAT';
 
 export const BUCKET_ORDER: CanonicalBucket[] = ['B30', 'B60', 'B90', 'B120', 'WO'];
+export const COMMISSION_BUCKET_ORDER: CommissionBucket[] = ['FLAT', ...BUCKET_ORDER];
 
 export const BUCKET_LABELS: Record<CanonicalBucket, string> = {
   B30: '30–59',
@@ -85,7 +87,7 @@ export function canonicalizeBucket(raw: string | null | undefined): CanonicalBuc
 }
 
 export interface ClientCommissionConfig {
-  rateByBucket: Map<CanonicalBucket, number>;
+  rateByScope: Map<CommissionBucket, number>;
   agentShare: number;
 }
 
@@ -95,7 +97,8 @@ export interface ClientCommissionConfig {
  * and every caller treats null as "skip commission math, behave exactly as before this
  * feature existed." A client with SOME but not all five buckets configured gets
  * DEFAULT_RATES filled in for the rest, same as the reference dashboard's own fallback —
- * lets an admin start tracking before every bucket's rate is confirmed.
+ * lets an admin start tracking before every bucket's rate is confirmed. A FLAT row instead
+ * applies one client-wide rate to each collection, independent of any workbook sheet name.
  */
 export async function loadClientCommissionConfig(clientId: string): Promise<ClientCommissionConfig | null> {
   const [client, rates] = await Promise.all([
@@ -104,33 +107,41 @@ export async function loadClientCommissionConfig(clientId: string): Promise<Clie
   ]);
   if (!client || rates.length === 0) return null;
 
-  const rateByBucket = new Map<CanonicalBucket, number>();
-  for (const bucket of BUCKET_ORDER) rateByBucket.set(bucket, DEFAULT_RATES[bucket]);
+  const rateByScope = new Map<CommissionBucket, number>();
+  const flatRate = rates.find((rate) => rate.bucket === 'FLAT');
+  if (flatRate) {
+    rateByScope.set('FLAT', flatRate.rate);
+  } else {
+    for (const bucket of BUCKET_ORDER) rateByScope.set(bucket, DEFAULT_RATES[bucket]);
+  }
   for (const r of rates) {
     if (BUCKET_ORDER.includes(r.bucket as CanonicalBucket)) {
-      rateByBucket.set(r.bucket as CanonicalBucket, r.rate);
+      rateByScope.set(r.bucket as CanonicalBucket, r.rate);
     }
   }
 
-  return { rateByBucket, agentShare: client.agentCommissionShare };
+  return { rateByScope, agentShare: client.agentCommissionShare };
 }
 
 /** Prices one row's collected amount at its bucket's rate, and splits agent credit —
  * shared by both processReconciliationTick and processReconciliation (lib/reconciliation.ts)
  * so the two never compute this differently. Returns all-null when there's no config, no
- * bucket on the row, or the row's bucket doesn't canonicalize to anything recognized —
- * callers store these directly on ReconciliationEntry without further branching. */
+ * bucket on the row (unless the client uses a flat rate), or the row's bucket doesn't
+ * canonicalize to anything recognized — callers store these directly on ReconciliationEntry.
+ */
 export function priceRow(
   config: ClientCommissionConfig | null,
   bucketRaw: string | null,
   paidAmount: number,
   hasAssignedAgent: boolean
-): { bucket: CanonicalBucket | null; companyCommission: number | null; agentCommission: number | null } {
-  if (!config || !bucketRaw) return { bucket: null, companyCommission: null, agentCommission: null };
-  const bucket = canonicalizeBucket(bucketRaw);
+): { bucket: CommissionBucket | null; companyCommission: number | null; agentCommission: number | null } {
+  if (!config) return { bucket: null, companyCommission: null, agentCommission: null };
+  const flatRate = config.rateByScope.get('FLAT');
+  const bucket = flatRate !== undefined ? 'FLAT' : bucketRaw ? canonicalizeBucket(bucketRaw) : null;
   if (!bucket) return { bucket: null, companyCommission: null, agentCommission: null };
 
-  const rate = config.rateByBucket.get(bucket) ?? DEFAULT_RATES[bucket];
+  const rate = config.rateByScope.get(bucket) ?? (bucket === 'FLAT' ? null : DEFAULT_RATES[bucket]);
+  if (rate === null) throw new Error('Flat commission rate is missing from its client configuration');
   const companyCommission = paidAmount * rate;
   const agentCommission = hasAssignedAgent ? companyCommission * config.agentShare : null;
   return { bucket, companyCommission, agentCommission };

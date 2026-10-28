@@ -10,6 +10,7 @@ import {
 import { assignByCoverageWeight } from './distribution';
 import { agentCoverageWeights } from './coverage';
 import { applyAssignment } from './assignment';
+import { loadClientCommissionConfig, priceRow } from './commission';
 
 // One INSERT per this many rows — same reasoning as file-import.ts's BATCH_SIZE: keeps any
 // single query lightweight regardless of how many genuinely new loans showed up (worst
@@ -44,9 +45,9 @@ function dedupeKey(debtorId: string, paidDate: Date, paidAmount: number): string
  *    filters to the current calendar month and only applies a payment whose exact
  *    (debtor, paidDate, paidAmount) hasn't already been recorded as a ReconciliationEntry —
  *    otherwise every re-upload would double-count the same recoveries. Applied payments
- *    become a real Reconciliation + ReconciliationEntry (companyCommission taken directly
- *    from the source file's own column when mapped, never recomputed — trusted as-is), so
- *    existing recovery reporting picks them up with no changes needed there.
+ *    become a real Reconciliation + ReconciliationEntry. A configured flat client rate is
+ *    applied to each payment; otherwise a mapped company-commission value from the source
+ *    file is retained as-is.
  */
 export async function runFileSync(fileSyncId: string): Promise<void> {
   const sync = await prisma.fileSync.findUnique({ where: { id: fileSyncId } });
@@ -85,7 +86,7 @@ export async function runFileSync(fileSyncId: string): Promise<void> {
     }
 
     const newDebtorsCount = await syncCallingList(file.id, file.clientId, sheets[0].rows, callingListMapping);
-    const { appliedCount, skippedCount } = await syncPayments(file.id, sheets[1].rows, paymentMapping);
+    const { appliedCount, skippedCount } = await syncPayments(file.id, file.clientId, sheets[1].rows, paymentMapping);
 
     await prisma.fileSync.update({
       where: { id: fileSyncId },
@@ -170,6 +171,7 @@ async function syncCallingList(fileId: string, clientId: string, table: string[]
 
 async function syncPayments(
   fileId: string,
+  clientId: string,
   table: string[][],
   mapping: SyncPaymentMapping
 ): Promise<{ appliedCount: number; skippedCount: number }> {
@@ -177,11 +179,12 @@ async function syncPayments(
   const { start, endExclusive } = monthRange(new Date());
   const thisMonthRows = rows.filter((r) => r.paidDate >= start && r.paidDate < endExclusive);
   if (thisMonthRows.length === 0) return { appliedCount: 0, skippedCount: 0 };
+  const commissionConfig = await loadClientCommissionConfig(clientId);
 
   const loanRefs = [...new Set(thisMonthRows.map((r) => r.loanRef))];
   const debtors = await prisma.debtor.findMany({
     where: { fileId, loanRef: { in: loanRefs } },
-    select: { id: true, loanRef: true, amountOwed: true, cumulativePaid: true },
+    select: { id: true, loanRef: true, amountOwed: true, cumulativePaid: true, assignedAgentId: true },
   });
   const byLoanRef = new Map(debtors.map((d) => [d.loanRef, d]));
 
@@ -200,7 +203,7 @@ async function syncPayments(
   const debtorUpdates: ReturnType<typeof prisma.debtor.update>[] = [];
   const entryData: {
     debtorId: string; oldBalance: number; newBalance: number; paidAmount: number;
-    paidDate: Date; companyCommission: number | null;
+    paidDate: Date; bucket: string | null; companyCommission: number | null; agentCommission: number | null;
   }[] = [];
 
   for (const row of thisMonthRows) {
@@ -214,10 +217,14 @@ async function syncPayments(
     const newBalance = Math.max(0, debtor.amountOwed - newCumulativePaid);
     runningCumulativePaid.set(debtor.id, newCumulativePaid);
 
+    const priced = priceRow(commissionConfig, null, row.paidAmount, !!debtor.assignedAgentId);
     debtorUpdates.push(prisma.debtor.update({ where: { id: debtor.id }, data: { cumulativePaid: newCumulativePaid, balance: newBalance } }));
     entryData.push({
       debtorId: debtor.id, oldBalance, newBalance, paidAmount: row.paidAmount,
-      paidDate: row.paidDate, companyCommission: row.companyCommission,
+      paidDate: row.paidDate,
+      bucket: priced.bucket,
+      companyCommission: priced.bucket === 'FLAT' ? priced.companyCommission : row.companyCommission,
+      agentCommission: priced.bucket === 'FLAT' ? priced.agentCommission : null,
     });
     appliedCount++;
     recordedKeys.add(dedupeKey(debtor.id, row.paidDate, row.paidAmount));
