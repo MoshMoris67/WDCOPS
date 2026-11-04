@@ -24,7 +24,7 @@ export default function AgentView({ scope, agents, agentId, onAgent }: Props) {
 
   return (
     <div className="space-y-6">
-      <select className="h-9 rounded-md border border-border bg-card px-2 text-sm text-foreground" value={agentId} onChange={(e) => onAgent(e.target.value)}>
+      <select className="print:hidden h-9 rounded-md border border-border bg-card px-2 text-sm text-foreground" value={agentId} onChange={(e) => onAgent(e.target.value)}>
         <option value="">{t('Choose an agent…')}</option>
         {agents.map((a) => (
           <option key={a.id} value={a.id}>{a.name}</option>

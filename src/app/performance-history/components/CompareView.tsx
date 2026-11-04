@@ -43,7 +43,7 @@ export default function CompareView({ scope, agents, agentA, agentB, onA, onB }:
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 print:hidden">
         <select className={sel} value={agentA} onChange={(e) => onA(e.target.value)}>
           <option value="">{t('First agent…')}</option>
           {agents.filter((a) => a.id !== agentB).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}

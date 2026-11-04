@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { Wallet, Percent, Users, PhoneCall, Handshake, Coins } from 'lucide-react';
+import { Wallet, Percent, Users, PhoneCall, Handshake, Coins, Download, Printer } from 'lucide-react';
 import KPICard from '@/app/components/KPICard';
 import EmptyState from '@/components/ui/EmptyState';
 import { useCachedQuery } from '@/lib/use-cached-query';
@@ -46,6 +46,21 @@ export default function PerformanceHistoryContent() {
   }, [usersData, report]);
   const scope = { period, clientId, fileId };
 
+  // Export / print. Agent and Compare need their agents chosen first.
+  const nameOf = (id: string) => agentOptions.find((a) => a.id === id)?.name ?? '';
+  const exportReady = tab === 'overview' || (tab === 'agent' && !!agentId) || (tab === 'compare' && !!agentA && !!agentB && agentA !== agentB);
+  const exportParams = new URLSearchParams({ view: tab, period });
+  if (clientId) exportParams.set('clientId', clientId);
+  if (fileId) exportParams.set('fileId', fileId);
+  if (tab === 'agent') exportParams.set('agentId', agentId);
+  if (tab === 'compare') { exportParams.set('agentA', agentA); exportParams.set('agentB', agentB); }
+  const filterSummary = [
+    tab === 'agent' ? nameOf(agentId) : tab === 'compare' ? `${nameOf(agentA)} vs ${nameOf(agentB)}` : t('All agents'),
+    periodLabel(period),
+    clients.find((c) => c.id === clientId)?.name ?? t('All clients'),
+    files.find((f) => f.id === fileId)?.batchLabel ?? t('All files'),
+  ].filter(Boolean).join(' · ');
+
   const quarterOptions = useMemo(() => Array.from({ length: 8 }, (_, i) => shiftQuarter(quarterOf(thisMonth), -i)), [thisMonth]);
   const maxTrend = Math.max(1, ...(report?.trend ?? []).map((p) => p.recovered));
   const prev = report?.previousTotals;
@@ -56,14 +71,36 @@ export default function PerformanceHistoryContent() {
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6 p-4 lg:p-6">
-      <div>
-        <h1 className="text-xl font-semibold text-foreground">{t('Performance History')}</h1>
-        <p className="text-sm text-muted-foreground">
-          {t('How the team performed in any month or quarter — by client, file and agent. Saved automatically each time a client is rolled into a new month.')}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">{t('Performance History')}</h1>
+          <p className="text-sm text-muted-foreground print:hidden">
+            {t('How the team performed in any month or quarter — by client, file and agent. Saved automatically each time a client is rolled into a new month.')}
+          </p>
+          <p className="hidden text-sm text-foreground print:block">{filterSummary}</p>
+          <p className="hidden text-xs text-muted-foreground print:block">{t('Printed {0}', new Date().toLocaleString())}</p>
+        </div>
+        <div className="flex gap-2 print:hidden">
+          <a
+            href={exportReady ? `/api/performance-history/export?${exportParams.toString()}` : undefined}
+            aria-disabled={!exportReady}
+            className={`inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-sm text-foreground ${exportReady ? 'hover:bg-secondary' : 'pointer-events-none opacity-50'}`}
+          >
+            <Download size={15} />
+            {t('Excel')}
+          </a>
+          <button
+            onClick={() => window.print()}
+            disabled={!exportReady}
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-sm text-foreground hover:bg-secondary disabled:pointer-events-none disabled:opacity-50"
+          >
+            <Printer size={15} />
+            {t('Print / PDF')}
+          </button>
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 print:hidden">
         <div className="inline-flex rounded-md border border-border p-0.5">
           {(['month', 'quarter'] as const).map((k) => (
             <button
@@ -98,7 +135,7 @@ export default function PerformanceHistoryContent() {
         </select>
       </div>
 
-      <div className="inline-flex rounded-md border border-border p-0.5">
+      <div className="inline-flex rounded-md border border-border p-0.5 print:hidden">
         {([['overview', t('Overview')], ['agent', t('Agent')], ['compare', t('Compare agents')]] as const).map(([k, label]) => (
           <button
             key={k}
