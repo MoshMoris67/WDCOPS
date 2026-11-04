@@ -101,6 +101,12 @@ interface DistributionRow {
   total: number;
 }
 
+interface EvenOutPreview {
+  moveCount: number;
+  shortfall: number;
+  agents: { agentId: string; agentName: string; before: number; target: number; after: number }[];
+}
+
 interface ReassignmentBatchRow {
   id: string;
   createdAt: string;
@@ -309,6 +315,8 @@ export default function FileManagementContent() {
   const [isExportingDistribution, setIsExportingDistribution] = useState(false);
   const [rebalanceAgentId, setRebalanceAgentId] = useState('');
   const [isRebalancing, setIsRebalancing] = useState(false);
+  const [evenOutPlan, setEvenOutPlan] = useState<EvenOutPreview | null>(null);
+  const [isEvenOutBusy, setIsEvenOutBusy] = useState(false);
   const [isReassigning, setIsReassigning] = useState(false);
   const [undoingBatchId, setUndoingBatchId] = useState<string | null>(null);
   const [isMidMonth, setIsMidMonth] = useState(false);
@@ -689,6 +697,38 @@ export default function FileManagementContent() {
       toast.error('Could not reach the server — try again');
     } finally {
       setIsRebalancing(false);
+    }
+  }
+
+  useEffect(() => {
+    setEvenOutPlan(null);
+  }, [distributionFileId]);
+
+  async function runEvenOut(fileId: string, apply: boolean) {
+    setIsEvenOutBusy(true);
+    try {
+      const res = await fetch(`/api/files/${fileId}/even-out`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apply }),
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        toast.error(payload.error || t('Could not even out this file'));
+        return;
+      }
+      if (!apply) {
+        setEvenOutPlan(payload);
+        return;
+      }
+      setEvenOutPlan(null);
+      refetchFiles();
+      refetchDistribution();
+      toast.success(t('Moved {0} debtor(s) to even out the roster', payload.moveCount));
+    } catch {
+      toast.error('Could not reach the server — try again');
+    } finally {
+      setIsEvenOutBusy(false);
     }
   }
 
@@ -1477,6 +1517,53 @@ export default function FileManagementContent() {
                     >
                       <UserPlus size={15} />
                       {isRebalancing ? t('Adding…') : t('Add')}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {selectedFile.status === 'active' && distributionData.length > 1 && (
+                <div className="p-4 border-t border-border space-y-2">
+                  <p className="text-xs font-semibold text-foreground">{t('Even out the roster')}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('For when agents ended up with very different totals, e.g. after a daily sync. Moves debtors from agents above an equal share to those below — never-called accounts first, then called-but-uncollected — leaving accounts with a payment untouched.')}
+                  </p>
+                  {evenOutPlan && (
+                    <div className="rounded-lg border border-border p-3 space-y-1">
+                      {evenOutPlan.moveCount === 0 ? (
+                        <p className="text-xs text-foreground">{t('Already balanced — nothing to move.')}</p>
+                      ) : (
+                        <>
+                          {evenOutPlan.agents.map((a) => (
+                            <div key={a.agentId} className="flex items-center justify-between text-xs">
+                              <span className="truncate pr-2">{a.agentName}</span>
+                              <span className="tabular-nums text-muted-foreground">{a.before} → {a.after}</span>
+                            </div>
+                          ))}
+                          <p className="text-xs font-semibold text-foreground pt-1">{t('{0} debtor(s) will move', evenOutPlan.moveCount)}</p>
+                          {evenOutPlan.shortfall > 0 && (
+                            <p className="text-[11px] text-muted-foreground">
+                              {t('{0} account(s) above an equal share can\'t move — everything left on those agents has collections.', evenOutPlan.shortfall)}
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => runEvenOut(selectedFile.id, false)}
+                      disabled={isEvenOutBusy || offlineBlocked}
+                      className="flex-1 px-3 py-2 border border-border text-sm font-semibold rounded-lg hover:bg-muted active:scale-95 transition-all disabled:opacity-60"
+                    >
+                      {t('Preview')}
+                    </button>
+                    <button
+                      onClick={() => runEvenOut(selectedFile.id, true)}
+                      disabled={!evenOutPlan || evenOutPlan.moveCount === 0 || isEvenOutBusy || offlineBlocked}
+                      className="flex-1 px-3 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60"
+                    >
+                      {isEvenOutBusy ? t('Working…') : t('Apply')}
                     </button>
                   </div>
                 </div>
