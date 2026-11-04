@@ -416,3 +416,41 @@ model WhatsappMessage {
   @@index([debtorId])
   @@index([status])
 }
+
+// One finished (or, at capture time, closing) month of performance for one agent on one file.
+// Written by lib/performance-history.ts the moment a client is rolled into a new month —
+// BEFORE the rollover deletes the reconciliations/calls it is computed from — so management
+// can still ask "how did we do in September?" after that month's raw data is gone. Every
+// month/quarter/client/file/agent view is a sum of these rows, so no two views can disagree.
+// Deliberately no foreign keys and names are copied in: the client, file or agent may be
+// deleted later and the history must still read correctly.
+//   month     business-time-zone calendar month, "YYYY-MM"
+//   agentId   null = unassigned (or an agent whose account was since deleted; agentName
+//             still says who)
+// A payment is credited to whoever held the debtor on the day it was actually paid
+// (ReconciliationEntry.paidDate, falling back to when it was recorded) — see the Assignment
+// lookup in computeMonthRows.
+model PerformanceSnapshot {
+  id                String   @id @default(cuid())
+  month             String
+  clientId          String
+  clientName        String
+  fileId            String
+  batchLabel        String
+  agentId           String?
+  agentName         String
+  accountsAssigned  Int      @default(0)
+  bookAmount        Float    @default(0)
+  accountsPaid      Int      @default(0)
+  paymentCount      Int      @default(0)
+  recovered         Float    @default(0)
+  agentCommission   Float    @default(0)
+  companyCommission Float    @default(0)
+  callsMade         Int      @default(0)
+  promisesMade      Int      @default(0)
+  promisedAmount    Float    @default(0)
+  capturedAt        DateTime @default(now())
+
+  @@index([month, clientId])
+  @@index([clientId, fileId, month])
+}
