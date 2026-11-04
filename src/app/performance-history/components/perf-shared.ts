@@ -124,3 +124,20 @@ export interface CompareReport {
   files: CompareFileRow[];
   notes: string[];
 }
+
+export interface LeaderboardRow extends Row {
+  rank: number;
+  previousRank: number | null;
+  previous: Totals | null;
+  rateChangePoints: number | null;
+}
+export interface Leaderboard {
+  period: string;
+  kind: 'month' | 'quarter';
+  previousPeriod: string;
+  liveMonths: string[];
+  emptyMonths: string[];
+  rows: LeaderboardRow[];
+  mostImproved: LeaderboardRow | null;
+  biggestDrop: LeaderboardRow | null;
+}

@@ -4,6 +4,7 @@ import {
   buildPerformanceReport,
   buildAgentReport,
   buildCompareReport,
+  buildLeaderboard,
   type PerfTotals,
   type PerfBreakdownRow,
 } from './performance-history';
@@ -13,7 +14,7 @@ import {
 // management can't be mistaken for a different cut of the data.
 
 export interface ExportRequest {
-  view: 'overview' | 'agent' | 'compare';
+  view: 'overview' | 'agent' | 'compare' | 'leaderboard';
   period: string;
   clientId?: string;
   fileId?: string;
@@ -136,6 +137,24 @@ export async function buildPerformanceWorkbook(req: ExportRequest): Promise<{ bu
     for (const p of r.trend) trend.addRow({ month: monthLabel(p.month), rec: p.recovered, rate: p.recoveryRate, calls: p.callsMade, ptp: p.promisesMade, rank: p.rank, team: p.teamSize, live: p.live ? 'In progress' : '' });
     bold(trend);
     breakdownSheet(wb, 'Files', 'File', r.files, true);
+  } else if (req.view === 'leaderboard') {
+    const r = await buildLeaderboard(req.period, scope);
+    if (!r) return { error: 'period must look like 2026-09 or 2026-Q3', status: 400 };
+    name = `leaderboard-${req.period}`;
+    const notes = [...liveNote(r.liveMonths)];
+    if (r.mostImproved) notes.push(`Most improved: ${r.mostImproved.name} (${r.mostImproved.rateChangePoints!.toFixed(1)} points recovery rate vs ${periodLabel(r.previousPeriod)}).`);
+    if (r.biggestDrop) notes.push(`Biggest drop: ${r.biggestDrop.name} (${r.biggestDrop.rateChangePoints!.toFixed(1)} points recovery rate vs ${periodLabel(r.previousPeriod)}).`);
+    summarySheet(wb, 'Agent leaderboard', base, notes);
+    const sheet = wb.addWorksheet('Leaderboard');
+    sheet.columns = [
+      { header: 'Rank', key: 'rank', width: 8 },
+      { header: `Rank in ${periodLabel(r.previousPeriod)}`, key: 'prank', width: 18 },
+      { header: 'Agent', key: 'name', width: 30 },
+      ...METRIC_COLUMNS.map((c) => ({ header: c.header, key: c.key, width: c.width, style: c.fmt ? { numFmt: c.fmt } : {} })),
+      { header: 'Rate change (points)', key: 'delta', width: 20, style: { numFmt: '+0.0;-0.0;0.0' } },
+    ];
+    for (const row of r.rows) sheet.addRow({ rank: row.rank, prank: row.previousRank, name: row.name, ...metricCells(row), delta: row.rateChangePoints });
+    bold(sheet);
   } else if (req.view === 'compare') {
     if (!req.agentA || !req.agentB) return { error: 'Pick two different agents', status: 400 };
     const r = await buildCompareReport(req.period, req.agentA, req.agentB, scope);

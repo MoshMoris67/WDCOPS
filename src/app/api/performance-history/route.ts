@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { requireRole, isSessionPayload } from '@/lib/rbac';
-import { buildPerformanceReport, buildAgentReport, buildCompareReport, monthKey } from '@/lib/performance-history';
+import { buildPerformanceReport, buildAgentReport, buildCompareReport, buildLeaderboard, monthKey } from '@/lib/performance-history';
 
 // Admin-only. ?period=2026-09 | 2026-Q3 (default: this month), optional &clientId= and &fileId=.
 //   (default)                      overview: totals, files, agents
 //   ?view=agent&agentId=           one agent: trend, rank, files
 //   ?view=compare&agentA=&agentB=  two agents head to head
+//   ?view=leaderboard              every agent ranked, with movers vs the previous period
 export async function GET(req: Request) {
   const session = await requireRole(['admin']);
   if (!isSessionPayload(session)) return session;
@@ -21,6 +22,12 @@ export async function GET(req: Request) {
     const report = await buildAgentReport(period, agentId, scope);
     if (!report) return NextResponse.json({ error: 'No performance found for that agent and period' }, { status: 404 });
     return NextResponse.json(report);
+  }
+
+  if (view === 'leaderboard') {
+    const board = await buildLeaderboard(period, scope);
+    if (!board) return NextResponse.json({ error: 'period must look like 2026-09 or 2026-Q3' }, { status: 400 });
+    return NextResponse.json(board);
   }
 
   if (view === 'compare') {

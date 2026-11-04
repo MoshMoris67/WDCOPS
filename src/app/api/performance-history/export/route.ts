@@ -11,7 +11,8 @@ export async function GET(req: Request) {
   if (!isSessionPayload(session)) return session;
 
   const p = new URL(req.url).searchParams;
-  const view = p.get('view') === 'agent' ? 'agent' : p.get('view') === 'compare' ? 'compare' : 'overview';
+  const v = p.get('view');
+  const view = v === 'agent' || v === 'compare' || v === 'leaderboard' ? v : 'overview';
   const result = await buildPerformanceWorkbook({
     view,
     period: p.get('period') || monthKey(new Date()),

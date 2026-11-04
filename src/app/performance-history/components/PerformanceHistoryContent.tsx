@@ -12,6 +12,7 @@ import { monthKey, quarterOf, shiftQuarter } from '@/lib/performance-history-key
 import { Row, Report, FileOption, AgentOption, pct, monthLabel, shortMonth, periodLabel, change } from './perf-shared';
 import AgentView from './AgentView';
 import CompareView from './CompareView';
+import LeaderboardView from './LeaderboardView';
 
 export default function PerformanceHistoryContent() {
   const thisMonth = monthKey(new Date());
@@ -20,7 +21,7 @@ export default function PerformanceHistoryContent() {
   const [quarter, setQuarter] = useState(quarterOf(thisMonth));
   const [clientId, setClientId] = useState('');
   const [fileId, setFileId] = useState('');
-  const [tab, setTab] = useState<'overview' | 'agent' | 'compare'>('overview');
+  const [tab, setTab] = useState<'overview' | 'agent' | 'compare' | 'leaderboard'>('overview');
   const [agentId, setAgentId] = useState('');
   const [agentA, setAgentA] = useState('');
   const [agentB, setAgentB] = useState('');
@@ -48,14 +49,14 @@ export default function PerformanceHistoryContent() {
 
   // Export / print. Agent and Compare need their agents chosen first.
   const nameOf = (id: string) => agentOptions.find((a) => a.id === id)?.name ?? '';
-  const exportReady = tab === 'overview' || (tab === 'agent' && !!agentId) || (tab === 'compare' && !!agentA && !!agentB && agentA !== agentB);
+  const exportReady = tab === 'overview' || tab === 'leaderboard' || (tab === 'agent' && !!agentId) || (tab === 'compare' && !!agentA && !!agentB && agentA !== agentB);
   const exportParams = new URLSearchParams({ view: tab, period });
   if (clientId) exportParams.set('clientId', clientId);
   if (fileId) exportParams.set('fileId', fileId);
   if (tab === 'agent') exportParams.set('agentId', agentId);
   if (tab === 'compare') { exportParams.set('agentA', agentA); exportParams.set('agentB', agentB); }
   const filterSummary = [
-    tab === 'agent' ? nameOf(agentId) : tab === 'compare' ? `${nameOf(agentA)} vs ${nameOf(agentB)}` : t('All agents'),
+    tab === 'agent' ? nameOf(agentId) : tab === 'compare' ? `${nameOf(agentA)} vs ${nameOf(agentB)}` : tab === 'leaderboard' ? t('Agent leaderboard') : t('All agents'),
     periodLabel(period),
     clients.find((c) => c.id === clientId)?.name ?? t('All clients'),
     files.find((f) => f.id === fileId)?.batchLabel ?? t('All files'),
@@ -136,7 +137,7 @@ export default function PerformanceHistoryContent() {
       </div>
 
       <div className="inline-flex rounded-md border border-border p-0.5 print:hidden">
-        {([['overview', t('Overview')], ['agent', t('Agent')], ['compare', t('Compare agents')]] as const).map(([k, label]) => (
+        {([['overview', t('Overview')], ['leaderboard', t('Leaderboard')], ['agent', t('Agent')], ['compare', t('Compare agents')]] as const).map(([k, label]) => (
           <button
             key={k}
             onClick={() => setTab(k)}
@@ -147,6 +148,7 @@ export default function PerformanceHistoryContent() {
         ))}
       </div>
 
+      {tab === 'leaderboard' && <LeaderboardView scope={scope} />}
       {tab === 'agent' && <AgentView scope={scope} agents={agentOptions} agentId={agentId} onAgent={setAgentId} />}
       {tab === 'compare' && <CompareView scope={scope} agents={agentOptions} agentA={agentA} agentB={agentB} onA={setAgentA} onB={setAgentB} />}
 

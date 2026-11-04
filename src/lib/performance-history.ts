@@ -550,3 +550,63 @@ export async function buildCompareReport(period: string, agentA: string, agentB:
     notes,
   };
 }
+
+// ---- Leaderboard ----
+
+export interface LeaderboardRow extends PerfBreakdownRow {
+  /** Rank by amount recovered this period (1 = best). */
+  rank: number;
+  /** Same rank last period; null if the agent had no activity then. */
+  previousRank: number | null;
+  previous: PerfTotals | null;
+  /** Change in recovery rate, in percentage points; null unless the agent had a book in both periods. */
+  rateChangePoints: number | null;
+}
+
+export interface Leaderboard {
+  period: string;
+  kind: 'month' | 'quarter';
+  previousPeriod: string;
+  liveMonths: string[];
+  emptyMonths: string[];
+  rows: LeaderboardRow[];
+  /** Largest rise / fall in recovery rate vs the previous period (null when fewer than two agents can be compared, or nobody moved that way). */
+  mostImproved: LeaderboardRow | null;
+  biggestDrop: LeaderboardRow | null;
+}
+
+export async function buildLeaderboard(period: string, scope: { clientId?: string; fileId?: string }): Promise<Leaderboard | null> {
+  const w = await loadWindow(period, scope);
+  if (!w) return null;
+  const toAgents = (rows: PerfRow[]) => breakdown(rows, (r) => ({ id: agentKeyOf(r), name: r.agentName }));
+  const current = toAgents(mergeMonths(w.byMonth, w.periodMonths));
+  const previous = toAgents(mergeMonths(w.byMonth, w.previousMonths));
+  const prevById = new Map(previous.map((p) => [p.id, p]));
+  const prevRank = new Map(previous.map((p) => [p.id, rankOf(previous, p.id, (r) => r.recovered)]));
+
+  const rows: LeaderboardRow[] = current.map((c) => {
+    const p = prevById.get(c.id) ?? null;
+    return {
+      ...c,
+      rank: rankOf(current, c.id, (r) => r.recovered) ?? current.length,
+      previousRank: prevRank.get(c.id) ?? null,
+      previous: p,
+      rateChangePoints: c.recoveryRate !== null && p?.recoveryRate != null ? Math.round((c.recoveryRate - p.recoveryRate) * 10000) / 100 : null,
+    };
+  });
+
+  const comparable = rows.filter((r) => r.rateChangePoints !== null);
+  const best = [...comparable].sort((a, b) => b.rateChangePoints! - a.rateChangePoints!)[0];
+  const worst = [...comparable].sort((a, b) => a.rateChangePoints! - b.rateChangePoints!)[0];
+
+  return {
+    period,
+    kind: w.kind,
+    previousPeriod: w.previousPeriod,
+    liveMonths: w.periodMonths.filter((m) => w.live.has(m)),
+    emptyMonths: w.periodMonths.filter((m) => (w.byMonth.get(m) ?? []).length === 0),
+    rows,
+    mostImproved: comparable.length >= 2 && best.rateChangePoints! > 0 ? best : null,
+    biggestDrop: comparable.length >= 2 && worst.rateChangePoints! < 0 ? worst : null,
+  };
+}
