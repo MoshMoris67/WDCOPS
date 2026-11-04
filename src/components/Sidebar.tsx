@@ -66,7 +66,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
       <aside
         className={`
           fixed inset-y-0 left-0 z-50 w-60 bg-card border-r border-border
-          flex flex-col lg:hidden
+          flex flex-col lg:hidden print:hidden
           sidebar-transition
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
@@ -90,7 +90,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
       <aside
         className={`
           ${sidebarWidth} sidebar-transition shrink-0
-          hidden lg:flex flex-col
+          hidden lg:flex flex-col print:hidden
           bg-card border-r border-border
           relative z-30
         `}

@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import { prisma } from '@/lib/db';
 import { chunkedDeleteDebtors } from '@/lib/debtor-delete';
 import { DEPLOYMENT } from '@/config/deployment';
+import { captureBeforeRollover } from '@/lib/performance-history';
 
 // The business runs on a fixed-offset time zone (Kampala, UTC+3, no DST, for Uganda — see
 // config/deployment.ts), so "the start of this month" is midnight there — not midnight UTC,
@@ -146,6 +147,8 @@ export interface NewMonthResult {
  *  2. Rebases every debtor so what is outstanding now becomes the new total outstanding:
  *     amountOwed = balance, cumulativePaid = 0 (or just what this month's reconciliations
  *     already recorded, so a later delete of one of those still reverses exactly).
+ *  0. First saves each wiped month's performance (lib/performance-history.ts) so the History
+ *     page can still answer "how did we do in that month?" afterwards.
  *  3. Removes debtors at zero balance (with their calls and assignments) unless they paid
  *     in a this-month reconciliation, whose recovery they still carry.
  * Files are never deleted here — which batches to drop is the admin's call.
@@ -160,6 +163,10 @@ export async function runNewMonth(clientId: string): Promise<NewMonthResult | { 
 
   return prisma.$transaction(
     async (tx) => {
+      // Save the month's performance first — everything below destroys the data it is built
+      // from. Inside this transaction on purpose: if the snapshot fails, nothing is cleared.
+      await captureBeforeRollover(tx, clientId, cutoff);
+
       const reconIds = plan.reconciliations.map((r) => r.id);
       const entries = await tx.reconciliationEntry.deleteMany({ where: { reconciliationId: { in: reconIds } } });
       const recons = await tx.reconciliation.deleteMany({ where: { id: { in: reconIds } } });

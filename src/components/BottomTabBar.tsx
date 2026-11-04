@@ -31,7 +31,7 @@ export default function BottomTabBar({ user, onMoreClick }: BottomTabBarProps) {
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
 
   return (
-    <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-card border-t border-border flex items-stretch h-16">
+    <nav className="lg:hidden print:hidden fixed bottom-0 inset-x-0 z-40 bg-card border-t border-border flex items-stretch h-16">
       {ADMIN_TABS.map((tab) => {
         const active = isActive(tab.href);
         return (

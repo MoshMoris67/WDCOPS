@@ -74,7 +74,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   }, [pathname]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-screen overflow-hidden bg-background print:block print:h-auto print:overflow-visible">
       {/* Mobile overlay */}
       {mobileSidebarOpen && (
         <div
@@ -93,9 +93,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
       />
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden print:block print:overflow-visible">
         {/* Mobile topbar */}
-        <div className="lg:hidden flex items-center gap-3 px-4 h-14 bg-card border-b border-border shrink-0">
+        <div className="lg:hidden print:hidden flex items-center gap-3 px-4 h-14 bg-card border-b border-border shrink-0">
           <button
             onClick={() => setMobileSidebarOpen(true)}
             className="p-2 rounded-md hover:bg-secondary transition-colors"
@@ -116,7 +116,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
         </div>
 
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto scrollbar-thin pb-16 lg:pb-0">
+        <main className="flex-1 overflow-y-auto scrollbar-thin pb-16 lg:pb-0 print:overflow-visible print:pb-0">
           <CurrencyBoundary>{children}</CurrencyBoundary>
         </main>
       </div>
