@@ -8,68 +8,10 @@ import { useCachedQuery } from '@/lib/use-cached-query';
 import { useClients } from '@/lib/use-clients';
 import { formatMoney, formatMoneyM } from '@/lib/money';
 import { t } from '@/i18n';
-import { monthKey, shiftMonth, quarterOf, shiftQuarter } from '@/lib/performance-history-keys';
-
-interface Totals {
-  recovered: number;
-  bookAmount: number;
-  recoveryRate: number | null;
-  accountsAssigned: number;
-  accountsPaid: number;
-  paymentCount: number;
-  callsMade: number;
-  promisesMade: number;
-  promisedAmount: number;
-  agentCommission: number;
-  companyCommission: number;
-}
-interface Row extends Totals {
-  id: string;
-  name: string;
-  subtitle?: string;
-}
-interface MonthPoint {
-  month: string;
-  recovered: number;
-  recoveryRate: number | null;
-  live: boolean;
-}
-interface Report {
-  period: string;
-  kind: 'month' | 'quarter';
-  liveMonths: string[];
-  emptyMonths: string[];
-  totals: Totals;
-  previousPeriod: string;
-  previousTotals: Totals;
-  trend: MonthPoint[];
-  months: MonthPoint[];
-  files: Row[];
-  agents: Row[];
-}
-interface FileOption {
-  id: string;
-  clientId: string;
-  batchLabel: string;
-}
-
-const pct = (n: number | null) => (n === null ? '—' : `${(n * 100).toFixed(1)}%`);
-
-function monthLabel(key: string) {
-  const [y, m] = key.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
-}
-function shortMonth(key: string) {
-  const [y, m] = key.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(undefined, { month: 'short', timeZone: 'UTC' });
-}
-const periodLabel = (p: string) => (p.includes('-Q') ? `${p.split('-Q')[1] ? `Q${p.split('-Q')[1]}` : ''} ${p.split('-Q')[0]}` : monthLabel(p));
-
-function change(now: number, before: number): { text: string; tone: 'up' | 'down' | 'neutral' } {
-  if (before === 0) return { text: now === 0 ? '' : t('new'), tone: now === 0 ? 'neutral' : 'up' };
-  const d = ((now - before) / before) * 100;
-  return { text: `${d >= 0 ? '+' : ''}${d.toFixed(0)}%`, tone: d > 0.5 ? 'up' : d < -0.5 ? 'down' : 'neutral' };
-}
+import { monthKey, quarterOf, shiftQuarter } from '@/lib/performance-history-keys';
+import { Row, Report, FileOption, AgentOption, pct, monthLabel, shortMonth, periodLabel, change } from './perf-shared';
+import AgentView from './AgentView';
+import CompareView from './CompareView';
 
 export default function PerformanceHistoryContent() {
   const thisMonth = monthKey(new Date());
@@ -78,6 +20,10 @@ export default function PerformanceHistoryContent() {
   const [quarter, setQuarter] = useState(quarterOf(thisMonth));
   const [clientId, setClientId] = useState('');
   const [fileId, setFileId] = useState('');
+  const [tab, setTab] = useState<'overview' | 'agent' | 'compare'>('overview');
+  const [agentId, setAgentId] = useState('');
+  const [agentA, setAgentA] = useState('');
+  const [agentB, setAgentB] = useState('');
 
   const clients = useClients();
   const { data: filesData } = useCachedQuery<{ files: FileOption[] }>('/api/files');
@@ -88,6 +34,17 @@ export default function PerformanceHistoryContent() {
   if (clientId) qs.set('clientId', clientId);
   if (fileId) qs.set('fileId', fileId);
   const { data: report, isLoading, error } = useCachedQuery<Report>(`/api/performance-history?${qs.toString()}`);
+
+  // Selectable agents: every active agent, plus anyone with history in this period (e.g. an agent
+  // whose account was since deleted still shows up by the name saved with their results).
+  const { data: usersData } = useCachedQuery<{ users: { id: string; name: string; role: string }[] }>('/api/users');
+  const agentOptions: AgentOption[] = useMemo(() => {
+    const byId = new Map<string, AgentOption>();
+    for (const u of usersData?.users ?? []) if (u.role === 'agent') byId.set(u.id, { id: u.id, name: u.name });
+    for (const a of report?.agents ?? []) if (!byId.has(a.id)) byId.set(a.id, { id: a.id, name: a.name });
+    return [...byId.values()].sort((x, y) => x.name.localeCompare(y.name));
+  }, [usersData, report]);
+  const scope = { period, clientId, fileId };
 
   const quarterOptions = useMemo(() => Array.from({ length: 8 }, (_, i) => shiftQuarter(quarterOf(thisMonth), -i)), [thisMonth]);
   const maxTrend = Math.max(1, ...(report?.trend ?? []).map((p) => p.recovered));
@@ -141,10 +98,25 @@ export default function PerformanceHistoryContent() {
         </select>
       </div>
 
-      {error && !report && <p className="text-sm text-negative">{error}</p>}
-      {isLoading && !report && <p className="text-sm text-muted-foreground">{t('Loading…')}</p>}
+      <div className="inline-flex rounded-md border border-border p-0.5">
+        {([['overview', t('Overview')], ['agent', t('Agent')], ['compare', t('Compare agents')]] as const).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setTab(k)}
+            className={`rounded px-3 py-1.5 text-sm ${tab === k ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-      {report && cur && prev && (
+      {tab === 'agent' && <AgentView scope={scope} agents={agentOptions} agentId={agentId} onAgent={setAgentId} />}
+      {tab === 'compare' && <CompareView scope={scope} agents={agentOptions} agentA={agentA} agentB={agentB} onA={setAgentA} onB={setAgentB} />}
+
+      {tab === 'overview' && error && !report && <p className="text-sm text-negative">{error}</p>}
+      {tab === 'overview' && isLoading && !report && <p className="text-sm text-muted-foreground">{t('Loading…')}</p>}
+
+      {tab === 'overview' && report && cur && prev && (
         <>
           {report.liveMonths.length > 0 && (
             <p className="rounded-md border border-border bg-secondary px-3 py-2 text-sm text-muted-foreground">
