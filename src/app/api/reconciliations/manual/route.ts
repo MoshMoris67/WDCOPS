@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Enter an amount greater than zero' }, { status: 400 });
   }
 
-  const debtor = await prisma.debtor.findUnique({ where: { id: debtorId }, include: { file: true } });
+  const debtor = await prisma.debtor.findUnique({ where: { id: debtorId }, include: { file: { select: { clientId: true } } } }); // not file: true — File.rawFile is the whole upload
   if (!debtor) return NextResponse.json({ error: 'Debtor not found' }, { status: 404 });
 
   const rows: ReconciliationRow[] = [

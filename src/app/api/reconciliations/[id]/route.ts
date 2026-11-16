@@ -9,7 +9,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
   const { id } = await params;
-  const r = await prisma.reconciliation.findUnique({ where: { id }, include: { client: true, file: true } });
+  const r = await prisma.reconciliation.findUnique({
+    where: { id },
+    include: { client: true, file: { select: { batchLabel: true } } }, // not file: true — File.rawFile is the whole upload
+  });
   if (!r) return NextResponse.json({ error: 'Reconciliation not found' }, { status: 404 });
 
   const live = (await liveReconciliationStats([r])).get(r.id);

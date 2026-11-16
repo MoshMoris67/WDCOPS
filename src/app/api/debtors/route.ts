@@ -68,7 +68,11 @@ export async function GET(req: Request) {
     prisma.debtor.count({ where }),
     prisma.debtor.findMany({
       where,
-      include: { file: { include: { client: true } } },
+      // Select only the client name — never `file: { include: ... }`. That returns the whole
+      // File row, including File.rawFile (the entire upload as base64, megabytes), once per
+      // debtor row, so an agent's queue of thousands of debtors from a file that hasn't
+      // finished importing becomes thousands of copies of the upload in one response.
+      include: { file: { select: { client: { select: { name: true } } } } },
       orderBy: { createdAt: 'asc' },
       ...(mineOnly ? {} : { skip: (page - 1) * (pageSize as number), take: pageSize }),
     }),

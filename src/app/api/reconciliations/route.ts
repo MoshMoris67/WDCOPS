@@ -10,7 +10,7 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
   const reconciliations = await prisma.reconciliation.findMany({
-    include: { client: true, file: true },
+    include: { client: true, file: { select: { batchLabel: true } } }, // not file: true — File.rawFile is the whole upload
     orderBy: { receivedAt: 'desc' },
   });
 
