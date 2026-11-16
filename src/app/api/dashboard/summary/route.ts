@@ -74,7 +74,12 @@ export async function GET(req: Request) {
       const [fileAggregates, agentAggregates, files] = await Promise.all([
         getFileDebtorAggregates(myFileIds),
         getFileAgentRecoveredAggregates(myFileIds),
-        prisma.file.findMany({ where: { id: { in: myFileIds } }, include: { client: true } }),
+        // Select only what's shown — a bare include would also load File.rawFile (the whole
+        // upload, megabytes) for any file that hasn't finished importing.
+        prisma.file.findMany({
+          where: { id: { in: myFileIds } },
+          select: { id: true, batchLabel: true, client: { select: { name: true } } },
+        }),
       ]);
       const myRecoveredByFile = new Map(
         agentAggregates.filter((r) => r.agentId === agentFilter).map((r) => [r.fileId, r.recovered])
