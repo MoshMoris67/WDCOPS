@@ -9,7 +9,7 @@ async function loadDebtor(id: string) {
   return prisma.debtor.findUnique({
     where: { id },
     include: {
-      file: { include: { client: true } },
+      file: { select: { client: { select: { name: true } } } }, // not the whole File row — it carries File.rawFile (the upload, megabytes)
       assignedAgent: true,
       callLogs: { orderBy: { createdAt: 'desc' }, include: { agent: true } },
       reconciliationEntries: { where: { createdAt: { gte: sevenDaysAgo } }, take: 1 },
