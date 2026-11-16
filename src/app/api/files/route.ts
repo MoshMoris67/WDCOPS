@@ -16,8 +16,24 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
+  // Explicit select, never a bare findMany/include: File.rawFile is the entire upload as
+  // a base64 string (megabytes per file) and stays populated until an import completes.
+  // The files page polls this endpoint every 4s while any import is queued/processing,
+  // so loading whole rows re-read every pending upload from Postgres on every poll —
+  // enough to saturate CPU and push the container out of memory.
   const files = await prisma.file.findMany({
-    include: { client: true },
+    select: {
+      id: true,
+      clientId: true,
+      client: { select: { name: true } },
+      batchLabel: true,
+      receivedDate: true,
+      isMidMonthTopup: true,
+      isRecalled: true,
+      importStatus: true,
+      importError: true,
+      importWarnings: true,
+    },
     orderBy: { receivedDate: 'desc' },
   });
   const fileIds = files.map((f) => f.id);
